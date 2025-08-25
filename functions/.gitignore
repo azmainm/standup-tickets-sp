@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+functions/node_modules/
+
+# Environment variables
+.env
+functions/.env
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Output
+output/
