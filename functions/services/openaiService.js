@@ -221,7 +221,12 @@ function parseGPTResponse(gptResponse) {
       }
       
       if (structuredTasks[currentParticipant]) {
-        structuredTasks[currentParticipant][taskType].push(taskDescription);
+        // Create task object with description and default status
+        const taskObject = {
+          description: taskDescription,
+          status: 'To-do'
+        };
+        structuredTasks[currentParticipant][taskType].push(taskObject);
       }
     }
   }

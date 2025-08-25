@@ -175,14 +175,18 @@ async function testCompleteFlow() {
         if (participantTasks.Coding && participantTasks.Coding.length > 0) {
           console.log('   💻 Coding Tasks:');
           participantTasks.Coding.forEach((task, index) => {
-            console.log(`      ${index + 1}. ${task}`);
+            const taskText = typeof task === 'string' ? task : task.description;
+            const taskStatus = typeof task === 'object' ? task.status : 'To-do';
+            console.log(`      ${index + 1}. ${taskText} (${taskStatus})`);
           });
         }
         
         if (participantTasks['Non-Coding'] && participantTasks['Non-Coding'].length > 0) {
           console.log('   📝 Non-Coding Tasks:');
           participantTasks['Non-Coding'].forEach((task, index) => {
-            console.log(`      ${index + 1}. ${task}`);
+            const taskText = typeof task === 'string' ? task : task.description;
+            const taskStatus = typeof task === 'object' ? task.status : 'To-do';
+            console.log(`      ${index + 1}. ${taskText} (${taskStatus})`);
           });
         }
         

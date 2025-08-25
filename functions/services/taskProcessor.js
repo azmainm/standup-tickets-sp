@@ -204,14 +204,18 @@ function formatTasksForDisplay(tasks) {
     if (participantTasks.Coding && participantTasks.Coding.length > 0) {
       formatted += '  Coding Tasks:\n';
       participantTasks.Coding.forEach((task, index) => {
-        formatted += `    ${index + 1}. ${task}\n`;
+        const taskText = typeof task === 'string' ? task : task.description;
+        const taskStatus = typeof task === 'object' ? task.status : 'To-do';
+        formatted += `    ${index + 1}. ${taskText} (${taskStatus})\n`;
       });
     }
     
     if (participantTasks['Non-Coding'] && participantTasks['Non-Coding'].length > 0) {
       formatted += '  Non-Coding Tasks:\n';
       participantTasks['Non-Coding'].forEach((task, index) => {
-        formatted += `    ${index + 1}. ${task}\n`;
+        const taskText = typeof task === 'string' ? task : task.description;
+        const taskStatus = typeof task === 'object' ? task.status : 'To-do';
+        formatted += `    ${index + 1}. ${taskText} (${taskStatus})\n`;
       });
     }
   }

@@ -204,16 +204,41 @@ Each document in the 'sptasks' collection follows this structure:
   "_id": "ObjectId(...)",
   "timestamp": "2024-01-15T10:30:00.000Z",
   "Azmain": {
-    "Coding": ["Build a certain feature in the admin panel", "..."],
-    "Non-Coding": ["Research on XYZ", "..."]
+    "Coding": [
+      {
+        "description": "Build a certain feature in the admin panel",
+        "status": "To-do"
+      }
+    ],
+    "Non-Coding": [
+      {
+        "description": "Research on XYZ",
+        "status": "To-do"
+      }
+    ]
   },
   "Doug": {
-    "Coding": ["...", "..."],
-    "Non-Coding": ["Prepare privacy policy", "..."]
+    "Coding": [
+      {
+        "description": "Implement user authentication",
+        "status": "To-do"
+      }
+    ],
+    "Non-Coding": [
+      {
+        "description": "Prepare privacy policy",
+        "status": "To-do"
+      }
+    ]
   },
   "Shafkat": {
-    "Coding": ["Build ABC feature in CAMP", "..."],
-    "Non-Coding": ["...", "..."]
+    "Coding": [
+      {
+        "description": "Build ABC feature in CAMP",
+        "status": "To-do"
+      }
+    ],
+    "Non-Coding": []
   }
 }
 ```
