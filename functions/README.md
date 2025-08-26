@@ -193,11 +193,14 @@ functions/
 4. **Format Conversion**: Converts VTT to structured JSON
 5. **AI Processing**: Sends transcript to OpenAI GPT-4o-mini to extract tasks
 6. **Task Categorization**: AI categorizes tasks as "Coding" or "Non-Coding" by participant
-7. **Data Storage**: Stores structured task data in MongoDB collection 'sptasks'
-8. **Local Backup**: Saves transcript to local file for reference
-9. **Logging**: Comprehensive logging for monitoring and debugging
+7. **Transcript Storage**: Stores raw transcript data in MongoDB collection 'transcripts'
+8. **Task Storage**: Stores structured task data in MongoDB collection 'sptasks'
+9. **Local Backup**: Saves transcript to local file for reference
+10. **Logging**: Comprehensive logging for monitoring and debugging
 
 ### MongoDB Data Structure
+
+#### Tasks Collection ('sptasks')
 Each document in the 'sptasks' collection follows this structure:
 ```json
 {
@@ -242,6 +245,32 @@ Each document in the 'sptasks' collection follows this structure:
   }
 }
 ```
+
+#### Transcripts Collection ('transcripts')
+Each document in the 'transcripts' collection stores the raw transcript data:
+```json
+{
+  "_id": "ObjectId(...)",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "date": "2024-01-15",
+  "transcript_data": "[{\"speaker\":\"00:00:16.499\",\"startTime\":\"-->\",\"text\":\"<v Azmain Morshed>Hi, guys.</v>\"}...]",
+  "entry_count": 424,
+  "meeting_id": "MSo1MGE2NjM5NS1mMzFiLTRkZWUtYTQ1ZS1lZjQxZjM5MjBjOWI...",
+  "transcript_id": "MiMjMTUwYTY2Mzk1LWYzMWItNGRlZS1hNDVlLWVmNDFmMzkyMGM5YmJjYjU5...",
+  "source": "microsoft_teams",
+  "original_filename": "2024-01-15_dailystandup.json"
+}
+```
+
+**Fields Explanation:**
+- `timestamp`: When the transcript was stored
+- `date`: The date this transcript is for (YYYY-MM-DD format)
+- `transcript_data`: Raw transcript stored as compressed JSON string for efficiency
+- `entry_count`: Number of transcript entries
+- `meeting_id`: Microsoft Teams meeting identifier
+- `transcript_id`: Microsoft Teams transcript identifier
+- `source`: Source of the transcript (e.g., "microsoft_teams")
+- `original_filename`: Name of the local backup file
 
 ## Troubleshooting
 
@@ -325,6 +354,23 @@ const userTasks = await getTasksByParticipant('Azmain', 5);
 
 // Get tasks within date range
 const dateTasks = await getTasksByDateRange(startDate, endDate);
+```
+
+### Retrieve Transcripts from MongoDB
+```javascript
+const { getTranscripts, getLatestTranscript, getTranscriptByDate } = require('./services/mongoService');
+
+// Get latest transcript
+const latestTranscript = await getLatestTranscript();
+
+// Get transcript for specific date
+const transcript = await getTranscriptByDate('2024-01-15');
+
+// Get all transcripts (with pagination)
+const allTranscripts = await getTranscripts({}, { limit: 5 });
+
+// The transcript_data field contains the raw transcript as parsed JSON array
+console.log(transcript.transcript_data); // Array of transcript entries
 ```
 
 ### Process Transcript from File

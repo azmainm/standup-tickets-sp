@@ -8,7 +8,7 @@
  */
 
 const { processTranscriptForTasks } = require('./openaiService');
-const { storeTasks } = require('./mongoService');
+const { storeTasks, storeTranscript } = require('./mongoService');
 const { logger } = require("firebase-functions");
 
 /**
@@ -26,41 +26,49 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       timestamp: new Date().toISOString(),
     });
 
-    // Step 1: Process transcript with OpenAI to extract tasks
-    logger.info('Step 1: Processing transcript with OpenAI');
+    // Step 1: Store the raw transcript in MongoDB
+    logger.info('Step 1: Storing transcript in MongoDB');
+    const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
+
+    // Step 2: Process transcript with OpenAI to extract tasks
+    logger.info('Step 2: Processing transcript with OpenAI');
     const openaiResult = await processTranscriptForTasks(transcript);
     
     if (!openaiResult.success) {
       throw new Error('OpenAI processing failed');
     }
 
-    // Step 2: Store the processed tasks in MongoDB
-    logger.info('Step 2: Storing tasks in MongoDB', {
+    // Step 3: Store the processed tasks in MongoDB
+    logger.info('Step 3: Storing tasks in MongoDB', {
       participantCount: Object.keys(openaiResult.tasks).length,
     });
     
     const mongoResult = await storeTasks(openaiResult.tasks, {
       ...openaiResult.metadata,
       transcriptMetadata,
+      transcriptDocumentId: transcriptStorageResult.documentId,
       processingDuration: (Date.now() - startTime) / 1000,
     });
 
-    // Step 3: Prepare complete result
+    // Step 4: Prepare complete result
     const completeDuration = (Date.now() - startTime) / 1000;
     
     const result = {
       success: true,
       tasks: openaiResult.tasks,
       storage: mongoResult,
+      transcriptStorage: transcriptStorageResult,
       processing: {
         duration: completeDuration,
         steps: {
+          transcriptStorage: true,
           openaiProcessing: true,
           mongodbStorage: true,
         },
         metadata: {
           ...openaiResult.metadata,
           mongoDocumentId: mongoResult.documentId,
+          transcriptDocumentId: transcriptStorageResult.documentId,
           totalProcessingTime: `${completeDuration.toFixed(2)}s`,
         }
       },
@@ -78,6 +86,8 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       totalTasks: result.summary.totalTasks,
       duration: `${completeDuration.toFixed(2)}s`,
       mongoDocumentId: mongoResult.documentId,
+      transcriptDocumentId: transcriptStorageResult.documentId,
+      transcriptDate: transcriptStorageResult.date,
     });
 
     return result;

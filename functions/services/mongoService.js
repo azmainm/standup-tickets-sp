@@ -17,6 +17,7 @@ require('dotenv').config();
 const MONGODB_URI = process.env.MONGODB_URI;
 const DATABASE_NAME = 'standuptickets';
 const COLLECTION_NAME = 'sptasks';
+const TRANSCRIPTS_COLLECTION = 'transcripts';
 
 let client = null;
 let db = null;
@@ -90,6 +91,126 @@ async function storeTasks(tasksData, metadata = {}) {
     });
     throw new Error(`MongoDB storage failed: ${error.message}`);
   }
+}
+
+/**
+ * Store transcript data in MongoDB
+ * @param {Array} transcriptData - Raw transcript array
+ * @param {Object} metadata - Transcript metadata (meetingId, fetchedAt, etc.)
+ * @returns {Promise<Object>} MongoDB insert result with document ID
+ */
+async function storeTranscript(transcriptData, metadata = {}) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(TRANSCRIPTS_COLLECTION);
+    
+    // Get the date from metadata or use current date
+    const transcriptDate = metadata.fetchedAt ? new Date(metadata.fetchedAt) : new Date();
+    const dateString = transcriptDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    // Compress transcript data for storage efficiency
+    // Convert to compact JSON string to save space
+    const compressedTranscript = JSON.stringify(transcriptData);
+    
+    // Create document structure
+    const document = {
+      timestamp: new Date(),
+      date: dateString, // The date this transcript is for (YYYY-MM-DD)
+      transcript_data: compressedTranscript, // Stored as compressed JSON string
+      entry_count: transcriptData.length,
+      meeting_id: metadata.meetingId || null,
+      transcript_id: metadata.transcriptId || null,
+    };
+    
+    const result = await collection.insertOne(document);
+    
+    logger.info('Transcript stored successfully in MongoDB', {
+      documentId: result.insertedId,
+      date: dateString,
+      entryCount: transcriptData.length,
+      dataSize: compressedTranscript.length,
+    });
+    
+    return {
+      success: true,
+      documentId: result.insertedId,
+      date: dateString,
+      timestamp: document.timestamp,
+      entryCount: transcriptData.length,
+      dataSize: compressedTranscript.length,
+    };
+    
+  } catch (error) {
+    logger.error('Error storing transcript in MongoDB', {
+      error: error.message,
+      stack: error.stack,
+    });
+    throw new Error(`MongoDB transcript storage failed: ${error.message}`);
+  }
+}
+
+/**
+ * Retrieve transcripts from MongoDB
+ * @param {Object} query - MongoDB query object (optional)
+ * @param {Object} options - Query options like limit, sort (optional)
+ * @returns {Promise<Array>} Array of transcript documents
+ */
+async function getTranscripts(query = {}, options = {}) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(TRANSCRIPTS_COLLECTION);
+    
+    // Default options
+    const queryOptions = {
+      sort: { timestamp: -1 }, // Most recent first
+      limit: 10, // Limit to 10 transcripts by default
+      ...options
+    };
+    
+    const transcripts = await collection.find(query, queryOptions).toArray();
+    
+    // Parse transcript_data back to array for each document
+    const processedTranscripts = transcripts.map(doc => ({
+      ...doc,
+      transcript_data: JSON.parse(doc.transcript_data)
+    }));
+    
+    logger.info('Transcripts retrieved from MongoDB', {
+      documentCount: transcripts.length,
+      query: JSON.stringify(query),
+    });
+    
+    return processedTranscripts;
+    
+  } catch (error) {
+    logger.error('Error retrieving transcripts from MongoDB', {
+      error: error.message,
+      stack: error.stack,
+      query: JSON.stringify(query),
+    });
+    throw new Error(`MongoDB transcript retrieval failed: ${error.message}`);
+  }
+}
+
+/**
+ * Get transcript by date
+ * @param {string} date - Date in YYYY-MM-DD format
+ * @returns {Promise<Object|null>} Transcript document or null if not found
+ */
+async function getTranscriptByDate(date) {
+  const transcripts = await getTranscripts({ date }, { limit: 1 });
+  return transcripts.length > 0 ? transcripts[0] : null;
+}
+
+/**
+ * Get the most recent transcript
+ * @returns {Promise<Object|null>} Most recent transcript document or null if none found
+ */
+async function getLatestTranscript() {
+  const transcripts = await getTranscripts({}, { limit: 1 });
+  return transcripts.length > 0 ? transcripts[0] : null;
 }
 
 /**
@@ -237,7 +358,11 @@ async function closeMongoDB() {
 module.exports = {
   initializeMongoDB,
   storeTasks,
+  storeTranscript,
   getTasks,
+  getTranscripts,
+  getTranscriptByDate,
+  getLatestTranscript,
   getTasksByDateRange,
   getLatestTasks,
   getTasksByParticipant,

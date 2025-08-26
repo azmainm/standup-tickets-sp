@@ -148,13 +148,20 @@ async function testCompleteFlow() {
       console.log('   ✅ Complete flow successful!');
       console.log(`   ⏱️  Total duration: ${duration} seconds`);
       
+      // Show transcript storage details
+      console.log('\n   📄 Transcript Storage:');
+      console.log(`      - Document ID: ${taskResult.transcriptStorage.documentId}`);
+      console.log(`      - Date: ${taskResult.transcriptStorage.date}`);
+      console.log(`      - Entry count: ${taskResult.transcriptStorage.entryCount}`);
+      console.log(`      - Data size: ${taskResult.transcriptStorage.dataSize} characters`);
+      
       // Show OpenAI processing details
       console.log('\n   🤖 OpenAI Processing:');
       console.log(`      - Model: ${taskResult.processing.metadata.model}`);
       console.log(`      - Tokens used: ${taskResult.processing.metadata.tokensUsed}`);
       
-      // Show MongoDB storage details
-      console.log('\n   🍃 MongoDB Storage:');
+      // Show MongoDB task storage details
+      console.log('\n   🍃 MongoDB Task Storage:');
       console.log(`      - Document ID: ${taskResult.storage.documentId}`);
       console.log(`      - Timestamp: ${taskResult.storage.timestamp}`);
       
@@ -203,7 +210,9 @@ async function testCompleteFlow() {
       console.log(`   - Total tasks extracted: ${taskResult.summary.totalTasks}`);
       console.log(`   - OpenAI tokens used: ${taskResult.processing.metadata.tokensUsed}`);
       console.log(`   - Total processing time: ${taskResult.processing.metadata.totalProcessingTime}`);
-      console.log(`   - MongoDB document ID: ${taskResult.storage.documentId}`);
+      console.log(`   - MongoDB task document ID: ${taskResult.storage.documentId}`);
+      console.log(`   - MongoDB transcript document ID: ${taskResult.transcriptStorage.documentId}`);
+      console.log(`   - Transcript date: ${taskResult.transcriptStorage.date}`);
       
       // Show updated collection stats
       try {
