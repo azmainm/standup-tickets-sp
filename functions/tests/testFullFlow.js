@@ -13,6 +13,7 @@ const { getMeetingTranscript } = require('../services/getTranscript');
 const { processTranscriptToTasks } = require('../services/taskProcessor');
 const { testOpenAIConnection } = require('../services/openaiService');
 const { testMongoConnection, getCollectionStats } = require('../services/mongoService');
+const { testJiraConnection, getProjectInfo } = require('../services/jiraService');
 require('dotenv').config();
 
 async function testCompleteFlow() {
@@ -28,7 +29,11 @@ async function testCompleteFlow() {
     'AZURE_AUTHORITY',
     'DAILY_STANDUP_URL',
     'OPENAI_API_KEY',
-    'MONGODB_URI'
+    'MONGODB_URI',
+    'JIRA_URL',
+    'JIRA_EMAIL',
+    'JIRA_API_TOKEN',
+    'JIRA_PROJECT_KEY'
   ];
   
   const missingVars = [];
@@ -36,8 +41,10 @@ async function testCompleteFlow() {
     if (!process.env[envVar]) {
       missingVars.push(envVar);
     } else {
-      const displayValue = envVar.includes('SECRET') || envVar.includes('KEY') ? '[HIDDEN]' : 
-                          process.env[envVar].substring(0, 30) + '...';
+      const displayValue = envVar.includes('SECRET') || envVar.includes('KEY') || envVar.includes('TOKEN') ? '[HIDDEN]' : 
+                          process.env[envVar].length > 30 ? 
+                          process.env[envVar].substring(0, 30) + '...' :
+                          process.env[envVar];
       console.log(`✓ ${envVar}: ${displayValue}`);
     }
   }
@@ -69,6 +76,22 @@ async function testCompleteFlow() {
     process.exit(1);
   }
   console.log('   ✓ MongoDB connection successful');
+  
+  console.log('   🎫 Testing Jira connection...');
+  const jiraTest = await testJiraConnection();
+  if (!jiraTest) {
+    console.error('   ❌ Jira connection test failed');
+    process.exit(1);
+  }
+  console.log('   ✓ Jira connection successful');
+  
+  console.log('   🔍 Testing Jira project access...');
+  const projectInfo = await getProjectInfo(process.env.JIRA_PROJECT_KEY);
+  if (!projectInfo) {
+    console.error(`   ❌ Cannot access Jira project: ${process.env.JIRA_PROJECT_KEY}`);
+    process.exit(1);
+  }
+  console.log(`   ✓ Jira project access confirmed: ${projectInfo.name} (${projectInfo.key})`);
   
   // Get MongoDB collection stats
   try {
@@ -130,9 +153,9 @@ async function testCompleteFlow() {
     process.exit(1);
   }
   
-  // Step 2: Process transcript with complete flow (OpenAI + MongoDB)
+  // Step 2: Process transcript with complete flow (OpenAI + MongoDB + Jira)
   console.log('\n4. Processing transcript with complete flow...');
-  console.log('   🔄 Starting OpenAI processing and MongoDB storage...');
+  console.log('   🔄 Starting OpenAI processing, MongoDB storage, and Jira issue creation...');
   
   try {
     const startTime = Date.now();
@@ -164,6 +187,35 @@ async function testCompleteFlow() {
       console.log('\n   🍃 MongoDB Task Storage:');
       console.log(`      - Document ID: ${taskResult.storage.documentId}`);
       console.log(`      - Timestamp: ${taskResult.storage.timestamp}`);
+      
+      // Show Jira integration details
+      console.log('\n   🎫 Jira Integration:');
+      if (taskResult.jira) {
+        console.log(`      - Success: ${taskResult.jira.success}`);
+        console.log(`      - Coding tasks: ${taskResult.jira.totalCodingTasks}`);
+        console.log(`      - Issues created: ${taskResult.jira.createdIssues?.length || 0}`);
+        console.log(`      - Issues failed: ${taskResult.jira.failedIssues?.length || 0}`);
+        console.log(`      - Processing time: ${taskResult.processing.metadata.jiraProcessingTime}`);
+        
+        if (taskResult.jira.createdIssues && taskResult.jira.createdIssues.length > 0) {
+          console.log('\n      📋 Created Jira Issues:');
+          taskResult.jira.createdIssues.forEach((issue, index) => {
+            console.log(`         ${index + 1}. ${issue.issueKey}: "${issue.title}"`);
+            console.log(`            - Participant: ${issue.participant}`);
+            console.log(`            - URL: ${issue.issueUrl}`);
+          });
+        }
+        
+        if (taskResult.jira.failedIssues && taskResult.jira.failedIssues.length > 0) {
+          console.log('\n      ❌ Failed Jira Issues:');
+          taskResult.jira.failedIssues.forEach((issue, index) => {
+            console.log(`         ${index + 1}. Error: ${issue.error}`);
+            console.log(`            - Participant: ${issue.participant}`);
+          });
+        }
+      } else {
+        console.log(`      - Status: Not executed (may have been skipped due to errors)`);
+      }
       
       // Show task summary
       console.log('\n   📋 Task Summary:');
@@ -208,11 +260,16 @@ async function testCompleteFlow() {
       console.log(`   - Transcript entries processed: ${transcriptResult.metadata.entryCount}`);
       console.log(`   - Participants identified: ${taskResult.summary.participantCount}`);
       console.log(`   - Total tasks extracted: ${taskResult.summary.totalTasks}`);
+      console.log(`   - Coding tasks identified: ${taskResult.summary.totalCodingTasks}`);
+      console.log(`   - Jira issues created: ${taskResult.summary.jiraIssuesCreated}`);
+      console.log(`   - Jira issues failed: ${taskResult.summary.jiraIssuesFailed}`);
       console.log(`   - OpenAI tokens used: ${taskResult.processing.metadata.tokensUsed}`);
       console.log(`   - Total processing time: ${taskResult.processing.metadata.totalProcessingTime}`);
+      console.log(`   - Jira processing time: ${taskResult.processing.metadata.jiraProcessingTime}`);
       console.log(`   - MongoDB task document ID: ${taskResult.storage.documentId}`);
       console.log(`   - MongoDB transcript document ID: ${taskResult.transcriptStorage.documentId}`);
       console.log(`   - Transcript date: ${taskResult.transcriptStorage.date}`);
+      console.log(`   - Jira integration success: ${taskResult.processing.steps.jiraIssueCreation}`);
       
       // Show updated collection stats
       try {
@@ -238,8 +295,9 @@ async function testCompleteFlow() {
     console.log('\nTroubleshooting tips:');
     console.log('   1. Check OpenAI API key and credits');
     console.log('   2. Verify MongoDB connection and permissions');
-    console.log('   3. Check if transcript format is valid');
-    console.log('   4. Review service logs for detailed error information');
+    console.log('   3. Check Jira connection and project permissions');
+    console.log('   4. Check if transcript format is valid');
+    console.log('   5. Review service logs for detailed error information');
     
     process.exit(1);
   }
@@ -249,8 +307,10 @@ async function testCompleteFlow() {
   console.log('='.repeat(80));
   console.log('\nNext steps:');
   console.log('- Check MongoDB to verify data was stored correctly');
+  console.log('- Check Jira project for created issues');
   console.log('- Review the transcript file in the output directory');
   console.log('- Test the Firebase Functions deployment');
+  console.log('- Run individual Jira tests: node tests/testJiraIntegration.js');
 }
 
 // Handle unhandled promise rejections

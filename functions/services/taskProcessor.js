@@ -9,6 +9,7 @@
 
 const { processTranscriptForTasks } = require('./openaiService');
 const { storeTasks, storeTranscript } = require('./mongoService');
+const { createJiraIssuesForCodingTasks } = require('./jiraService');
 const { logger } = require("firebase-functions");
 
 /**
@@ -50,7 +51,44 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       processingDuration: (Date.now() - startTime) / 1000,
     });
 
-    // Step 4: Prepare complete result
+    // Step 4: Create Jira issues for coding tasks
+    logger.info('Step 4: Creating Jira issues for coding tasks');
+    let jiraResult = null;
+    
+    try {
+      jiraResult = await createJiraIssuesForCodingTasks(openaiResult.tasks);
+      
+      if (jiraResult.success) {
+        logger.info('Jira issues created successfully', {
+          totalCodingTasks: jiraResult.totalCodingTasks,
+          successfulIssues: jiraResult.createdIssues.length,
+          failedIssues: jiraResult.failedIssues.length,
+        });
+      } else {
+        logger.warn('Some Jira issues failed to create', {
+          totalCodingTasks: jiraResult.totalCodingTasks,
+          successfulIssues: jiraResult.createdIssues.length,
+          failedIssues: jiraResult.failedIssues.length,
+        });
+      }
+    } catch (jiraError) {
+      logger.error('Jira issue creation failed', {
+        error: jiraError.message,
+        stack: jiraError.stack,
+      });
+      
+      // Create a failed result object
+      jiraResult = {
+        success: false,
+        error: jiraError.message,
+        totalCodingTasks: 0,
+        createdIssues: [],
+        failedIssues: [],
+        participants: [],
+      };
+    }
+
+    // Step 5: Prepare complete result
     const completeDuration = (Date.now() - startTime) / 1000;
     
     const result = {
@@ -58,18 +96,21 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       tasks: openaiResult.tasks,
       storage: mongoResult,
       transcriptStorage: transcriptStorageResult,
+      jira: jiraResult,
       processing: {
         duration: completeDuration,
         steps: {
           transcriptStorage: true,
           openaiProcessing: true,
           mongodbStorage: true,
+          jiraIssueCreation: jiraResult?.success || false,
         },
         metadata: {
           ...openaiResult.metadata,
           mongoDocumentId: mongoResult.documentId,
           transcriptDocumentId: transcriptStorageResult.documentId,
           totalProcessingTime: `${completeDuration.toFixed(2)}s`,
+          jiraProcessingTime: jiraResult?.processingTime || '0s',
         }
       },
       summary: {
@@ -77,6 +118,9 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
         totalTasks: Object.values(openaiResult.tasks).reduce((total, participant) => 
           total + (participant.Coding?.length || 0) + (participant['Non-Coding']?.length || 0), 0
         ),
+        totalCodingTasks: jiraResult?.totalCodingTasks || 0,
+        jiraIssuesCreated: jiraResult?.createdIssues?.length || 0,
+        jiraIssuesFailed: jiraResult?.failedIssues?.length || 0,
         processedAt: new Date().toISOString(),
       }
     };
@@ -84,10 +128,15 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
     logger.info('Task processing completed successfully', {
       participantCount: result.summary.participantCount,
       totalTasks: result.summary.totalTasks,
+      totalCodingTasks: result.summary.totalCodingTasks,
+      jiraIssuesCreated: result.summary.jiraIssuesCreated,
+      jiraIssuesFailed: result.summary.jiraIssuesFailed,
       duration: `${completeDuration.toFixed(2)}s`,
+      jiraProcessingTime: result.processing.metadata.jiraProcessingTime,
       mongoDocumentId: mongoResult.documentId,
       transcriptDocumentId: transcriptStorageResult.documentId,
       transcriptDate: transcriptStorageResult.date,
+      jiraIntegrationSuccess: jiraResult?.success || false,
     });
 
     return result;
