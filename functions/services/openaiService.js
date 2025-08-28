@@ -145,9 +145,13 @@ function createTaskExtractionPrompt(transcriptText) {
 Please analyze the following meeting transcript and extract ONLY actual actionable tasks for each participant. Our system uses unique task IDs in the format SP-{number} (e.g., SP-25, SP-30, SP-32) to track tasks.
 
 **CRITICAL - Task ID Detection:**
-1. **EXISTING TASK UPDATES**: If a participant mentions a task ID like "SP-25", "Task SP-30", or "SP-32 -", they are referring to an EXISTING task
+1. **EXISTING TASK UPDATES**: If a participant mentions a task ID like "SP-25", "Task SP-30", "SP-32 -", "SP32", "SP 25", etc., they are referring to an EXISTING task
 2. **NEW TASKS**: If NO task ID is mentioned when discussing a task, it's a NEW task that needs to be created
-3. **Task ID Formats to Look For**: "SP-XX", "Task SP-XX", "SP-XX -", where XX is any number
+3. **Task ID Formats to Look For**: 
+   - "SP-XX", "SP XX", "SPXX" (with or without dash/space)
+   - "Task SP-XX", "ticket SP-XX", "SP-XX -"
+   - "SP3", "SP12", "SP25" (with any number)
+   - Case insensitive: "sp-25", "Sp-30", "SP-32"
 
 **Critical Instructions:**
 4. ONLY extract tasks that are explicitly mentioned, assigned, or committed to in the conversation
@@ -194,6 +198,9 @@ Please analyze the following meeting transcript and extract ONLY actual actionab
 - If participant says "SP-25 - I made progress on authentication", extract task ID as SP-25 and mark as EXISTING TASK UPDATE
 - If participant says "I need to implement authentication" (no SP-XX mentioned), mark as NEW TASK with TASK_ID: NONE
 - Pay close attention to any SP-XX patterns in participant speech
+- When SP-XX is mentioned with status words like "completed", "done", "finished", mark STATUS as "Completed"
+- When SP-XX is mentioned with "started", "working on", "in progress", mark STATUS as "In-progress"
+- CRITICAL: If someone says "SP-25 is complete" or "I completed SP-30", this is a STATUS CHANGE, not a new task
 
 **Meeting Transcript:**
 ${transcriptText}

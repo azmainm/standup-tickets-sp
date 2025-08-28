@@ -387,7 +387,7 @@ async function getActiveTasks() {
             const task = participantData.Coding[i];
             const taskObj = typeof task === 'string' ? { description: task, status: 'To-do' } : task;
             
-            if (taskObj.status === 'To-do' || taskObj.status === 'In-progress') {
+            if (taskObj.status === 'To-do' || taskObj.status === 'In-progress' || taskObj.status === 'In Progress') {
               activeTasks.push({
                 participantName,
                 ticketId: taskObj.ticketId || null, // Include ticket ID if available
@@ -412,7 +412,7 @@ async function getActiveTasks() {
             const task = participantData['Non-Coding'][i];
             const taskObj = typeof task === 'string' ? { description: task, status: 'To-do' } : task;
             
-            if (taskObj.status === 'To-do' || taskObj.status === 'In-progress') {
+            if (taskObj.status === 'To-do' || taskObj.status === 'In-progress' || taskObj.status === 'In Progress') {
               activeTasks.push({
                 participantName,
                 ticketId: taskObj.ticketId || null, // Include ticket ID if available

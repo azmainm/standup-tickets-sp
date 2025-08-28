@@ -57,20 +57,20 @@ function getMeetingUrlForDay(currentDate = new Date()) {
       return null;
     }
     
-    // Determine which URL to use (INVERTED LOGIC for previous day's meeting)
-    // If today is TT (Tue/Thu), use MWF URL (for Mon/Wed meeting)
-    // If today is MWF (Mon/Wed/Fri), use TT URL (for Tue/Thu meeting)
+    // Determine which URL to use based on the target day
+    // Tuesday/Thursday → Use TT URL (DAILY_STANDUP_URL_TT)
+    // Monday/Wednesday/Friday → Use MWF URL (DAILY_STANDUP_URL_MWF)
     let meetingUrl = null;
     let meetingType = null;
     
     if (dayOfWeek === 2 || dayOfWeek === 4) {
-      // Tuesday (2), Thursday (4) - Use MWF URL (for Mon/Wed previous meeting)
-      meetingUrl = process.env.DAILY_STANDUP_URL_MWF;
-      meetingType = 'Using MWF URL (for Mon/Wed meeting)';
-    } else if (dayOfWeek === 1 || dayOfWeek === 3 || dayOfWeek === 5) {
-      // Monday (1), Wednesday (3), Friday (5) - Use TT URL (for Tue/Thu previous meeting)
+      // Tuesday (2), Thursday (4) - Use TT URL (for Tue/Thu meeting)
       meetingUrl = process.env.DAILY_STANDUP_URL_TT;
       meetingType = 'Using TT URL (for Tue/Thu meeting)';
+    } else if (dayOfWeek === 1 || dayOfWeek === 3 || dayOfWeek === 5) {
+      // Monday (1), Wednesday (3), Friday (5) - Use MWF URL (for Mon/Wed/Fri meeting)
+      meetingUrl = process.env.DAILY_STANDUP_URL_MWF;
+      meetingType = 'Using MWF URL (for Mon/Wed/Fri meeting)';
     }
     
     if (!meetingUrl) {
@@ -88,7 +88,7 @@ function getMeetingUrlForDay(currentDate = new Date()) {
       meetingType,
       hasUrl: !!meetingUrl,
       urlPrefix: meetingUrl.substring(0, 50) + '...',
-      logic: dayOfWeek === 2 || dayOfWeek === 4 ? 'Today is Tue/Thu → Use MWF URL' : 'Today is Mon/Wed/Fri → Use TT URL'
+      logic: dayOfWeek === 2 || dayOfWeek === 4 ? 'Today is Tue/Thu → Use TT URL' : 'Today is Mon/Wed/Fri → Use MWF URL'
     });
     
     return meetingUrl;

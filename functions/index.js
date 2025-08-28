@@ -59,6 +59,20 @@ app.post("/fetch-transcript", async (req, res) => {
       });
     }
 
+    // Enhanced logging for manual fetch
+    const currentTime = new Date();
+    const bangladeshTime = new Date(currentTime.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const currentDayName = dayNames[bangladeshTime.getDay()];
+    
+    logger.info("🔧 MANUAL TRANSCRIPT FETCH INITIATED", {
+      requestedAt: currentTime.toISOString(),
+      bangladeshTime: bangladeshTime.toISOString(),
+      currentDay: currentDayName,
+      meetingUrlPreview: meetingUrl.substring(0, 50) + "...",
+      isWeekend: bangladeshTime.getDay() === 0 || bangladeshTime.getDay() === 6
+    });
+
     logger.info("Manual transcript fetch requested", {
       meetingUrl: meetingUrl.substring(0, 50) + "...",
       timestamp: new Date().toISOString(),
@@ -132,6 +146,32 @@ exports.dailyTranscriptFetch = onSchedule({
   const startTime = Date.now();
   const currentTime = new Date();
   
+  // Enhanced day and meeting URL logging
+  const bangladeshTime = new Date(currentTime.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
+  const hour = bangladeshTime.getHours();
+  const dayOfWeek = bangladeshTime.getDay();
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const currentDayName = dayNames[dayOfWeek];
+  
+  // Determine target day (if early morning, use previous day)
+  let targetDate = new Date(bangladeshTime);
+  let targetDayName = currentDayName;
+  if (hour >= 0 && hour < 6) {
+    targetDate.setDate(targetDate.getDate() - 1);
+    targetDayName = dayNames[targetDate.getDay()];
+  }
+  
+  logger.info("🗓️ DAILY TRANSCRIPT FETCH - DAY & TIME CHECK", {
+    scheduledTime: event.scheduleTime,
+    timestamp: currentTime.toISOString(),
+    timezone: "Asia/Dhaka",
+    currentHour: hour,
+    currentDay: currentDayName,
+    targetDay: targetDayName,
+    isEarlyMorning: hour >= 0 && hour < 6,
+    usingPreviousDay: hour >= 0 && hour < 6
+  });
+
   logger.info("Starting daily transcript fetch", {
     scheduledTime: event.scheduleTime,
     timestamp: currentTime.toISOString(),
@@ -151,6 +191,28 @@ exports.dailyTranscriptFetch = onSchedule({
     
     // Get the appropriate meeting URL for the day
     const meetingUrl = getMeetingUrlWithFallback(currentTime);
+    
+    // Log which meeting URL is being used
+    const meetingUrlForLogging = meetingUrl ? meetingUrl.substring(0, 50) + '...' : 'NO URL';
+    const targetDayOfWeek = targetDate.getDay();
+    let meetingSchedule = 'UNKNOWN';
+    
+    if (targetDayOfWeek === 1 || targetDayOfWeek === 3 || targetDayOfWeek === 5) {
+      meetingSchedule = 'MWF (Mon/Wed/Fri) → Using TT URL';
+    } else if (targetDayOfWeek === 2 || targetDayOfWeek === 4) {
+      meetingSchedule = 'TT (Tue/Thu) → Using MWF URL';
+    }
+    
+    logger.info("🔗 MEETING URL DETERMINATION", {
+      targetDay: targetDayName,
+      targetDayOfWeek: targetDayOfWeek,
+      meetingSchedule: meetingSchedule,
+      hasUrl: !!meetingUrl,
+      urlPreview: meetingUrlForLogging,
+      explanation: hour >= 0 && hour < 6 ? 
+        `Running at ${hour}:xx AM, using ${targetDayName}'s meeting URL` :
+        `Running during ${currentDayName}, using ${targetDayName}'s meeting URL`
+    });
 
     if (!meetingUrl) {
       const currentDay = currentTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Dhaka' });

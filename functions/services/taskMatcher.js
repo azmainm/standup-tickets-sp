@@ -206,6 +206,21 @@ function parseTimeSpent(text) {
 }
 
 /**
+ * Normalize ticket ID to handle different formats (SP3, SP 12, SP-13, sp4)
+ * @param {string} ticketId - Raw ticket ID from transcript or database
+ * @returns {string|null} Normalized ticket ID (e.g., "SP-3") or null if invalid
+ */
+function normalizeTicketId(ticketId) {
+  if (!ticketId) return null;
+  
+  // Remove spaces, convert to uppercase, ensure dash format
+  return ticketId.toString()
+    .replace(/\s+/g, '') // Remove all spaces: "SP 12" -> "SP12"
+    .toUpperCase()       // Convert to uppercase: "sp4" -> "SP4"
+    .replace(/^(SP)(\d+)$/, '$1-$2'); // Add dash if missing: "SP3" -> "SP-3"
+}
+
+/**
  * Parse status updates from task description or updates
  * @param {string} text - Text that might contain status information
  * @returns {string|null} Status ('To-do', 'In-progress', 'Completed') or null if not found
@@ -266,8 +281,39 @@ async function processTaskMatching(newTasks, existingTasks) {
         task => task.participantName === newTask.assignee
       );
       
-      // Try to find a matching existing task (now async with GPT)
-      const matchingTask = await findMatchingTask(newTask, participantExistingTasks);
+      let matchingTask = null;
+      
+      // PRIORITY 1: Check if task has explicit task ID (existingTaskId)
+      if (newTask.existingTaskId) {
+        // Normalize both ticket IDs for comparison (handle SP3, SP 12, SP-13 formats)
+        const normalizedSearchId = normalizeTicketId(newTask.existingTaskId);
+        
+        // Look for existing task with this specific ticket ID
+        matchingTask = existingTasks.find(task => 
+          task.ticketId && normalizeTicketId(task.ticketId) === normalizedSearchId
+        );
+        
+        if (matchingTask) {
+          logger.info('Found task by explicit ticket ID', {
+            ticketId: newTask.existingTaskId,
+            normalizedId: normalizedSearchId,
+            matchedTicketId: matchingTask.ticketId,
+            taskDescription: newTask.description.substring(0, 50)
+          });
+        } else {
+          logger.warn('Explicit ticket ID mentioned but not found in database', {
+            ticketId: newTask.existingTaskId,
+            normalizedId: normalizedSearchId,
+            availableTicketIds: existingTasks.filter(t => t.ticketId).map(t => t.ticketId),
+            taskDescription: newTask.description.substring(0, 50)
+          });
+        }
+      }
+      
+      // PRIORITY 2: If no explicit ID match found, try similarity matching
+      if (!matchingTask) {
+        matchingTask = await findMatchingTask(newTask, participantExistingTasks);
+      }
       
       if (matchingTask) {
         // Task match found - prepare update
@@ -286,7 +332,14 @@ async function processTaskMatching(newTasks, existingTasks) {
         }
         
         // Parse and apply status updates
-        const statusUpdate = parseStatusUpdate(newTask.description);
+        let statusUpdate = parseStatusUpdate(newTask.description);
+        
+        // If explicit task ID was mentioned and we have a status from AI, prioritize that
+        if (newTask.existingTaskId && newTask.status && 
+            newTask.status !== 'To-do' && newTask.status !== matchingTask.status) {
+          statusUpdate = newTask.status;
+        }
+        
         if (statusUpdate && statusUpdate !== matchingTask.status) {
           updateData.updates.status = statusUpdate;
         }
@@ -361,7 +414,9 @@ async function matchTasksWithDatabase(extractedTasksData) {
             type: 'Coding',
             estimatedTime: typeof task === 'object' ? task.estimatedTime : undefined,
             timeTaken: typeof task === 'object' ? task.timeTaken : undefined,
-            status: typeof task === 'object' ? task.status : undefined
+            status: typeof task === 'object' ? task.status : undefined,
+            existingTaskId: typeof task === 'object' ? task.existingTaskId : undefined,
+            taskType: typeof task === 'object' ? task.taskType : undefined
           });
         }
       }
@@ -375,7 +430,9 @@ async function matchTasksWithDatabase(extractedTasksData) {
             type: 'Non-Coding',
             estimatedTime: typeof task === 'object' ? task.estimatedTime : undefined,
             timeTaken: typeof task === 'object' ? task.timeTaken : undefined,
-            status: typeof task === 'object' ? task.status : undefined
+            status: typeof task === 'object' ? task.status : undefined,
+            existingTaskId: typeof task === 'object' ? task.existingTaskId : undefined,
+            taskType: typeof task === 'object' ? task.taskType : undefined
           });
         }
       }
