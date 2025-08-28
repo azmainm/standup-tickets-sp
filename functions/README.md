@@ -14,7 +14,11 @@ AZURE_CLIENT_ID=
 AZURE_CLIENT_SECRET=
 AZURE_AUTHORITY=
 
-# Meeting Configuration
+# Meeting Configuration (NEW: Day-based URLs)
+DAILY_STANDUP_URL_MWF=  # Monday, Wednesday, Friday meetings
+DAILY_STANDUP_URL_TT=   # Tuesday, Thursday meetings
+
+# Legacy Meeting URL (for backward compatibility)
 DAILY_STANDUP_URL=
 
 # Firebase
@@ -175,6 +179,18 @@ This will:
 - Generate titles using GPT and create Jira issues
 - Optionally run full OpenAI processing with Jira integration
 
+#### Test Enhanced Task Matching
+```bash
+cd functions
+node tests/testTaskMatching.js
+```
+
+This will:
+- Test string similarity and time/status parsing functions
+- Test task matching algorithms with mock data
+- Test database integration for active task retrieval
+- Show task matching results and update logic
+
 #### Test Complete Flow
 ```bash
 cd functions
@@ -185,10 +201,12 @@ This will:
 - Check all environment variables (including Jira)
 - Test all service connections (Microsoft Graph, OpenAI, MongoDB, Jira)
 - Fetch transcript from Microsoft Teams
-- Process with OpenAI to extract tasks
+- Process with OpenAI to extract tasks with enhanced prompting
+- Match tasks with existing database tasks
+- Update existing tasks and create new ones
 - Store results in MongoDB
-- Create Jira issues for coding tasks
-- Show complete processing statistics
+- Create Jira issues for new coding tasks only
+- Show complete processing statistics including task matching results
 
 ### 5. Deploy to Firebase
 
@@ -200,11 +218,19 @@ firebase deploy --only functions
 ## Functions
 
 ### `dailyTranscriptFetch` (Scheduled)
-- **Schedule**: Daily at 2:00 AM Bangladesh time (Asia/Dhaka)
-- **Purpose**: Automatically fetches the daily standup transcript
+- **Schedule**: Monday-Friday at 2:00 AM Bangladesh time (Asia/Dhaka) - **Skips weekends**
+- **Purpose**: Automatically fetches the previous day's standup transcript
+- **Day-based URL Selection** (Inverted Logic - Use opposite URL for previous day's meeting): 
+  - **Tuesday 2 AM**: Fetches Monday's meeting (uses DAILY_STANDUP_URL_MWF)
+  - **Wednesday 2 AM**: Fetches Tuesday's meeting (uses DAILY_STANDUP_URL_TT)
+  - **Thursday 2 AM**: Fetches Wednesday's meeting (uses DAILY_STANDUP_URL_MWF)
+  - **Friday 2 AM**: Fetches Thursday's meeting (uses DAILY_STANDUP_URL_TT)
+  - **Monday 2 AM**: Fetches Friday's meeting (uses DAILY_STANDUP_URL_MWF)
+  - **Saturday/Sunday**: No scheduled runs (no meetings)
 - **Processing**: 
-  - Fetches transcript from Microsoft Teams
-  - Processes with OpenAI to extract tasks by participant
+  - Fetches transcript from Microsoft Teams using day-appropriate URL
+  - Processes with OpenAI to extract tasks by participant with **task ID support**
+  - **Assigns unique ticket IDs** (SP-{number}) to new tasks
   - Stores structured task data in MongoDB
   - Categorizes tasks as "Coding" or "Non-Coding"
   - Creates Jira issues for coding tasks with AI-generated titles
@@ -275,7 +301,8 @@ functions/
 │   ├── openaiService.js        # OpenAI GPT processing service
 │   ├── mongoService.js         # MongoDB storage service
 │   ├── jiraService.js          # Jira API integration service
-│   └── taskProcessor.js        # Task processing orchestration
+│   ├── taskProcessor.js        # Task processing orchestration
+│   └── taskMatcher.js          # Task matching and similarity detection
 ├── config/
 │   └── participantMapping.js   # Participant name to email mapping
 ├── tests/
@@ -284,6 +311,7 @@ functions/
 │   ├── testTranscriptParsing.js # Test transcript parsing/formatting
 │   ├── testParticipantMapping.js # Test participant email mapping
 │   ├── testJiraIntegration.js  # Test Jira integration only
+│   ├── testTaskMatching.js     # Test enhanced task matching functionality
 │   └── testFullFlow.js        # Test complete flow
 ├── output/                     # Local transcript files (created automatically)
 ├── .env                        # Environment variables (create this)
@@ -298,23 +326,32 @@ functions/
 2. **Meeting Discovery**: Extracts organizer info from Teams URL and finds the meeting
 3. **Transcript Fetching**: Gets the latest transcript in VTT format
 4. **Format Conversion**: Converts VTT to structured JSON
-5. **AI Processing**: Sends transcript to OpenAI GPT-4o-mini to extract tasks
-6. **Task Categorization**: AI categorizes tasks as "Coding" or "Non-Coding" by participant
-7. **Transcript Storage**: Stores raw transcript data in MongoDB collection 'transcripts'
-8. **Task Storage**: Stores structured task data in MongoDB collection 'sptasks'
-9. **Jira Integration**: Creates Jira issues for coding tasks only
-   - Maps participant names to email addresses using configuration
-   - Generates concise titles (max 5 words) using GPT
-   - Creates issues in the configured Jira project
-   - Assigns issues to participants using email mapping
-   - Uses original task descriptions as issue descriptions
-10. **Local Backup**: Saves transcript to local file for reference
-11. **Logging**: Comprehensive logging for monitoring and debugging
+5. **AI Processing**: Sends transcript to OpenAI GPT-4o-mini to extract tasks with enhanced prompting for:
+   - Time estimates and actual time spent
+   - Task status updates (To-do, In-progress, Completed)
+   - Task type identification (NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE)
+6. **Task Matching**: Compares extracted tasks with existing database tasks
+   - Retrieves all active tasks (To-do/In-progress) from database
+   - Uses similarity matching to identify task updates vs new tasks
+   - Determines which tasks to create vs update
+7. **Task Updates**: Updates existing tasks in database with new information
+   - Adds progress updates and new information to task descriptions
+   - Updates status changes (started, completed, etc.)
+   - Updates time tracking (estimated time, time spent)
+8. **Transcript Storage**: Stores raw transcript data in MongoDB collection 'transcripts'
+9. **New Task Storage**: Stores only new tasks in MongoDB collection 'sptasks'
+10. **Jira Integration**: Creates Jira issues for NEW coding tasks only (not updates)
+    - Maps participant names to email addresses using configuration
+    - Generates concise titles (max 5 words) using GPT
+    - Creates issues in the configured Jira project
+    - Assigns issues to participants using email mapping
+11. **Local Backup**: Saves transcript to local file for reference
+12. **Logging**: Comprehensive logging for monitoring and debugging
 
 ### MongoDB Data Structure
 
 #### Tasks Collection ('sptasks')
-Each document in the 'sptasks' collection follows this structure:
+Each document in the 'sptasks' collection follows this structure with **unique ticket IDs**:
 ```json
 {
   "_id": "ObjectId(...)",
@@ -322,36 +359,56 @@ Each document in the 'sptasks' collection follows this structure:
   "Azmain": {
     "Coding": [
       {
+        "ticketId": "SP-1",
+        "title": "Build Admin Feature",
         "description": "Build a certain feature in the admin panel",
-        "status": "To-do"
+        "status": "To-do",
+        "estimatedTime": 5,
+        "timeTaken": 0
       }
     ],
     "Non-Coding": [
       {
+        "ticketId": "SP-2",
+        "title": "Research XYZ",
         "description": "Research on XYZ",
-        "status": "To-do"
+        "status": "To-do",
+        "estimatedTime": 2,
+        "timeTaken": 0
       }
     ]
   },
   "Doug": {
     "Coding": [
       {
+        "ticketId": "SP-3",
+        "title": "User Authentication",
         "description": "Implement user authentication",
-        "status": "To-do"
+        "status": "To-do",
+        "estimatedTime": 8,
+        "timeTaken": 3
       }
     ],
     "Non-Coding": [
       {
+        "ticketId": "SP-4",
+        "title": "Privacy Policy",
         "description": "Prepare privacy policy",
-        "status": "To-do"
+        "status": "To-do",
+        "estimatedTime": 4,
+        "timeTaken": 0
       }
     ]
   },
   "Shafkat": {
     "Coding": [
       {
+        "ticketId": "SP-5",
+        "title": "CAMP ABC Feature",
         "description": "Build ABC feature in CAMP",
-        "status": "To-do"
+        "status": "To-do",
+        "estimatedTime": 6,
+        "timeTaken": 1
       }
     ],
     "Non-Coding": []
@@ -375,6 +432,14 @@ Each document in the 'transcripts' collection stores the raw transcript data:
 }
 ```
 
+**Task Fields Explanation:**
+- `ticketId`: **NEW** - Unique identifier in SP-{number} format (e.g., SP-1, SP-2, SP-3)
+- `title`: **NEW** - AI-generated concise title (2-5 words) from task description
+- `description`: The full task description
+- `status`: Current status ("To-do", "In-progress", "Completed")
+- `estimatedTime`: Estimated time to complete the task (in hours) - **Enhanced extraction**
+- `timeTaken`: Actual time spent on the task so far (in hours) - **Enhanced extraction**
+
 **Fields Explanation:**
 - `timestamp`: When the transcript was stored
 - `date`: The date this transcript is for (YYYY-MM-DD format)
@@ -384,6 +449,72 @@ Each document in the 'transcripts' collection stores the raw transcript data:
 - `transcript_id`: Microsoft Teams transcript identifier
 - `source`: Source of the transcript (e.g., "microsoft_teams")
 - `original_filename`: Name of the local backup file
+
+## 🆕 New Features (Version 2.0)
+
+### Unique Task ID System
+- **Automatic ID Assignment**: Every new task gets a unique ID in format SP-{number} (e.g., SP-1, SP-2, SP-3)
+- **Serial Counter**: Starts from SP-1 (database was cleared), increments automatically
+- **Persistent Tracking**: IDs are stored in MongoDB `counters` collection for consistency across deployments
+- **Participant Guidelines**: Updated to require task ID mentions for existing task updates
+
+### AI-Generated Task Titles
+- **Automatic Title Generation**: AI creates concise 2-5 word titles from task descriptions
+- **Batch Processing**: Efficient bulk title generation for all tasks at once
+- **Smart Fallbacks**: Handles edge cases with intelligent fallback mechanisms
+- **Consistent Format**: Clean, professional titles suitable for display and reporting
+
+### Day-Based Meeting URL Support
+- **MWF/TT Meetings**: Separate URLs for Monday/Wednesday/Friday vs Tuesday/Thursday meetings
+- **Environment Variables**: 
+  - `DAILY_STANDUP_URL_MWF` for Monday, Wednesday, Friday meetings
+  - `DAILY_STANDUP_URL_TT` for Tuesday, Thursday meetings
+- **Smart Scheduling**: Scheduler determines which URL to use based on the day
+- **Weekend Skipping**: No scheduled runs on Saturday/Sunday (no meetings)
+- **Previous Day Logic**: 2 AM runs fetch the previous day's meeting transcript
+
+### Enhanced Time Extraction
+- **Natural Language Processing**: Extracts time from words ("three hours", "half day", "couple hours")
+- **Multiple Formats**: Supports "3 hours", "2 days", "half day", "morning", "afternoon"
+- **Time Unit Conversion**: Automatically converts days to hours (1 day = 8 hours)
+- **Improved Accuracy**: Better AI prompting for time estimate and time spent extraction
+
+### Task ID Reference System
+- **Existing Task Updates**: Participants mention SP-XX to update existing tasks
+- **New Task Creation**: No task ID mentioned = new task (gets auto-assigned ID)
+- **AI Understanding**: Enhanced OpenAI prompts to detect task ID references
+- **Guidelines Integration**: Comprehensive participant guidelines for proper usage
+
+## Enhanced Task Tracking Features
+
+### Task Matching and Updates
+The system now intelligently matches new tasks from meeting transcripts with existing tasks in the database:
+
+1. **Smart Matching**: Uses GPT-4o-mini to intelligently match tasks by assignee and description similarity
+2. **Automatic Updates**: Updates existing tasks with new information rather than creating duplicates
+3. **Progress Tracking**: Tracks time estimates and actual time spent on tasks
+4. **Status Management**: Automatically updates task status based on meeting discussions
+
+### Time Tracking
+Tasks now include comprehensive time tracking:
+- **Estimated Time**: Captures time estimates when participants mention them
+- **Time Taken**: Tracks actual time spent as reported in meetings
+- **Automatic Parsing**: Extracts time information from natural language ("took 3 hours", "estimated 5 hours")
+
+### Status Updates
+The system automatically detects and updates task status:
+- **To-do**: Initial status for new tasks
+- **In-progress**: When participants mention starting work
+- **Completed**: When participants report finishing tasks
+
+### Task Types
+The enhanced prompting identifies different types of task mentions:
+- **NEW TASK**: Completely new tasks being assigned
+- **EXISTING TASK UPDATE**: Progress updates on existing tasks
+- **STATUS CHANGE**: Changes in task status (started, completed, etc.)
+
+### Participant Guidelines
+See `MEETING_PARTICIPANT_GUIDELINES.md` for detailed guidance on how participants should communicate about tasks during meetings to ensure accurate tracking.
 
 ## Troubleshooting
 

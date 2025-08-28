@@ -20,6 +20,7 @@ require("dotenv").config();
 // Import our services
 const {getMeetingTranscript} = require("./services/getTranscript");
 const {processTranscriptToTasks} = require("./services/taskProcessor");
+const {getMeetingUrlWithFallback, shouldHaveMeetingOnDay} = require("./services/meetingUrlService");
 
 // For cost control, set maximum container instances
 setGlobalOptions({maxInstances: 10});
@@ -41,12 +42,20 @@ app.get("/health", (req, res) => {
 // Manual transcript fetch endpoint
 app.post("/fetch-transcript", async (req, res) => {
   try {
-    const meetingUrl = req.body?.meetingUrl || process.env.DAILY_STANDUP_URL;
+    // Use provided URL or determine from current day
+    const meetingUrl = req.body?.meetingUrl || getMeetingUrlWithFallback();
 
     if (!meetingUrl) {
+      const currentDay = new Date().toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        timeZone: 'Asia/Dhaka' 
+      });
+      
       return res.status(400).json({
         error: "Meeting URL is required",
-        message: "Provide meetingUrl in request body or set DAILY_STANDUP_URL in environment",
+        message: `No meeting URL available for ${currentDay}. Provide meetingUrl in request body or set DAILY_STANDUP_URL_MWF/DAILY_STANDUP_URL_TT environment variables.`,
+        currentDay,
+        hasMeetingToday: shouldHaveMeetingOnDay(new Date()),
       });
     }
 
@@ -112,27 +121,45 @@ app.post("/fetch-transcript", async (req, res) => {
 exports.transcriptApi = onRequest(app);
 
 // Scheduled function that runs daily at 2 AM Bangladesh time (GMT+6)
-// Cron: "0 2 * * *" in Asia/Dhaka timezone = 2 AM local time
+// Cron: "0 2 * * 1-5" - runs Monday through Friday only (skips weekends)
+// This fetches the previous day's meeting transcript
 exports.dailyTranscriptFetch = onSchedule({
-  schedule: "0 2 * * *",
+  schedule: "0 2 * * 1-5", // Monday-Friday only at 2 AM Bangladesh time
   timeZone: "Asia/Dhaka",
   memory: "256MiB",
   timeoutSeconds: 300,
 }, async (event) => {
   const startTime = Date.now();
+  const currentTime = new Date();
   
   logger.info("Starting daily transcript fetch", {
     scheduledTime: event.scheduleTime,
-    timestamp: new Date().toISOString(),
+    timestamp: currentTime.toISOString(),
     timezone: "Asia/Dhaka",
+    dayOfWeek: currentTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Dhaka' }),
   });
 
   try {
-    const meetingUrl = process.env.DAILY_STANDUP_URL;
+    // Check if we should have a meeting today (based on previous day logic)
+    if (!shouldHaveMeetingOnDay(currentTime)) {
+      logger.info("No meeting scheduled for this day, skipping transcript fetch", {
+        currentDay: currentTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Dhaka' }),
+        date: currentTime.toISOString().split('T')[0],
+      });
+      return null;
+    }
+    
+    // Get the appropriate meeting URL for the day
+    const meetingUrl = getMeetingUrlWithFallback(currentTime);
 
     if (!meetingUrl) {
-      logger.error("DAILY_STANDUP_URL environment variable is not set");
-      throw new Error("DAILY_STANDUP_URL environment variable is not set");
+      const currentDay = currentTime.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Dhaka' });
+      logger.error("No meeting URL available for the current day", {
+        currentDay,
+        date: currentTime.toISOString().split('T')[0],
+        message: "Set DAILY_STANDUP_URL_MWF and DAILY_STANDUP_URL_TT environment variables",
+      });
+      throw new Error(`No meeting URL available for ${currentDay}. Set DAILY_STANDUP_URL_MWF and DAILY_STANDUP_URL_TT environment variables.`);
     }
 
     logger.info("Fetching transcript for daily standup", {

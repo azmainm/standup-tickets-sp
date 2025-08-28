@@ -142,24 +142,131 @@ function formatTranscriptForGPT(transcript) {
  */
 function createTaskExtractionPrompt(transcriptText) {
   return `
-Please analyze the following meeting transcript and extract ONLY actual actionable tasks for each participant.
+Please analyze the following meeting transcript and extract ONLY actual actionable tasks for each participant. Our system uses unique task IDs in the format SP-{number} (e.g., SP-25, SP-30, SP-32) to track tasks.
+
+**CRITICAL - Task ID Detection:**
+1. **EXISTING TASK UPDATES**: If a participant mentions a task ID like "SP-25", "Task SP-30", or "SP-32 -", they are referring to an EXISTING task
+2. **NEW TASKS**: If NO task ID is mentioned when discussing a task, it's a NEW task that needs to be created
+3. **Task ID Formats to Look For**: "SP-XX", "Task SP-XX", "SP-XX -", where XX is any number
 
 **Critical Instructions:**
-1. ONLY extract tasks that are explicitly mentioned, assigned, or committed to in the conversation
-2. Look for phrases like "I will...", "I'm going to...", "I need to...", "I'll work on...", "My task is...", etc.
-3. Do NOT create fake or example tasks
-4. Do NOT include general discussion topics as tasks
-5. If NO actual tasks are mentioned in the transcript, respond with: "NO TASKS IDENTIFIED"
-6. Categorize actual tasks as "Coding" (development/technical work) or "Non-Coding" (documentation/research/meetings)
+4. ONLY extract tasks that are explicitly mentioned, assigned, or committed to in the conversation
+5. Look for phrases like "I will...", "I'm going to...", "I need to...", "I'll work on...", "My task is...", etc.
+6. Do NOT create fake or example tasks
+7. Do NOT include general discussion topics as tasks
+8. If NO actual tasks are mentioned in the transcript, respond with: "NO TASKS IDENTIFIED"
+9. Categorize actual tasks as "Coding" (development/technical work) or "Non-Coding" (documentation/research/meetings)
+
+**Time and Progress Extraction (CRITICAL - PAY CLOSE ATTENTION):**
+10. **Time Estimates**: Look for ANY mention of future time commitment:
+    - Numbers: "3 hours", "5 hours", "2 days", "half day", "8 hours" 
+    - Words: "three hours", "five hours", "two days", "a day", "couple hours"
+    - Phrases: "will take", "should take", "estimated", "probably", "might need", "around", "about"
+    - Examples: "this will take 3 hours", "estimated five hours", "probably around 2 days", "should take about 4 hours"
+
+11. **Time Spent**: Look for ANY mention of time already worked:
+    - Phrases: "spent", "took me", "worked", "did", "completed in", "finished in"
+    - Numbers: Convert words to numbers ("three" = 3, "five" = 5, "two" = 2)
+    - Examples: "spent 4 hours", "took me two hours", "worked three hours on it", "did about 5 hours"
+
+12. **Time Units**: Convert everything to hours:
+    - "1 day" = 8 hours, "2 days" = 16 hours, "half day" = 4 hours
+    - "morning" = 4 hours, "afternoon" = 4 hours
+
+13. Extract status updates (e.g., "completed the login feature", "started working on", "finished the database")
+14. Extract task updates (e.g., "need to add validation to the form", "found an issue with...")
+
+**Task Types:**
+- NEW TASK: A completely new task being assigned or mentioned (NO task ID mentioned)
+- EXISTING TASK UPDATE: Updates or progress on a previously mentioned task (task ID like SP-XX mentioned)
+- STATUS CHANGE: Changes in task status (started, completed, etc.) for existing tasks (task ID mentioned)
 
 **Required Output Format (ONLY if tasks are found):**
 [Actual Participant Name]'s Tasks:
-1. [Actual task mentioned] (Coding/Non-Coding)
+1. [Task description] (Coding/Non-Coding) [TYPE: NEW TASK/EXISTING TASK UPDATE/STATUS CHANGE] [TASK_ID: SP-XX or NONE] [ESTIMATED: X hours] [TIME SPENT: X hours] [STATUS: To-do/In-progress/Completed]
+
+**Examples:**
+- "Implement user authentication (Coding) [TYPE: NEW TASK] [TASK_ID: NONE] [ESTIMATED: 5 hours]"
+- "Login feature - added validation (Coding) [TYPE: EXISTING TASK UPDATE] [TASK_ID: SP-25] [TIME SPENT: 2 hours]"
+- "Database setup task (Coding) [TYPE: STATUS CHANGE] [TASK_ID: SP-30] [STATUS: Completed]"
+
+**Important**: 
+- If participant says "SP-25 - I made progress on authentication", extract task ID as SP-25 and mark as EXISTING TASK UPDATE
+- If participant says "I need to implement authentication" (no SP-XX mentioned), mark as NEW TASK with TASK_ID: NONE
+- Pay close attention to any SP-XX patterns in participant speech
 
 **Meeting Transcript:**
 ${transcriptText}
 
 **Response:**`;
+}
+
+/**
+ * Parse time strings to hours with support for various formats
+ * @param {string} timeStr - Time string to parse (e.g., "3 hours", "2 days", "half day")
+ * @returns {number} Time in hours
+ */
+function parseTimeToHours(timeStr) {
+  if (!timeStr || typeof timeStr !== 'string') return 0;
+  
+  const str = timeStr.toLowerCase().trim();
+  
+  // Direct hour matches
+  let hourMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr)s?/);
+  if (hourMatch) {
+    return parseFloat(hourMatch[1]);
+  }
+  
+  // Day matches (assuming 8 hours per day)
+  let dayMatch = str.match(/(\d+(?:\.\d+)?)\s*days?/);
+  if (dayMatch) {
+    return parseFloat(dayMatch[1]) * 8;
+  }
+  
+  // Word number conversions
+  const wordNumbers = {
+    'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+    'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20,
+    'a': 1, 'an': 1, 'couple': 2, 'few': 3, 'several': 4
+  };
+  
+  // Check for word numbers with time units
+  for (const [word, num] of Object.entries(wordNumbers)) {
+    if (str.includes(word)) {
+      if (str.includes('hour') || str.includes('hr')) {
+        return num;
+      }
+      if (str.includes('day')) {
+        return num * 8;
+      }
+    }
+  }
+  
+  // Special cases
+  if (str.includes('half day') || str.includes('half-day')) {
+    return 4;
+  }
+  if (str.includes('morning') || str.includes('afternoon')) {
+    return 4;
+  }
+  if (str.includes('full day') || str.includes('whole day')) {
+    return 8;
+  }
+  
+  // Try to extract any number as fallback
+  const numberMatch = str.match(/(\d+(?:\.\d+)?)/);
+  if (numberMatch) {
+    const num = parseFloat(numberMatch[1]);
+    // If the string contains 'day' assume it's days, otherwise assume hours
+    if (str.includes('day')) {
+      return num * 8;
+    }
+    return num;
+  }
+  
+  return 0;
 }
 
 /**
@@ -180,11 +287,6 @@ function parseGPTResponse(gptResponse) {
   
   for (const line of lines) {
     const trimmedLine = line.trim();
-    
-    // Skip placeholder/example lines that contain brackets
-    if (trimmedLine.includes('[') && trimmedLine.includes(']')) {
-      continue;
-    }
     
     // Check if line is a participant header (ends with "Tasks:" or "'s Tasks:")
     const participantMatch = trimmedLine.match(/^(.+?)(?:'s)?\s+Tasks:$/i);
@@ -207,11 +309,13 @@ function parseGPTResponse(gptResponse) {
       continue;
     }
     
-    // Check if line is a task item (starts with number and period)
-    const taskMatch = trimmedLine.match(/^\d+\.\s*(.+?)\s*\((Coding|Non-Coding)\)\.?$/i);
+    // Enhanced task parsing to handle the new format with task IDs
+    // Format: 1. [Task description] (Coding/Non-Coding) [TYPE: ...] [TASK_ID: SP-XX or NONE] [ESTIMATED: X hours] [TIME SPENT: X hours] [STATUS: ...]
+    const taskMatch = trimmedLine.match(/^\d+\.\s*(.+?)\s*\((Coding|Non-Coding)\)(.*)$/i);
     if (taskMatch && currentParticipant) {
       const taskDescription = taskMatch[1].trim();
       const taskType = taskMatch[2]; // 'Coding' or 'Non-Coding'
+      const additionalInfo = taskMatch[3] || '';
       
       // Skip if this looks like a placeholder task (only obvious placeholders)
       if (taskDescription.includes('[') || 
@@ -221,11 +325,56 @@ function parseGPTResponse(gptResponse) {
       }
       
       if (structuredTasks[currentParticipant]) {
-        // Create task object with description and default status
+        // Parse additional information from the enhanced format
+        let taskType_extracted = 'NEW TASK';
+        let estimatedTime = 0;
+        let timeSpent = 0;
+        let status = 'To-do';
+        let existingTaskId = null;
+        
+        // Extract TYPE
+        const typeMatch = additionalInfo.match(/\[TYPE:\s*([^\]]+)\]/i);
+        if (typeMatch) {
+          taskType_extracted = typeMatch[1].trim();
+        }
+        
+        // Extract TASK_ID
+        const taskIdMatch = additionalInfo.match(/\[TASK_ID:\s*([^\]]+)\]/i);
+        if (taskIdMatch) {
+          const taskIdValue = taskIdMatch[1].trim();
+          if (taskIdValue !== 'NONE' && taskIdValue.match(/^SP-\d+$/i)) {
+            existingTaskId = taskIdValue.toUpperCase();
+          }
+        }
+        
+        // Extract ESTIMATED time with enhanced parsing
+        const estimatedMatch = additionalInfo.match(/\[ESTIMATED:\s*([^\]]+)\]/i);
+        if (estimatedMatch) {
+          estimatedTime = parseTimeToHours(estimatedMatch[1].trim());
+        }
+        
+        // Extract TIME SPENT with enhanced parsing
+        const timeSpentMatch = additionalInfo.match(/\[TIME SPENT:\s*([^\]]+)\]/i);
+        if (timeSpentMatch) {
+          timeSpent = parseTimeToHours(timeSpentMatch[1].trim());
+        }
+        
+        // Extract STATUS
+        const statusMatch = additionalInfo.match(/\[STATUS:\s*([^\]]+)\]/i);
+        if (statusMatch) {
+          status = statusMatch[1].trim();
+        }
+        
+        // Create task object with enhanced data
         const taskObject = {
           description: taskDescription,
-          status: 'To-do'
+          status: status,
+          estimatedTime: estimatedTime,
+          timeTaken: timeSpent,
+          taskType: taskType_extracted, // NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE
+          existingTaskId: existingTaskId // SP-XX if this is an update to existing task, null if new
         };
+        
         structuredTasks[currentParticipant][taskType].push(taskObject);
       }
     }
@@ -240,6 +389,137 @@ function parseGPTResponse(gptResponse) {
   });
   
   return structuredTasks;
+}
+
+/**
+ * Generate a concise title from a task description
+ * @param {string} description - Full task description
+ * @returns {Promise<string>} Concise title (2-5 words)
+ */
+async function generateTaskTitle(description) {
+  try {
+    if (!description || description.trim().length === 0) {
+      return 'Untitled Task';
+    }
+
+    // If description is already short, use it as title
+    if (description.length <= 50) {
+      return description.trim();
+    }
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert at creating concise, descriptive titles from task descriptions. Create titles that are 2-5 words and capture the main action and subject.'
+        },
+        {
+          role: 'user',
+          content: `Create a concise title (2-5 words) for this task description: "${description}"`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 20,
+    });
+
+    let title = response.choices[0].message.content.trim();
+    
+    // Clean up the title
+    title = title.replace(/['"]/g, ''); // Remove quotes
+    title = title.replace(/^Title:\s*/i, ''); // Remove "Title:" prefix if present
+    title = title.replace(/\.$/, ''); // Remove trailing period
+    
+    // Ensure title is reasonable length
+    if (title.length > 60) {
+      title = title.substring(0, 57) + '...';
+    }
+    
+    // Fallback if title is empty or too short
+    if (title.length < 3) {
+      // Extract first few meaningful words from description
+      const words = description.split(/\s+/).filter(word => word.length > 2);
+      title = words.slice(0, 3).join(' ');
+    }
+    
+    return title || 'Untitled Task';
+    
+  } catch (error) {
+    logger.error('Error generating task title', {
+      error: error.message,
+      description: description.substring(0, 100),
+    });
+    
+    // Fallback: use first few words of description
+    const words = description.split(/\s+/).filter(word => word.length > 2);
+    return words.slice(0, 3).join(' ') || 'Untitled Task';
+  }
+}
+
+/**
+ * Generate titles for multiple tasks in batch
+ * @param {Array} tasks - Array of tasks with descriptions
+ * @returns {Promise<Array>} Array of tasks with titles added
+ */
+async function generateTaskTitlesInBatch(tasks) {
+  try {
+    const titlesPromises = tasks.map(task => {
+      if (typeof task === 'string') {
+        return generateTaskTitle(task);
+      } else if (task.description) {
+        return generateTaskTitle(task.description);
+      } else {
+        return Promise.resolve('Untitled Task');
+      }
+    });
+    
+    const titles = await Promise.all(titlesPromises);
+    
+    return tasks.map((task, index) => {
+      if (typeof task === 'string') {
+        return {
+          description: task,
+          title: titles[index],
+          status: 'To-do',
+          estimatedTime: 0,
+          timeTaken: 0
+        };
+      } else {
+        return {
+          ...task,
+          title: titles[index]
+        };
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error generating task titles in batch', {
+      error: error.message,
+      taskCount: tasks.length,
+    });
+    
+    // Fallback: add simple titles
+    return tasks.map(task => {
+      const description = typeof task === 'string' ? task : task.description || '';
+      const words = description.split(/\s+/).filter(word => word.length > 2);
+      const fallbackTitle = words.slice(0, 3).join(' ') || 'Untitled Task';
+      
+      if (typeof task === 'string') {
+        return {
+          description: task,
+          title: fallbackTitle,
+          status: 'To-do',
+          estimatedTime: 0,
+          timeTaken: 0
+        };
+      } else {
+        return {
+          ...task,
+          title: fallbackTitle
+        };
+      }
+    });
+  }
 }
 
 /**
@@ -271,4 +551,7 @@ module.exports = {
   testOpenAIConnection,
   formatTranscriptForGPT,
   parseGPTResponse,
+  parseTimeToHours,
+  generateTaskTitle,
+  generateTaskTitlesInBatch,
 };

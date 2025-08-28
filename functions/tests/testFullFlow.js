@@ -12,8 +12,9 @@
 const { getMeetingTranscript } = require('../services/getTranscript');
 const { processTranscriptToTasks } = require('../services/taskProcessor');
 const { testOpenAIConnection } = require('../services/openaiService');
-const { testMongoConnection, getCollectionStats } = require('../services/mongoService');
+const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require('../services/mongoService');
 const { testJiraConnection, getProjectInfo } = require('../services/jiraService');
+const { getMeetingUrlWithFallback, shouldHaveMeetingOnDay, testMeetingUrlService } = require('../services/meetingUrlService');
 require('dotenv').config();
 
 async function testCompleteFlow() {
@@ -27,13 +28,19 @@ async function testCompleteFlow() {
     'AZURE_CLIENT_ID',
     'AZURE_CLIENT_SECRET', 
     'AZURE_AUTHORITY',
-    'DAILY_STANDUP_URL',
     'OPENAI_API_KEY',
     'MONGODB_URI',
     'JIRA_URL',
     'JIRA_EMAIL',
     'JIRA_API_TOKEN',
     'JIRA_PROJECT_KEY'
+  ];
+  
+  // Meeting URL environment variables (at least one set should be available)
+  const meetingUrlVars = [
+    'DAILY_STANDUP_URL_MWF',
+    'DAILY_STANDUP_URL_TT',
+    'DAILY_STANDUP_URL' // Legacy fallback
   ];
   
   const missingVars = [];
@@ -49,6 +56,25 @@ async function testCompleteFlow() {
     }
   }
   
+  // Check meeting URL variables
+  console.log('\n📅 Meeting URL Configuration:');
+  const availableMeetingUrls = [];
+  for (const envVar of meetingUrlVars) {
+    if (process.env[envVar]) {
+      availableMeetingUrls.push(envVar);
+      const displayValue = process.env[envVar].substring(0, 50) + '...';
+      console.log(`✓ ${envVar}: ${displayValue}`);
+    } else {
+      console.log(`⚠️  ${envVar}: Not set`);
+    }
+  }
+  
+  if (availableMeetingUrls.length === 0) {
+    console.error('\n❌ No meeting URL environment variables found!');
+    console.error('Set at least one of: DAILY_STANDUP_URL_MWF, DAILY_STANDUP_URL_TT, or DAILY_STANDUP_URL');
+    missingVars.push('MEETING_URL_CONFIGURATION');
+  }
+  
   if (missingVars.length > 0) {
     console.error('\n❌ Missing environment variables:');
     missingVars.forEach(envVar => console.error(`   - ${envVar}`));
@@ -56,7 +82,28 @@ async function testCompleteFlow() {
     process.exit(1);
   }
   
-  console.log('\n✓ All environment variables found');
+  console.log('\n✓ All required environment variables found');
+  
+  // Test meeting URL service
+  console.log('\n📅 Testing meeting URL service...');
+  try {
+    const meetingUrlTest = await testMeetingUrlService();
+    console.log('   📊 Environment check:', meetingUrlTest.environmentCheck.success ? '✓' : '❌');
+    
+    if (!meetingUrlTest.environmentCheck.success) {
+      console.log('   Missing:', meetingUrlTest.environmentCheck.missingVars.join(', '));
+    }
+    
+    console.log('   📅 Weekly schedule:');
+    meetingUrlTest.dayTests.forEach(test => {
+      const status = test.shouldHaveMeeting ? 
+        (test.meetingUrl === 'URL_SET' ? '✓' : '❌') : 
+        '⚫';
+      console.log(`      ${test.dayName}: ${status} ${test.meetingType || 'No meeting'}`);
+    });
+  } catch (error) {
+    console.error('   ❌ Meeting URL service test failed:', error.message);
+  }
   
   // Test service connections
   console.log('\n2. Testing service connections...');
@@ -93,26 +140,58 @@ async function testCompleteFlow() {
   }
   console.log(`   ✓ Jira project access confirmed: ${projectInfo.name} (${projectInfo.key})`);
   
-  // Get MongoDB collection stats
+  // Get MongoDB collection stats and initialize ticket counter
   try {
     const stats = await getCollectionStats();
     console.log(`   📊 MongoDB collection has ${stats.documentCount} existing documents`);
+    
+    // Initialize ticket counter if needed
+    console.log('   🎫 Initializing ticket counter...');
+    await initializeTicketCounter();
+    const currentCount = await getCurrentTicketCount();
+    console.log(`   🎫 Current ticket counter: ${currentCount} (next ID: SP-${currentCount + 1})`);
   } catch (error) {
     console.log('   📊 MongoDB collection stats unavailable (collection may not exist yet)');
+    console.log('   🎫 Ticket counter initialization may be needed');
   }
   
   // Step 1: Fetch transcript
   console.log('\n3. Fetching transcript from Microsoft Teams...');
-  console.log(`   📅 Meeting URL: ${process.env.DAILY_STANDUP_URL.substring(0, 60)}...`);
+  
+  // Determine which meeting URL to use
+  const meetingUrl = getMeetingUrlWithFallback();
+  const currentDay = new Date().toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Dhaka' });
   
   let transcriptResult;
-  try {
-    console.log('   🔄 Starting transcript fetch...');
-    const startTime = Date.now();
+  
+  if (!meetingUrl) {
+    console.log(`   ⚠️  No meeting URL available for ${currentDay}`);
+    console.log('   This could be because:');
+    console.log('      - It\'s a weekend (Saturday/Sunday)');
+    console.log('      - Meeting URL environment variables are not properly configured');
+    console.log('      - Today is not a scheduled meeting day');
+    console.log('\n   Skipping transcript fetch test.');
     
-    transcriptResult = await getMeetingTranscript(process.env.DAILY_STANDUP_URL);
+    // Continue with the rest of the test using a mock/empty transcript
+    console.log('\n   📝 Using empty transcript for testing task processing...');
+    transcriptResult = {
+      transcript: [],
+      metadata: {
+        entryCount: 0,
+        meetingId: 'test-meeting-id',
+        savedToFile: 'test-transcript.json'
+      }
+    };
+  } else {
+    console.log(`   📅 Meeting URL for ${currentDay}: ${meetingUrl.substring(0, 60)}...`);
     
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    try {
+      console.log('   🔄 Starting transcript fetch...');
+      const startTime = Date.now();
+      
+      transcriptResult = await getMeetingTranscript(meetingUrl);
+      
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     
     if (transcriptResult) {
       console.log('   ✅ Transcript fetched successfully');
@@ -131,26 +210,41 @@ async function testCompleteFlow() {
         });
       }
       
-    } else {
-      console.log('   ⚠️  No transcript found for this meeting');
-      console.log('   This could mean:');
-      console.log('      - The meeting hasn\'t occurred yet');
-      console.log('      - No transcript was generated'); 
-      console.log('      - Transcription is still processing');
-      console.log('\n   ❌ Cannot proceed with task processing without transcript');
-      process.exit(1);
+      } else {
+        console.log('   ⚠️  No transcript found for this meeting');
+        console.log('   This could mean:');
+        console.log('      - The meeting hasn\'t occurred yet');
+        console.log('      - No transcript was generated'); 
+        console.log('      - Transcription is still processing');
+        console.log('\n   📝 Using empty transcript for testing task processing...');
+        transcriptResult = {
+          transcript: [],
+          metadata: {
+            entryCount: 0,
+            meetingId: 'no-meeting-found',
+            savedToFile: 'empty-transcript.json'
+          }
+        };
+      }
+      
+    } catch (error) {
+      console.log('\n   ❌ ERROR occurred during transcript fetch:');
+      console.error(`      Message: ${error.message}`);
+      
+      if (error.response) {
+        console.error(`      HTTP Status: ${error.response.status}`);
+      }
+      
+      console.log('\n   📝 Using empty transcript for testing task processing...');
+      transcriptResult = {
+        transcript: [],
+        metadata: {
+          entryCount: 0,
+          meetingId: 'error-occurred',
+          savedToFile: 'error-transcript.json'
+        }
+      };
     }
-    
-  } catch (error) {
-    console.log('\n   ❌ ERROR occurred during transcript fetch:');
-    console.error(`      Message: ${error.message}`);
-    
-    if (error.response) {
-      console.error(`      HTTP Status: ${error.response.status}`);
-    }
-    
-    console.log('\n   Cannot proceed with task processing without transcript');
-    process.exit(1);
   }
   
   // Step 2: Process transcript with complete flow (OpenAI + MongoDB + Jira)
@@ -234,18 +328,26 @@ async function testCompleteFlow() {
         if (participantTasks.Coding && participantTasks.Coding.length > 0) {
           console.log('   💻 Coding Tasks:');
           participantTasks.Coding.forEach((task, index) => {
+            const taskTitle = typeof task === 'object' && task.title ? task.title : 'Untitled';
             const taskText = typeof task === 'string' ? task : task.description;
             const taskStatus = typeof task === 'object' ? task.status : 'To-do';
-            console.log(`      ${index + 1}. ${taskText} (${taskStatus})`);
+            const ticketId = typeof task === 'object' && task.ticketId ? task.ticketId : 'N/A';
+            const estimatedTime = typeof task === 'object' && task.estimatedTime ? `${task.estimatedTime}h` : '0h';
+            const timeTaken = typeof task === 'object' && task.timeTaken ? `${task.timeTaken}h` : '0h';
+            console.log(`      ${index + 1}. [${ticketId}] "${taskTitle}" - ${taskText} (${taskStatus}) [Est: ${estimatedTime}, Spent: ${timeTaken}]`);
           });
         }
         
         if (participantTasks['Non-Coding'] && participantTasks['Non-Coding'].length > 0) {
           console.log('   📝 Non-Coding Tasks:');
           participantTasks['Non-Coding'].forEach((task, index) => {
+            const taskTitle = typeof task === 'object' && task.title ? task.title : 'Untitled';
             const taskText = typeof task === 'string' ? task : task.description;
             const taskStatus = typeof task === 'object' ? task.status : 'To-do';
-            console.log(`      ${index + 1}. ${taskText} (${taskStatus})`);
+            const ticketId = typeof task === 'object' && task.ticketId ? task.ticketId : 'N/A';
+            const estimatedTime = typeof task === 'object' && task.estimatedTime ? `${task.estimatedTime}h` : '0h';
+            const timeTaken = typeof task === 'object' && task.timeTaken ? `${task.timeTaken}h` : '0h';
+            console.log(`      ${index + 1}. [${ticketId}] "${taskTitle}" - ${taskText} (${taskStatus}) [Est: ${estimatedTime}, Spent: ${timeTaken}]`);
           });
         }
         
@@ -261,6 +363,7 @@ async function testCompleteFlow() {
       console.log(`   - Participants identified: ${taskResult.summary.participantCount}`);
       console.log(`   - Total tasks extracted: ${taskResult.summary.totalTasks}`);
       console.log(`   - Coding tasks identified: ${taskResult.summary.totalCodingTasks}`);
+      console.log(`   - Tasks with ticket IDs assigned: ${taskResult.storage.totalTasksWithIds || 0}`);
       console.log(`   - Jira issues created: ${taskResult.summary.jiraIssuesCreated}`);
       console.log(`   - Jira issues failed: ${taskResult.summary.jiraIssuesFailed}`);
       console.log(`   - OpenAI tokens used: ${taskResult.processing.metadata.tokensUsed}`);
@@ -270,6 +373,11 @@ async function testCompleteFlow() {
       console.log(`   - MongoDB transcript document ID: ${taskResult.transcriptStorage.documentId}`);
       console.log(`   - Transcript date: ${taskResult.transcriptStorage.date}`);
       console.log(`   - Jira integration success: ${taskResult.processing.steps.jiraIssueCreation}`);
+      
+      // Show assigned ticket IDs
+      if (taskResult.storage.assignedTicketIds && taskResult.storage.assignedTicketIds.length > 0) {
+        console.log(`   - Assigned ticket IDs: ${taskResult.storage.assignedTicketIds.join(', ')}`);
+      }
       
       // Show updated collection stats
       try {

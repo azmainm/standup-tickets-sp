@@ -8,8 +8,9 @@
  */
 
 const { processTranscriptForTasks } = require('./openaiService');
-const { storeTasks, storeTranscript } = require('./mongoService');
+const { storeTasks, storeTranscript, updateTask } = require('./mongoService');
 const { createJiraIssuesForCodingTasks } = require('./jiraService');
+const { matchTasksWithDatabase } = require('./taskMatcher');
 const { logger } = require("firebase-functions");
 
 /**
@@ -39,24 +40,109 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       throw new Error('OpenAI processing failed');
     }
 
-    // Step 3: Store the processed tasks in MongoDB
-    logger.info('Step 3: Storing tasks in MongoDB', {
-      participantCount: Object.keys(openaiResult.tasks).length,
+    // Step 3: Match extracted tasks with existing database tasks
+    logger.info('Step 3: Matching tasks with existing database tasks');
+    const matchingResult = await matchTasksWithDatabase(openaiResult.tasks);
+    
+    // Step 4: Update existing tasks in the database
+    logger.info('Step 4: Updating existing tasks in database', {
+      tasksToUpdate: matchingResult.summary.updatedTasks,
     });
     
-    const mongoResult = await storeTasks(openaiResult.tasks, {
-      ...openaiResult.metadata,
-      transcriptMetadata,
-      transcriptDocumentId: transcriptStorageResult.documentId,
-      processingDuration: (Date.now() - startTime) / 1000,
-    });
+    const updateResults = [];
+    for (const taskUpdate of matchingResult.tasksToUpdate) {
+      try {
+        const updateResult = await updateTask(
+          taskUpdate.originalTask.documentId,
+          taskUpdate.originalTask.taskPath,
+          taskUpdate.updates
+        );
+        updateResults.push({
+          success: updateResult.success,
+          taskPath: taskUpdate.originalTask.taskPath,
+          updates: taskUpdate.updates
+        });
+      } catch (error) {
+        logger.error('Failed to update task', {
+          taskPath: taskUpdate.originalTask.taskPath,
+          error: error.message,
+        });
+        updateResults.push({
+          success: false,
+          taskPath: taskUpdate.originalTask.taskPath,
+          error: error.message
+        });
+      }
+    }
 
-    // Step 4: Create Jira issues for coding tasks
-    logger.info('Step 4: Creating Jira issues for coding tasks');
+    // Step 5: Store new tasks in MongoDB (only the ones that don't match existing tasks)
+    logger.info('Step 5: Storing new tasks in MongoDB', {
+      newTasksCount: matchingResult.summary.newTasks,
+    });
+    
+    let mongoResult = null;
+    if (matchingResult.tasksToCreate.length > 0) {
+      // Convert new tasks back to the original format for storage
+      const newTasksForStorage = {};
+      
+      for (const newTask of matchingResult.tasksToCreate) {
+        if (!newTasksForStorage[newTask.participantName]) {
+          newTasksForStorage[newTask.participantName] = {
+            'Coding': [],
+            'Non-Coding': []
+          };
+        }
+        
+        const taskObject = {
+          description: newTask.description,
+          status: newTask.status,
+          estimatedTime: newTask.estimatedTime || 0,
+          timeTaken: newTask.timeTaken || 0
+        };
+        
+        newTasksForStorage[newTask.participantName][newTask.type].push(taskObject);
+      }
+      
+      mongoResult = await storeTasks(newTasksForStorage, {
+        ...openaiResult.metadata,
+        transcriptMetadata,
+        transcriptDocumentId: transcriptStorageResult.documentId,
+        processingDuration: (Date.now() - startTime) / 1000,
+        taskMatchingResults: matchingResult.summary,
+      });
+    } else {
+      // No new tasks to store
+      mongoResult = {
+        success: true,
+        documentId: null,
+        timestamp: new Date(),
+        participantCount: 0,
+        message: 'No new tasks to store - all were updates to existing tasks'
+      };
+    }
+
+    // Step 6: Create Jira issues for new coding tasks only
+    logger.info('Step 6: Creating Jira issues for new coding tasks');
     let jiraResult = null;
     
     try {
-      jiraResult = await createJiraIssuesForCodingTasks(openaiResult.tasks);
+      // Only create Jira issues for new coding tasks
+      const newCodingTasksForJira = {};
+      if (matchingResult.tasksToCreate.length > 0) {
+        for (const newTask of matchingResult.tasksToCreate) {
+          if (newTask.type === 'Coding') {
+            if (!newCodingTasksForJira[newTask.participantName]) {
+              newCodingTasksForJira[newTask.participantName] = { 'Coding': [] };
+            }
+            newCodingTasksForJira[newTask.participantName]['Coding'].push({
+              description: newTask.description,
+              status: newTask.status
+            });
+          }
+        }
+      }
+      
+      jiraResult = await createJiraIssuesForCodingTasks(newCodingTasksForJira);
       
       if (jiraResult.success) {
         logger.info('Jira issues created successfully', {
@@ -88,7 +174,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       };
     }
 
-    // Step 5: Prepare complete result
+    // Step 7: Prepare complete result
     const completeDuration = (Date.now() - startTime) / 1000;
     
     const result = {
@@ -96,18 +182,22 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       tasks: openaiResult.tasks,
       storage: mongoResult,
       transcriptStorage: transcriptStorageResult,
+      taskMatching: matchingResult,
+      taskUpdates: updateResults,
       jira: jiraResult,
       processing: {
         duration: completeDuration,
         steps: {
           transcriptStorage: true,
           openaiProcessing: true,
-          mongodbStorage: true,
+          taskMatching: true,
+          taskUpdates: updateResults.length > 0,
+          mongodbStorage: mongoResult?.success || false,
           jiraIssueCreation: jiraResult?.success || false,
         },
         metadata: {
           ...openaiResult.metadata,
-          mongoDocumentId: mongoResult.documentId,
+          mongoDocumentId: mongoResult?.documentId,
           transcriptDocumentId: transcriptStorageResult.documentId,
           totalProcessingTime: `${completeDuration.toFixed(2)}s`,
           jiraProcessingTime: jiraResult?.processingTime || '0s',
@@ -115,9 +205,11 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       },
       summary: {
         participantCount: Object.keys(openaiResult.tasks).length,
-        totalTasks: Object.values(openaiResult.tasks).reduce((total, participant) => 
+        extractedTasks: Object.values(openaiResult.tasks).reduce((total, participant) => 
           total + (participant.Coding?.length || 0) + (participant['Non-Coding']?.length || 0), 0
         ),
+        newTasksCreated: matchingResult.summary.newTasks,
+        existingTasksUpdated: matchingResult.summary.updatedTasks,
         totalCodingTasks: jiraResult?.totalCodingTasks || 0,
         jiraIssuesCreated: jiraResult?.createdIssues?.length || 0,
         jiraIssuesFailed: jiraResult?.failedIssues?.length || 0,
@@ -127,13 +219,15 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
 
     logger.info('Task processing completed successfully', {
       participantCount: result.summary.participantCount,
-      totalTasks: result.summary.totalTasks,
+      extractedTasks: result.summary.extractedTasks,
+      newTasksCreated: result.summary.newTasksCreated,
+      existingTasksUpdated: result.summary.existingTasksUpdated,
       totalCodingTasks: result.summary.totalCodingTasks,
       jiraIssuesCreated: result.summary.jiraIssuesCreated,
       jiraIssuesFailed: result.summary.jiraIssuesFailed,
       duration: `${completeDuration.toFixed(2)}s`,
       jiraProcessingTime: result.processing.metadata.jiraProcessingTime,
-      mongoDocumentId: mongoResult.documentId,
+      mongoDocumentId: mongoResult?.documentId,
       transcriptDocumentId: transcriptStorageResult.documentId,
       transcriptDate: transcriptStorageResult.date,
       jiraIntegrationSuccess: jiraResult?.success || false,
