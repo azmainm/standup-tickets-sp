@@ -36,6 +36,9 @@ JIRA_EMAIL=your-email@domain.com
 JIRA_API_TOKEN=your-api-token
 JIRA_PROJECT_KEY=YOUR_PROJECT_KEY
 
+# Teams Webhook Configuration
+TEAMS_WEBHOOK_URL=https://your-teams-webhook-url
+
 # Environment
 NODE_ENV=production
 ```
@@ -62,20 +65,19 @@ NODE_ENV=production
 
 ```javascript
 const PARTICIPANT_TO_JIRA_MAPPING = {
-  "Azmain Morshed": "azmainmorshed03@gmail.com",
-  "Doug Whitewolff": "doug@yourcompany.com",
+  "Jane Doe": "jane@gmail.com",
+  "John Doe": "john@yourcompany.com",h
   "Shafkat Kabir": "shafkat@yourcompany.com",
   
   // Add variations for better matching
-  "Azmain": "azmainmorshed03@gmail.com",
-  "Doug": "doug@yourcompany.com",
-  "Shafkat": "shafkat@yourcompany.com",
+  "Azmain": "jane@gmail.com",
+  "John": "john@yourcompany.com",
 };
 ```
 
 3. Set a default assignee for unknown participants:
 ```javascript
-const DEFAULT_ASSIGNEE = "azmainmorshed03@gmail.com"; // or null for unassigned
+const DEFAULT_ASSIGNEE = "jane@gmail.com"; // or null for unassigned
 ```
 
 **Why is this needed?**
@@ -83,7 +85,56 @@ const DEFAULT_ASSIGNEE = "azmainmorshed03@gmail.com"; // or null for unassigned
 - Jira requires email addresses or usernames for assignment
 - Without mapping, all issues would be created unassigned
 
-### 3. Install Dependencies
+### 3. Teams Webhook Setup (Optional)
+
+The system can automatically send a standup summary to a Microsoft Teams channel after processing is complete.
+
+#### Creating Teams Webhook
+1. Go to your Teams channel where you want to receive summaries
+2. Click the "..." menu → "Connectors"
+3. Find "Incoming Webhook" and click "Configure"
+4. Give it a name (e.g., "Standup Summary Bot")
+5. Optionally upload a custom icon
+6. Click "Create" and copy the webhook URL
+7. Add the URL to your `.env` file as `TEAMS_WEBHOOK_URL`
+
+#### Teams Summary Format
+The Teams summary includes:
+- **Standup date** (formatted as DD/MM/YYYY)
+- **New tasks** created for each participant with ticket IDs and coding/non-coding labels
+- **Updated tasks** for each participant with ticket IDs and coding/non-coding labels
+- **Link to admin panel** for detailed task view
+
+**Example Teams Message:**
+```
+📋 Daily Standup Summary
+Standup Date: 25/12/2024
+
+John Doe:
+New Tasks
+1. SP-100: Implement User Auth (Coding)
+
+Updated Tasks
+1. SP-95: Database Migration (Non-Coding)
+
+Jane Doe:
+New Tasks
+1. SP-101: API Integration (Coding)
+2. SP-102: Frontend Dashboard (Coding)
+
+Updated Tasks
+1. SP-90: Bug Fix (Coding)
+2. SP-85: Documentation (Non-Coding)
+
+Please check Admin Panel to see the new and updated tasks.
+```
+
+#### Configuration Notes
+- **Optional**: If `TEAMS_WEBHOOK_URL` is not set, the system will skip Teams notifications
+- **No Impact**: Teams integration failure will not affect other processing steps
+- **Logging**: All Teams webhook attempts are logged for monitoring
+
+### 4. Install Dependencies
 
 ```bash
 cd functions
@@ -150,8 +201,8 @@ cd functions
 node tests/testParticipantMapping.js
 
 # Test specific participant name
-node tests/testParticipantMapping.js "Azmain Morshed"
-node tests/testParticipantMapping.js "Doug"
+node tests/testParticipantMapping.js "Jane"
+node tests/testParticipantMapping.js "John"
 ```
 
 This will validate email formats, test name matching, and show assignment results.
@@ -191,6 +242,22 @@ This will:
 - Test database integration for active task retrieval
 - Show task matching results and update logic
 
+#### Test Teams Webhook Integration
+```bash
+cd functions
+node tests/testTeamsWebhook.js
+```
+
+This will:
+- Check Teams webhook environment variables
+- Test Teams webhook connection with a test message
+- Test summary formatting with mock data
+- Send a complete standup summary to Teams
+- Test empty data scenarios
+- Validate summary data generation from task results
+
+**Note**: This test requires `TEAMS_WEBHOOK_URL` to be set in your `.env` file.
+
 #### Test Complete Flow
 ```bash
 cd functions
@@ -198,14 +265,15 @@ node tests/testFullFlow.js
 ```
 
 This will:
-- Check all environment variables (including Jira)
-- Test all service connections (Microsoft Graph, OpenAI, MongoDB, Jira)
+- Check all environment variables (including Jira and Teams)
+- Test all service connections (Microsoft Graph, OpenAI, MongoDB, Jira, Teams)
 - Fetch transcript from Microsoft Teams
 - Process with OpenAI to extract tasks with enhanced prompting
 - Match tasks with existing database tasks
 - Update existing tasks and create new ones
 - Store results in MongoDB
 - Create Jira issues for new coding tasks only
+- Send standup summary to Teams channel (if configured)
 - Show complete processing statistics including task matching results
 
 ### 5. Deploy to Firebase
@@ -234,6 +302,7 @@ firebase deploy --only functions
   - Stores structured task data in MongoDB
   - Categorizes tasks as "Coding" or "Non-Coding"
   - Creates Jira issues for coding tasks with AI-generated titles
+  - **Sends standup summary to Microsoft Teams channel** (if webhook configured)
 
 ### `transcriptApi` (HTTP)
 - **Endpoints**:
@@ -246,6 +315,7 @@ The `/fetch-transcript` endpoint now performs the complete flow:
 2. Processes with OpenAI to extract tasks
 3. Stores results in MongoDB
 4. Creates Jira issues for coding tasks
+5. Sends standup summary to Teams channel 
 
 ```bash
 # Using the default meeting URL from environment
@@ -301,6 +371,7 @@ functions/
 │   ├── openaiService.js        # OpenAI GPT processing service
 │   ├── mongoService.js         # MongoDB storage service
 │   ├── jiraService.js          # Jira API integration service
+│   ├── teamsService.js         # Microsoft Teams webhook integration
 │   ├── taskProcessor.js        # Task processing orchestration
 │   └── taskMatcher.js          # Task matching and similarity detection
 ├── config/
@@ -312,6 +383,7 @@ functions/
 │   ├── testParticipantMapping.js # Test participant email mapping
 │   ├── testJiraIntegration.js  # Test Jira integration only
 │   ├── testTaskMatching.js     # Test enhanced task matching functionality
+│   ├── testTeamsWebhook.js     # Test Teams webhook integration
 │   └── testFullFlow.js        # Test complete flow
 ├── output/                     # Local transcript files (created automatically)
 ├── .env                        # Environment variables (create this)
@@ -345,8 +417,13 @@ functions/
     - Generates concise titles (max 5 words) using GPT
     - Creates issues in the configured Jira project
     - Assigns issues to participants using email mapping
-11. **Local Backup**: Saves transcript to local file for reference
-12. **Logging**: Comprehensive logging for monitoring and debugging
+11. **Teams Integration**: Sends standup summary to Teams channel (if webhook configured)
+    - Formats summary with new and updated tasks per participant
+    - Includes ticket IDs and coding/non-coding classifications
+    - Provides link to admin panel for detailed task view
+    - Gracefully skips if webhook URL not configured
+12. **Local Backup**: Saves transcript to local file for reference
+13. **Logging**: Comprehensive logging for monitoring and debugging
 
 ### MongoDB Data Structure
 
@@ -356,7 +433,7 @@ Each document in the 'sptasks' collection follows this structure with **unique t
 {
   "_id": "ObjectId(...)",
   "timestamp": "2024-01-15T10:30:00.000Z",
-  "Azmain": {
+  "Jane": {
     "Coding": [
       {
         "ticketId": "SP-1",
@@ -378,7 +455,7 @@ Each document in the 'sptasks' collection follows this structure with **unique t
       }
     ]
   },
-  "Doug": {
+  "John": {
     "Coding": [
       {
         "ticketId": "SP-3",
@@ -400,19 +477,6 @@ Each document in the 'sptasks' collection follows this structure with **unique t
       }
     ]
   },
-  "Shafkat": {
-    "Coding": [
-      {
-        "ticketId": "SP-5",
-        "title": "CAMP ABC Feature",
-        "description": "Build ABC feature in CAMP",
-        "status": "To-do",
-        "estimatedTime": 6,
-        "timeTaken": 1
-      }
-    ],
-    "Non-Coding": []
-  }
 }
 ```
 

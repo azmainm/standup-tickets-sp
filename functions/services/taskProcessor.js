@@ -11,6 +11,7 @@ const { processTranscriptForTasks } = require('./openaiService');
 const { storeTasks, storeTranscript, updateTask } = require('./mongoService');
 const { createJiraIssuesForCodingTasks } = require('./jiraService');
 const { matchTasksWithDatabase } = require('./taskMatcher');
+const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require('./teamsService');
 const { logger } = require("firebase-functions");
 
 /**
@@ -174,7 +175,59 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       };
     }
 
-    // Step 7: Prepare complete result
+    // Step 7: Send summary to Teams webhook
+    logger.info('Step 7: Sending standup summary to Teams');
+    let teamsResult = null;
+    
+    try {
+      // Generate summary data from the complete task processing result
+      const summaryData = generateSummaryDataFromTaskResult({
+        taskMatching: matchingResult,
+        jira: jiraResult,
+        tasks: openaiResult.tasks
+      }, mongoResult);
+      
+      // Determine standup date from transcript metadata or current date
+      const standupDate = transcriptMetadata?.fetchedAt ? 
+        new Date(transcriptMetadata.fetchedAt).toLocaleDateString('en-GB') : 
+        new Date().toLocaleDateString('en-GB');
+      
+      teamsResult = await sendStandupSummaryToTeams(summaryData, {
+        standupDate,
+        processingDuration: (Date.now() - startTime) / 1000,
+        jiraIntegrationSuccess: jiraResult?.success || false,
+      });
+      
+      if (teamsResult.success) {
+        logger.info('Teams summary sent successfully', {
+          totalNewTasks: summaryData.summary?.totalNewTasks || 0,
+          totalUpdatedTasks: summaryData.summary?.totalUpdatedTasks || 0,
+          totalParticipants: summaryData.summary?.totalParticipants || 0,
+          messageLength: teamsResult.messageLength,
+        });
+      } else if (teamsResult.skipped) {
+        logger.info('Teams notification skipped (webhook URL not configured)');
+      } else {
+        logger.warn('Teams summary failed to send', {
+          error: teamsResult.error,
+          status: teamsResult.status,
+        });
+      }
+    } catch (teamsError) {
+      logger.error('Teams webhook processing failed', {
+        error: teamsError.message,
+        stack: teamsError.stack,
+      });
+      
+      // Create a failed result object
+      teamsResult = {
+        success: false,
+        error: teamsError.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // Step 8: Prepare complete result
     const completeDuration = (Date.now() - startTime) / 1000;
     
     const result = {
@@ -185,6 +238,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       taskMatching: matchingResult,
       taskUpdates: updateResults,
       jira: jiraResult,
+      teams: teamsResult,
       processing: {
         duration: completeDuration,
         steps: {
@@ -194,6 +248,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
           taskUpdates: updateResults.length > 0,
           mongodbStorage: mongoResult?.success || false,
           jiraIssueCreation: jiraResult?.success || false,
+          teamsNotification: teamsResult?.success || false,
         },
         metadata: {
           ...openaiResult.metadata,
@@ -231,6 +286,8 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       transcriptDocumentId: transcriptStorageResult.documentId,
       transcriptDate: transcriptStorageResult.date,
       jiraIntegrationSuccess: jiraResult?.success || false,
+      teamsNotificationSuccess: teamsResult?.success || false,
+      teamsNotificationSkipped: teamsResult?.skipped || false,
     });
 
     return result;
