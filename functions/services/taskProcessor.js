@@ -187,9 +187,9 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
         tasks: openaiResult.tasks
       }, mongoResult);
       
-      // Determine standup date from transcript metadata or current date
-      const standupDate = transcriptMetadata?.fetchedAt ? 
-        new Date(transcriptMetadata.fetchedAt).toLocaleDateString("en-GB") : 
+      // Determine standup date from target date (meeting date) not fetch date
+      const standupDate = transcriptMetadata?.targetDate ? 
+        new Date(transcriptMetadata.targetDate).toLocaleDateString("en-GB") : 
         new Date().toLocaleDateString("en-GB");
       
       teamsResult = await sendStandupSummaryToTeams(summaryData, {

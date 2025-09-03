@@ -350,6 +350,7 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
             meetingId: onlineMeeting.id,
             transcriptId: transcript.id,
             fetchedAt: new Date().toISOString(),
+            targetDate: targetDate, // Add target date for Teams message
             entryCount: transcriptJson.length,
             savedToFile: filePath,
             filename,

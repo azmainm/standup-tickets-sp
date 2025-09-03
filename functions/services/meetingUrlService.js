@@ -72,14 +72,15 @@ function getMeetingUrlForDay(currentDate = new Date()) {
     
     if (bangladeshTime.hour >= 0 && bangladeshTime.hour < 6) {
       // Early morning - use previous day
-      const targetDate = new Date(targetYear, targetMonth - 1, targetDay);
+      // Fix: Use dateString directly to avoid timezone issues
+      const targetDate = new Date(bangladeshTime.dateString);
       targetDate.setDate(targetDate.getDate() - 1);
       
       targetYear = targetDate.getFullYear();
       targetMonth = targetDate.getMonth() + 1;
       targetDay = targetDate.getDate();
       targetDayOfWeek = targetDate.getDay();
-      targetDateString = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+      targetDateString = targetDate.toISOString().slice(0, 10);
       
       logger.info("Using previous day for meeting URL selection", {
         currentHour: bangladeshTime.hour,
@@ -165,7 +166,7 @@ function shouldHaveMeetingOnDay(date) {
   
   // If early morning, check previous day
   if (bangladeshTime.hour >= 0 && bangladeshTime.hour < 6) {
-    const targetDate = new Date(bangladeshTime.date);
+    const targetDate = new Date(bangladeshTime.dateString);
     targetDate.setDate(targetDate.getDate() - 1);
     targetDayOfWeek = targetDate.getDay();
   }

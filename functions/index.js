@@ -89,7 +89,8 @@ app.post("/fetch-transcript", async (req, res) => {
     
     if (bdTimeForFile.hour >= 0 && bdTimeForFile.hour < 6) {
       // Early morning - use previous day for filename
-      const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
+      // Fix: Use dateString directly to avoid timezone issues
+      const targetDateObj = new Date(bdTimeForFile.dateString);
       targetDateObj.setDate(targetDateObj.getDate() - 1);
       targetDateForFile = targetDateObj.toISOString().slice(0, 10);
     }
@@ -280,7 +281,8 @@ exports.dailyTranscriptFetch = onSchedule({
     let targetDateForFile = bdTimeForFile.dateString;
     if (bdTimeForFile.hour >= 0 && bdTimeForFile.hour < 6) {
       // Early morning - use previous day for filename
-      const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
+      // Fix: Use dateString directly to avoid timezone issues
+      const targetDateObj = new Date(bdTimeForFile.dateString);
       targetDateObj.setDate(targetDateObj.getDate() - 1);
       targetDateForFile = targetDateObj.toISOString().slice(0, 10);
     }

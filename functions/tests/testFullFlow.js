@@ -137,7 +137,8 @@ async function testCompleteFlow() {
   let targetDateForFile = bdTime.dateString;
   if (bdTime.hour >= 0 && bdTime.hour < 6) {
     // Early morning - use previous day
-    const targetDateObj = new Date(bdTime.year, bdTime.month - 1, bdTime.day);
+    // Fix: Use dateString directly to avoid timezone issues
+    const targetDateObj = new Date(bdTime.dateString);
     targetDateObj.setDate(targetDateObj.getDate() - 1);
     targetDateForFile = targetDateObj.toISOString().slice(0, 10);
   }
