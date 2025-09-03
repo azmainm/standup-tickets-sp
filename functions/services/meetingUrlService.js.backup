@@ -2,55 +2,15 @@
  * Meeting URL Service - Handles day-based meeting URL selection
  * 
  * This service determines which meeting URL to use based on the day of the week:
- * - Tuesday/Thursday/Saturday: Use DAILY_STANDUP_URL_MWF
- * - Wednesday/Friday: Use DAILY_STANDUP_URL_TT
- * - Sunday/Monday: No meetings
+ * - MWF (Monday, Wednesday, Friday): Use DAILY_STANDUP_URL_MWF
+ * - TT (Tuesday, Thursday): Use DAILY_STANDUP_URL_TT
+ * - Weekend (Saturday, Sunday): No meetings
  */
 
 const {logger} = require("firebase-functions");
 
 // Load environment variables
 require("dotenv").config();
-
-/**
- * Get Bangladesh time components properly
- * @param {Date} currentDate - Current date (optional, defaults to now)
- * @returns {Object} Bangladesh time components
- */
-function getBangladeshTimeComponents(currentDate = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Dhaka",
-    year: "numeric",
-    month: "2-digit", 
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  });
-
-  const parts = formatter.formatToParts(currentDate);
-  const year = parseInt(parts.find(p => p.type === "year").value);
-  const month = parseInt(parts.find(p => p.type === "month").value);
-  const day = parseInt(parts.find(p => p.type === "day").value);
-  const hour = parseInt(parts.find(p => p.type === "hour").value);
-  const minute = parseInt(parts.find(p => p.type === "minute").value);
-  const second = parseInt(parts.find(p => p.type === "second").value);
-
-  // Create a proper date object for day calculations (using 1-indexed month)
-  const bangladeshDate = new Date(year, month - 1, day);
-  
-  return {
-    year,
-    month,
-    day,
-    hour,
-    minute,
-    second,
-    dayOfWeek: bangladeshDate.getDay(),
-    dateString: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-  };
-}
 
 /**
  * Get the appropriate meeting URL based on the current day
@@ -60,63 +20,55 @@ function getBangladeshTimeComponents(currentDate = new Date()) {
  */
 function getMeetingUrlForDay(currentDate = new Date()) {
   try {
-    // Get Bangladesh time components
-    const bangladeshTime = getBangladeshTimeComponents(currentDate);
+    // Convert to Bangladesh timezone (UTC+6)
+    const bangladeshTime = new Date(currentDate.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
     
-    // If it's early morning (midnight to 6 AM), use previous day's meeting
-    let targetYear = bangladeshTime.year;
-    let targetMonth = bangladeshTime.month;
-    let targetDay = bangladeshTime.day;
-    let targetDayOfWeek = bangladeshTime.dayOfWeek;
-    let targetDateString = bangladeshTime.dateString;
+    // If it's 2 AM or later but before 6 AM, use previous day's meeting
+    // This handles the scheduled function running at 2 AM for the previous day's meeting
+    const hour = bangladeshTime.getHours();
+    let targetDate = new Date(bangladeshTime);
     
-    if (bangladeshTime.hour >= 0 && bangladeshTime.hour < 6) {
-      // Early morning - use previous day
-      const targetDate = new Date(targetYear, targetMonth - 1, targetDay);
+    if (hour >= 0 && hour < 6) {
+      // Early morning (midnight to 6 AM) - use previous day
       targetDate.setDate(targetDate.getDate() - 1);
-      
-      targetYear = targetDate.getFullYear();
-      targetMonth = targetDate.getMonth() + 1;
-      targetDay = targetDate.getDate();
-      targetDayOfWeek = targetDate.getDay();
-      targetDateString = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
-      
       logger.info("Using previous day for meeting URL selection", {
-        currentHour: bangladeshTime.hour,
-        originalDate: bangladeshTime.dateString,
-        targetDate: targetDateString,
+        currentHour: hour,
+        originalDate: bangladeshTime.toISOString().split("T")[0],
+        targetDate: targetDate.toISOString().split("T")[0],
       });
     }
     
+    // Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const dayOfWeek = targetDate.getDay();
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const dayName = dayNames[targetDayOfWeek];
+    const dayName = dayNames[dayOfWeek];
     
     logger.info("Determining meeting URL for day", {
-      targetDate: targetDateString,
-      dayOfWeek: targetDayOfWeek,
+      targetDate: targetDate.toISOString().split("T")[0],
+      dayOfWeek,
       dayName,
-      bangladeshTime: `${bangladeshTime.dateString}T${String(bangladeshTime.hour).padStart(2, "0")}:${String(bangladeshTime.minute).padStart(2, "0")}:${String(bangladeshTime.second).padStart(2, "0")}+06:00`,
+      bangladeshTime: bangladeshTime.toISOString(),
     });
     
     // Check if it's a meeting day
-    if (targetDayOfWeek === 0 || targetDayOfWeek === 1) {
+    if (dayOfWeek === 0 || dayOfWeek === 1) {
       // Sunday (0) or Monday (1) - no meetings
       logger.info("No meeting on this day", { dayName });
       return null;
     }
     
-    // Determine which URL to use based on the CURRENT day (not target day)
-    // If today is Tuesday/Thursday/Saturday → Use MWF URL
-    // If today is Wednesday/Friday → Use TT URL
+    // Determine which URL to use based on the target day
+    // Tuesday/Thursday/Saturday → Use MWF URL
+    // Wednesday/Friday → Use TT URL
     let meetingUrl = null;
     let meetingType = null;
     
-    if (bangladeshTime.dayOfWeek === 2 || bangladeshTime.dayOfWeek === 4 || bangladeshTime.dayOfWeek === 6) {
-      // Today is Tuesday (2), Thursday (4), Saturday (6) - Use MWF URL
+    if (dayOfWeek === 2 || dayOfWeek === 4 || dayOfWeek === 6) {
+      // Tuesday (2), Thursday (4), Saturday (6) - Use MWF URL
       meetingUrl = process.env.DAILY_STANDUP_URL_MWF;
       meetingType = "Using MWF URL";
-    } else if (bangladeshTime.dayOfWeek === 3 || bangladeshTime.dayOfWeek === 5) {
-      // Today is Wednesday (3), Friday (5) - Use TT URL
+    } else if (dayOfWeek === 3 || dayOfWeek === 5) {
+      // Wednesday (3), Friday (5) - Use TT URL
       meetingUrl = process.env.DAILY_STANDUP_URL_TT;
       meetingType = "Using TT URL";
     }
@@ -130,17 +82,13 @@ function getMeetingUrlForDay(currentDate = new Date()) {
       return null;
     }
     
-    const currentDayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const currentDayName = currentDayNames[bangladeshTime.dayOfWeek];
-    
     logger.info("Meeting URL selected", {
-      currentDay: currentDayName,
-      targetDay: dayName,
-      todayIs: bangladeshTime.dayOfWeek === 2 || bangladeshTime.dayOfWeek === 4 || bangladeshTime.dayOfWeek === 6 ? "Tuesday/Thursday/Saturday" : "Wednesday/Friday",
+      dayName,
+      todayIs: dayOfWeek === 2 || dayOfWeek === 4 || dayOfWeek === 6 ? "Tuesday/Thursday/Saturday" : "Wednesday/Friday",
       meetingType,
       hasUrl: !!meetingUrl,
       urlPrefix: meetingUrl.substring(0, 50) + "...",
-      logic: bangladeshTime.dayOfWeek === 2 || bangladeshTime.dayOfWeek === 4 || bangladeshTime.dayOfWeek === 6 ? "Today is Tue/Thu/Sat → Use MWF URL" : "Today is Wed/Fri → Use TT URL"
+      logic: dayOfWeek === 2 || dayOfWeek === 4 || dayOfWeek === 6 ? "Today is Tue/Thu/Sat → Use MWF URL" : "Today is Wed/Fri → Use TT URL"
     });
     
     return meetingUrl;
@@ -160,19 +108,10 @@ function getMeetingUrlForDay(currentDate = new Date()) {
  * @returns {boolean} True if there should be a meeting on this day
  */
 function shouldHaveMeetingOnDay(date) {
-  const bangladeshTime = getBangladeshTimeComponents(date);
-  let targetDayOfWeek = bangladeshTime.dayOfWeek;
-  
-  // If early morning, check previous day
-  if (bangladeshTime.hour >= 0 && bangladeshTime.hour < 6) {
-    const targetDate = new Date(bangladeshTime.date);
-    targetDate.setDate(targetDate.getDate() - 1);
-    targetDayOfWeek = targetDate.getDay();
-  }
-  
+  const dayOfWeek = date.getDay();
   // Tuesday (2), Wednesday (3), Thursday (4), Friday (5), Saturday (6) have meetings
   // Sunday (0), Monday (1) do not
-  return targetDayOfWeek >= 2 && targetDayOfWeek <= 6;
+  return dayOfWeek >= 2 && dayOfWeek <= 6;
 }
 
 /**
@@ -181,15 +120,13 @@ function shouldHaveMeetingOnDay(date) {
  * @returns {string|null} Description of which URL to use, or null if no meeting
  */
 function getMeetingTypeForDay(date) {
-  const bangladeshTime = getBangladeshTimeComponents(date);
+  const dayOfWeek = date.getDay();
   
-  // Use CURRENT day to determine URL type (not target day)
-  // The target day logic is only for fetching the previous day's transcript
-  if (bangladeshTime.dayOfWeek === 2 || bangladeshTime.dayOfWeek === 4 || bangladeshTime.dayOfWeek === 6) {
-    // Today is Tuesday/Thursday/Saturday - Use MWF URL
+  if (dayOfWeek === 2 || dayOfWeek === 4 || dayOfWeek === 6) {
+    // Tuesday/Thursday/Saturday - Use MWF URL
     return "Use MWF URL";
-  } else if (bangladeshTime.dayOfWeek === 3 || bangladeshTime.dayOfWeek === 5) {
-    // Today is Wednesday/Friday - Use TT URL
+  } else if (dayOfWeek === 3 || dayOfWeek === 5) {
+    // Wednesday/Friday - Use TT URL
     return "Use TT URL";
   }
   
@@ -248,9 +185,8 @@ function getMeetingUrlWithFallback(currentDate = new Date()) {
   // If new system fails and it's a weekday, try legacy URL
   const shouldHaveMeeting = shouldHaveMeetingOnDay(currentDate);
   if (shouldHaveMeeting && process.env.DAILY_STANDUP_URL) {
-    const bangladeshTime = getBangladeshTimeComponents(currentDate);
     logger.warn("Using legacy DAILY_STANDUP_URL as fallback", {
-      date: bangladeshTime.dateString,
+      date: currentDate.toISOString().split("T")[0],
       hasLegacyUrl: !!process.env.DAILY_STANDUP_URL,
     });
     return process.env.DAILY_STANDUP_URL;
@@ -275,13 +211,13 @@ async function testMeetingUrlService() {
     const testDate = new Date(today);
     testDate.setDate(today.getDate() + i);
     
-    const bangladeshTime = getBangladeshTimeComponents(testDate);
+    const dayOfWeek = testDate.getDay();
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     
     testResults.dayTests.push({
-      date: bangladeshTime.dateString,
-      dayName: dayNames[bangladeshTime.dayOfWeek],
-      dayOfWeek: bangladeshTime.dayOfWeek,
+      date: testDate.toISOString().split("T")[0],
+      dayName: dayNames[dayOfWeek],
+      dayOfWeek,
       shouldHaveMeeting: shouldHaveMeetingOnDay(testDate),
       meetingType: getMeetingTypeForDay(testDate),
       meetingUrl: getMeetingUrlForDay(testDate) ? "URL_SET" : "NO_URL",
@@ -298,5 +234,4 @@ module.exports = {
   validateMeetingUrlEnvironment,
   getMeetingUrlWithFallback,
   testMeetingUrlService,
-  getBangladeshTimeComponents, // Export for testing
 };

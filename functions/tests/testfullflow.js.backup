@@ -16,7 +16,7 @@ const { processTranscriptToTasks } = require("../services/taskProcessor");
 const { testOpenAIConnection } = require("../services/openaiService");
 const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/mongoService");
 const { testJiraConnection, getProjectInfo } = require("../services/jiraService");
-const { getMeetingUrlWithFallback, shouldHaveMeetingOnDay, getBangladeshTimeComponents, testMeetingUrlService } = require("../services/meetingUrlService");
+const { getMeetingUrlWithFallback, shouldHaveMeetingOnDay, testMeetingUrlService } = require("../services/meetingUrlService");
 
 async function testCompleteFlow() {
   console.log("=".repeat(80));
@@ -161,19 +161,6 @@ async function testCompleteFlow() {
   
   // Determine which meeting URL to use
   const meetingUrl = getMeetingUrlWithFallback();
-  // Determine target day (for display purposes)
-  const bdTime = getBangladeshTimeComponents(new Date());
-  let targetDay = "";
-  if (bdTime.hour >= 0 && bdTime.hour < 6) {
-    // Early morning - use previous day
-    const targetDate = new Date(bdTime.year, bdTime.month - 1, bdTime.day);
-    targetDate.setDate(targetDate.getDate() - 1);
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    targetDay = dayNames[targetDate.getDay()];
-  } else {
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    targetDay = dayNames[bdTime.dayOfWeek];
-  }
   const currentDay = new Date().toLocaleDateString("en-US", { weekday: "long", timeZone: "Asia/Dhaka" });
   
   let transcriptResult;
@@ -197,23 +184,13 @@ async function testCompleteFlow() {
       }
     };
   } else {
-    console.log(`   📅 Meeting URL for ${targetDay}: ${meetingUrl.substring(0, 60)}...`);
+    console.log(`   📅 Meeting URL for ${currentDay}: ${meetingUrl.substring(0, 60)}...`);
     
     try {
       console.log("   🔄 Starting transcript fetch...");
       const startTime = Date.now();
       
-      // Calculate target date for filename
-      const bdTimeForFile = getBangladeshTimeComponents(new Date());
-      let targetDateForFile = bdTimeForFile.dateString;
-      if (bdTimeForFile.hour >= 0 && bdTimeForFile.hour < 6) {
-        // Early morning - use previous day for filename
-        const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
-        targetDateObj.setDate(targetDateObj.getDate() - 1);
-        targetDateForFile = targetDateObj.toISOString().slice(0, 10);
-      }
-      
-      transcriptResult = await getMeetingTranscript(meetingUrl, targetDateForFile);
+      transcriptResult = await getMeetingTranscript(meetingUrl);
       
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     

@@ -7,11 +7,11 @@
  * 3. Including task details (ticket ID, title, coding/non-coding classification)
  */
 
-const axios = require('axios');
+const axios = require("axios");
 const {logger} = require("firebase-functions");
 
 // Load environment variables
-require('dotenv').config();
+require("dotenv").config();
 
 /**
  * Send standup summary to Teams channel via webhook
@@ -24,15 +24,15 @@ async function sendStandupSummaryToTeams(summaryData, metadata = {}) {
     const webhookUrl = process.env.TEAMS_WEBHOOK_URL;
     
     if (!webhookUrl) {
-      logger.warn('TEAMS_WEBHOOK_URL environment variable not set, skipping Teams notification');
+      logger.warn("TEAMS_WEBHOOK_URL environment variable not set, skipping Teams notification");
       return {
         success: false,
-        message: 'Teams webhook URL not configured',
+        message: "Teams webhook URL not configured",
         skipped: true
       };
     }
 
-    logger.info('Sending standup summary to Teams', {
+    logger.info("Sending standup summary to Teams", {
       participantCount: Object.keys(summaryData.participants || {}).length,
       totalNewTasks: summaryData.summary?.totalNewTasks || 0,
       totalUpdatedTasks: summaryData.summary?.totalUpdatedTasks || 0,
@@ -51,7 +51,7 @@ async function sendStandupSummaryToTeams(summaryData, metadata = {}) {
       "sections": [
         {
           "activityTitle": "📋 Daily Standup Summary",
-          "activitySubtitle": `Standup Date: ${metadata.standupDate || new Date().toLocaleDateString('en-GB')}`,
+          "activitySubtitle": `Standup Date: ${metadata.standupDate || new Date().toLocaleDateString("en-GB")}`,
           "text": formattedMessage,
           "markdown": true
         }
@@ -73,12 +73,12 @@ async function sendStandupSummaryToTeams(summaryData, metadata = {}) {
     // Send to Teams webhook
     const response = await axios.post(webhookUrl, teamsPayload, {
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       timeout: 15000,
     });
 
-    logger.info('Standup summary sent to Teams successfully', {
+    logger.info("Standup summary sent to Teams successfully", {
       status: response.status,
       statusText: response.statusText,
       participantCount: Object.keys(summaryData.participants || {}).length,
@@ -95,7 +95,7 @@ async function sendStandupSummaryToTeams(summaryData, metadata = {}) {
     };
 
   } catch (error) {
-    logger.error('Failed to send standup summary to Teams', {
+    logger.error("Failed to send standup summary to Teams", {
       error: error.message,
       status: error.response?.status,
       statusText: error.response?.statusText,
@@ -120,7 +120,7 @@ async function sendStandupSummaryToTeams(summaryData, metadata = {}) {
  * @returns {string} Formatted message for Teams
  */
 function formatStandupSummary(summaryData, metadata = {}) {
-  let message = '';
+  let message = "";
 
   const participants = summaryData.participants || {};
   
@@ -143,33 +143,33 @@ function formatStandupSummary(summaryData, metadata = {}) {
         
         // New Tasks section
         if (newTasks.length > 0) {
-          message += `**New Tasks**\n`;
+          message += "**New Tasks**\n";
           newTasks.forEach((task, index) => {
-            const taskType = task.type === 'Coding' ? 'Coding' : 'Non-Coding';
-            const ticketId = task.ticketId || 'SP-??';
+            const taskType = task.type === "Coding" ? "Coding" : "Non-Coding";
+            const ticketId = task.ticketId || "SP-??";
             const title = task.title || task.description;
             message += `${index + 1}. ${ticketId}: ${title} (${taskType})\n`;
           });
-          message += '\n';
+          message += "\n";
         }
         
         // Updated Tasks section
         if (updatedTasks.length > 0) {
-          message += `**Updated Tasks**\n`;
+          message += "**Updated Tasks**\n";
           updatedTasks.forEach((task, index) => {
-            const taskType = task.type === 'Coding' ? 'Coding' : 'Non-Coding';
-            const ticketId = task.ticketId || 'SP-XX';
+            const taskType = task.type === "Coding" ? "Coding" : "Non-Coding";
+            const ticketId = task.ticketId || "SP-XX";
             const title = task.title || task.description;
             message += `${index + 1}. ${ticketId}: ${title} (${taskType})\n`;
           });
-          message += '\n';
+          message += "\n";
         }
       }
     }
   }
 
   // Add admin panel link
-  message += `**Please check [Admin Panel](https://sherpaprompt-admin.vercel.app/dashboard/tasks) to see the new and updated tasks.**`;
+  message += "**Please check [Admin Panel](https://sherpaprompt-admin.vercel.app/dashboard/tasks) to see the new and updated tasks.**";
 
   return message;
 }
@@ -252,7 +252,7 @@ function generateSummaryDataFromTaskResult(taskResult, mongoResult = null) {
 
     summaryData.summary.totalParticipants = Object.keys(summaryData.participants).length;
 
-    logger.info('Generated summary data from task result', {
+    logger.info("Generated summary data from task result", {
       totalNewTasks: summaryData.summary.totalNewTasks,
       totalUpdatedTasks: summaryData.summary.totalUpdatedTasks,
       totalParticipants: summaryData.summary.totalParticipants,
@@ -262,7 +262,7 @@ function generateSummaryDataFromTaskResult(taskResult, mongoResult = null) {
     return summaryData;
 
   } catch (error) {
-    logger.error('Error generating summary data from task result', {
+    logger.error("Error generating summary data from task result", {
       error: error.message,
       stack: error.stack,
     });
@@ -280,7 +280,7 @@ async function testTeamsWebhook() {
     const webhookUrl = process.env.TEAMS_WEBHOOK_URL;
     
     if (!webhookUrl) {
-      logger.error('TEAMS_WEBHOOK_URL environment variable is not set');
+      logger.error("TEAMS_WEBHOOK_URL environment variable is not set");
       return false;
     }
 
@@ -302,12 +302,12 @@ async function testTeamsWebhook() {
 
     const response = await axios.post(webhookUrl, testPayload, {
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       timeout: 10000,
     });
 
-    logger.info('Teams webhook test successful', {
+    logger.info("Teams webhook test successful", {
       status: response.status,
       statusText: response.statusText,
     });
@@ -315,7 +315,7 @@ async function testTeamsWebhook() {
     return true;
 
   } catch (error) {
-    logger.error('Teams webhook test failed', {
+    logger.error("Teams webhook test failed", {
       error: error.message,
       status: error.response?.status,
       statusText: error.response?.statusText,

@@ -77,7 +77,7 @@ function parseVttToJson(vttContent) {
  * @param {string} meetingUrl - The Microsoft Teams meeting URL
  * @returns {Promise<Object|null>} Transcript data or null if no transcript found
  */
-async function getMeetingTranscript(meetingUrl, targetDate = null) {
+async function getMeetingTranscript(meetingUrl) {
   try {
     // Acquire a token using the client credentials flow
     const config = createMsalConfig();
@@ -155,9 +155,8 @@ async function getMeetingTranscript(meetingUrl, targetDate = null) {
     const transcriptJson = parseVttToJson(transcriptText);
 
     // Step 4: Save the JSON file (optional - for local testing)
-    // Use targetDate if provided, otherwise use current date
-    const dateForFilename = targetDate ? targetDate : new Date().toISOString().slice(0, 10);
-    const filename = `${dateForFilename}_dailystandup.json`;
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `${today}_dailystandup.json`;
     const filePath = path.join(__dirname, "../output", filename);
 
     // Ensure output directory exists

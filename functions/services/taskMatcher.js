@@ -9,10 +9,10 @@
 
 // Note: getActiveTasks is imported within functions to avoid circular dependency issues
 const { logger } = require("firebase-functions");
-const OpenAI = require('openai');
+const OpenAI = require("openai");
 
 // Load environment variables
-require('dotenv').config();
+require("dotenv").config();
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -53,14 +53,14 @@ Examples:
 `;
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: "gpt-4o-mini",
       messages: [
         {
-          role: 'system',
-          content: 'You are a precise task analysis expert. Always respond with valid JSON only.'
+          role: "system",
+          content: "You are a precise task analysis expert. Always respond with valid JSON only."
         },
         {
-          role: 'user',
+          role: "user",
           content: prompt
         }
       ],
@@ -73,7 +73,7 @@ Examples:
     // Parse the JSON response
     const result = JSON.parse(responseText);
     
-    logger.info('GPT task similarity check completed', {
+    logger.info("GPT task similarity check completed", {
       newTask: newTaskDescription.substring(0, 50),
       existingTask: existingTaskDescription.substring(0, 50),
       isMatch: result.isMatch,
@@ -84,11 +84,11 @@ Examples:
     return {
       isMatch: result.isMatch,
       confidence: result.confidence,
-      reasoning: result.reasoning || 'No reasoning provided'
+      reasoning: result.reasoning || "No reasoning provided"
     };
     
   } catch (error) {
-    logger.error('Error in GPT task similarity check', {
+    logger.error("Error in GPT task similarity check", {
       error: error.message,
       newTask: newTaskDescription.substring(0, 50),
       existingTask: existingTaskDescription.substring(0, 50)
@@ -98,7 +98,7 @@ Examples:
     return {
       isMatch: false,
       confidence: 0.0,
-      reasoning: 'GPT check failed, defaulting to no match'
+      reasoning: "GPT check failed, defaulting to no match"
     };
   }
 }
@@ -143,7 +143,7 @@ async function findMatchingTask(newTask, existingTasks) {
         };
       }
     } catch (error) {
-      logger.error('Error checking task similarity', {
+      logger.error("Error checking task similarity", {
         error: error.message,
         newTask: newTask.description.substring(0, 50),
         existingTask: existingTask.description.substring(0, 50)
@@ -215,9 +215,9 @@ function normalizeTicketId(ticketId) {
   
   // Remove spaces, convert to uppercase, ensure dash format
   return ticketId.toString()
-    .replace(/\s+/g, '') // Remove all spaces: "SP 12" -> "SP12"
+    .replace(/\s+/g, "") // Remove all spaces: "SP 12" -> "SP12"
     .toUpperCase()       // Convert to uppercase: "sp4" -> "SP4"
-    .replace(/^(SP)(\d+)$/, '$1-$2'); // Add dash if missing: "SP3" -> "SP-3"
+    .replace(/^(SP)(\d+)$/, "$1-$2"); // Add dash if missing: "SP3" -> "SP-3"
 }
 
 /**
@@ -231,22 +231,22 @@ function parseStatusUpdate(text) {
   const lowerText = text.toLowerCase();
   
   // Check for completion indicators
-  if (lowerText.includes('completed') || 
-      lowerText.includes('finished') || 
-      lowerText.includes('done with') ||
-      lowerText.includes('is done') ||
-      lowerText.includes('have completed')) {
-    return 'Completed';
+  if (lowerText.includes("completed") || 
+      lowerText.includes("finished") || 
+      lowerText.includes("done with") ||
+      lowerText.includes("is done") ||
+      lowerText.includes("have completed")) {
+    return "Completed";
   }
   
   // Check for in-progress indicators
-  if (lowerText.includes('started') || 
-      lowerText.includes('working on') || 
-      lowerText.includes('begun') ||
-      lowerText.includes('in progress') ||
-      lowerText.includes('currently') ||
-      lowerText.includes('am working')) {
-    return 'In-progress';
+  if (lowerText.includes("started") || 
+      lowerText.includes("working on") || 
+      lowerText.includes("begun") ||
+      lowerText.includes("in progress") ||
+      lowerText.includes("currently") ||
+      lowerText.includes("am working")) {
+    return "In-progress";
   }
   
   return null;
@@ -260,7 +260,7 @@ function parseStatusUpdate(text) {
  */
 async function processTaskMatching(newTasks, existingTasks) {
   try {
-    logger.info('Starting task matching process', {
+    logger.info("Starting task matching process", {
       newTasksCount: newTasks.length,
       existingTasksCount: existingTasks.length,
     });
@@ -294,14 +294,14 @@ async function processTaskMatching(newTasks, existingTasks) {
         );
         
         if (matchingTask) {
-          logger.info('Found task by explicit ticket ID', {
+          logger.info("Found task by explicit ticket ID", {
             ticketId: newTask.existingTaskId,
             normalizedId: normalizedSearchId,
             matchedTicketId: matchingTask.ticketId,
             taskDescription: newTask.description.substring(0, 50)
           });
         } else {
-          logger.warn('Explicit ticket ID mentioned but not found in database', {
+          logger.warn("Explicit ticket ID mentioned but not found in database", {
             ticketId: newTask.existingTaskId,
             normalizedId: normalizedSearchId,
             availableTicketIds: existingTasks.filter(t => t.ticketId).map(t => t.ticketId),
@@ -336,7 +336,7 @@ async function processTaskMatching(newTasks, existingTasks) {
         
         // If explicit task ID was mentioned and we have a status from AI, prioritize that
         if (newTask.existingTaskId && newTask.status && 
-            newTask.status !== 'To-do' && newTask.status !== matchingTask.status) {
+            newTask.status !== "To-do" && newTask.status !== matchingTask.status) {
           statusUpdate = newTask.status;
         }
         
@@ -366,7 +366,7 @@ async function processTaskMatching(newTasks, existingTasks) {
         const newTaskData = {
           participantName: newTask.assignee,
           description: newTask.description,
-          status: parseStatusUpdate(newTask.description) || 'To-do',
+          status: parseStatusUpdate(newTask.description) || "To-do",
           type: newTask.type,
           estimatedTime: parseTimeEstimate(newTask.description),
           timeTaken: parseTimeSpent(newTask.description)
@@ -377,7 +377,7 @@ async function processTaskMatching(newTasks, existingTasks) {
       }
     }
     
-    logger.info('Task matching completed', {
+    logger.info("Task matching completed", {
       newTasksToCreate: results.summary.newTasks,
       existingTasksToUpdate: results.summary.updatedTasks,
       totalProcessed: results.summary.totalProcessed,
@@ -386,7 +386,7 @@ async function processTaskMatching(newTasks, existingTasks) {
     return results;
     
   } catch (error) {
-    logger.error('Error in task matching process', {
+    logger.error("Error in task matching process", {
       error: error.message,
       stack: error.stack,
     });
@@ -410,36 +410,36 @@ async function matchTasksWithDatabase(extractedTasksData) {
         for (const task of participantTasks.Coding) {
           newTasks.push({
             assignee: participantName,
-            description: typeof task === 'string' ? task : task.description,
-            type: 'Coding',
-            estimatedTime: typeof task === 'object' ? task.estimatedTime : undefined,
-            timeTaken: typeof task === 'object' ? task.timeTaken : undefined,
-            status: typeof task === 'object' ? task.status : undefined,
-            existingTaskId: typeof task === 'object' ? task.existingTaskId : undefined,
-            taskType: typeof task === 'object' ? task.taskType : undefined
+            description: typeof task === "string" ? task : task.description,
+            type: "Coding",
+            estimatedTime: typeof task === "object" ? task.estimatedTime : undefined,
+            timeTaken: typeof task === "object" ? task.timeTaken : undefined,
+            status: typeof task === "object" ? task.status : undefined,
+            existingTaskId: typeof task === "object" ? task.existingTaskId : undefined,
+            taskType: typeof task === "object" ? task.taskType : undefined
           });
         }
       }
       
       // Process non-coding tasks
-      if (participantTasks['Non-Coding'] && Array.isArray(participantTasks['Non-Coding'])) {
-        for (const task of participantTasks['Non-Coding']) {
+      if (participantTasks["Non-Coding"] && Array.isArray(participantTasks["Non-Coding"])) {
+        for (const task of participantTasks["Non-Coding"]) {
           newTasks.push({
             assignee: participantName,
-            description: typeof task === 'string' ? task : task.description,
-            type: 'Non-Coding',
-            estimatedTime: typeof task === 'object' ? task.estimatedTime : undefined,
-            timeTaken: typeof task === 'object' ? task.timeTaken : undefined,
-            status: typeof task === 'object' ? task.status : undefined,
-            existingTaskId: typeof task === 'object' ? task.existingTaskId : undefined,
-            taskType: typeof task === 'object' ? task.taskType : undefined
+            description: typeof task === "string" ? task : task.description,
+            type: "Non-Coding",
+            estimatedTime: typeof task === "object" ? task.estimatedTime : undefined,
+            timeTaken: typeof task === "object" ? task.timeTaken : undefined,
+            status: typeof task === "object" ? task.status : undefined,
+            existingTaskId: typeof task === "object" ? task.existingTaskId : undefined,
+            taskType: typeof task === "object" ? task.taskType : undefined
           });
         }
       }
     }
     
     // Get all existing active tasks from database
-    const { getActiveTasks } = require('./mongoService');
+    const { getActiveTasks } = require("./mongoService");
     const allExistingTasks = await getActiveTasks();
     
     // Process task matching
@@ -459,7 +459,7 @@ async function matchTasksWithDatabase(extractedTasksData) {
     };
     
   } catch (error) {
-    logger.error('Error in matchTasksWithDatabase', {
+    logger.error("Error in matchTasksWithDatabase", {
       error: error.message,
       stack: error.stack,
     });

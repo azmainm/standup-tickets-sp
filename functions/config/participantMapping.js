@@ -59,7 +59,7 @@ function getJiraAssigneeForParticipant(participantName) {
   }
   
   // Try partial matching (first name)
-  const firstName = participantName.split(' ')[0].toLowerCase();
+  const firstName = participantName.split(" ")[0].toLowerCase();
   for (const [mappedName, email] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
     if (mappedName.toLowerCase().includes(firstName)) {
       return email;
@@ -91,7 +91,7 @@ function validateParticipantMapping() {
     if (emailRegex.test(email)) {
       validEntries.push({ participant, email });
     } else {
-      invalidEntries.push({ participant, email, reason: 'Invalid email format' });
+      invalidEntries.push({ participant, email, reason: "Invalid email format" });
     }
   }
   

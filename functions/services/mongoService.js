@@ -7,18 +7,18 @@
  * 3. Retrieving task data for analysis
  */
 
-const { MongoClient } = require('mongodb');
+const { MongoClient } = require("mongodb");
 const {logger} = require("firebase-functions");
 
 // Load environment variables
-require('dotenv').config();
+require("dotenv").config();
 
 // MongoDB configuration
 const MONGODB_URI = process.env.MONGODB_URI;
-const DATABASE_NAME = 'standuptickets';
-const COLLECTION_NAME = 'sptasks';
-const TRANSCRIPTS_COLLECTION = 'transcripts';
-const COUNTERS_COLLECTION = 'counters';
+const DATABASE_NAME = "standuptickets";
+const COLLECTION_NAME = "sptasks";
+const TRANSCRIPTS_COLLECTION = "transcripts";
+const COUNTERS_COLLECTION = "counters";
 
 let client = null;
 let db = null;
@@ -30,7 +30,7 @@ let db = null;
 async function initializeMongoDB() {
   try {
     if (!MONGODB_URI) {
-      throw new Error('MONGODB_URI environment variable is not set');
+      throw new Error("MONGODB_URI environment variable is not set");
     }
 
     if (!client) {
@@ -38,13 +38,13 @@ async function initializeMongoDB() {
       await client.connect();
       db = client.db(DATABASE_NAME);
       
-      logger.info('MongoDB connection established', {
+      logger.info("MongoDB connection established", {
         database: DATABASE_NAME,
         collection: COLLECTION_NAME,
       });
     }
   } catch (error) {
-    logger.error('Failed to initialize MongoDB connection', {
+    logger.error("Failed to initialize MongoDB connection", {
       error: error.message,
       stack: error.stack,
     });
@@ -68,7 +68,7 @@ async function storeTasks(tasksData, metadata = {}) {
     await initializeTicketCounter();
     
     // Import title generation function
-    const { generateTaskTitlesInBatch } = require('./openaiService');
+    const { generateTaskTitlesInBatch } = require("./openaiService");
     
     // Process tasks and assign ticket IDs and titles
     const processedTasksData = {};
@@ -77,8 +77,8 @@ async function storeTasks(tasksData, metadata = {}) {
     
     for (const [participantName, participantTasks] of Object.entries(tasksData)) {
       processedTasksData[participantName] = {
-        'Coding': [],
-        'Non-Coding': []
+        "Coding": [],
+        "Non-Coding": []
       };
       
       // Process Coding tasks
@@ -92,21 +92,21 @@ async function storeTasks(tasksData, metadata = {}) {
             ticketId,
             title: task.title,
             description: task.description,
-            status: task.status || 'To-do',
+            status: task.status || "To-do",
             estimatedTime: task.estimatedTime || 0,
             timeTaken: task.timeTaken || 0
           };
           
-          processedTasksData[participantName]['Coding'].push(taskWithId);
+          processedTasksData[participantName]["Coding"].push(taskWithId);
           assignedTicketIds.push(ticketId);
           totalTasksWithIds++;
         }
       }
       
       // Process Non-Coding tasks
-      if (participantTasks['Non-Coding'] && Array.isArray(participantTasks['Non-Coding'])) {
+      if (participantTasks["Non-Coding"] && Array.isArray(participantTasks["Non-Coding"])) {
         // Generate titles for all non-coding tasks in batch
-        const tasksWithTitles = await generateTaskTitlesInBatch(participantTasks['Non-Coding']);
+        const tasksWithTitles = await generateTaskTitlesInBatch(participantTasks["Non-Coding"]);
         
         for (const task of tasksWithTitles) {
           const ticketId = await getNextTicketId();
@@ -114,12 +114,12 @@ async function storeTasks(tasksData, metadata = {}) {
             ticketId,
             title: task.title,
             description: task.description,
-            status: task.status || 'To-do',
+            status: task.status || "To-do",
             estimatedTime: task.estimatedTime || 0,
             timeTaken: task.timeTaken || 0
           };
           
-          processedTasksData[participantName]['Non-Coding'].push(taskWithId);
+          processedTasksData[participantName]["Non-Coding"].push(taskWithId);
           assignedTicketIds.push(ticketId);
           totalTasksWithIds++;
         }
@@ -134,7 +134,7 @@ async function storeTasks(tasksData, metadata = {}) {
     
     const result = await collection.insertOne(document);
     
-    logger.info('Tasks stored successfully in MongoDB with ticket IDs', {
+    logger.info("Tasks stored successfully in MongoDB with ticket IDs", {
       documentId: result.insertedId,
       participantCount: Object.keys(tasksData).length,
       totalTasksWithIds,
@@ -152,7 +152,7 @@ async function storeTasks(tasksData, metadata = {}) {
     };
     
   } catch (error) {
-    logger.error('Error storing tasks in MongoDB', {
+    logger.error("Error storing tasks in MongoDB", {
       error: error.message,
       stack: error.stack,
     });
@@ -174,7 +174,7 @@ async function storeTranscript(transcriptData, metadata = {}) {
     
     // Get the date from metadata or use current date
     const transcriptDate = metadata.fetchedAt ? new Date(metadata.fetchedAt) : new Date();
-    const dateString = transcriptDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const dateString = transcriptDate.toISOString().split("T")[0]; // YYYY-MM-DD format
     
     // Compress transcript data for storage efficiency
     // Convert to compact JSON string to save space
@@ -192,7 +192,7 @@ async function storeTranscript(transcriptData, metadata = {}) {
     
     const result = await collection.insertOne(document);
     
-    logger.info('Transcript stored successfully in MongoDB', {
+    logger.info("Transcript stored successfully in MongoDB", {
       documentId: result.insertedId,
       date: dateString,
       entryCount: transcriptData.length,
@@ -209,7 +209,7 @@ async function storeTranscript(transcriptData, metadata = {}) {
     };
     
   } catch (error) {
-    logger.error('Error storing transcript in MongoDB', {
+    logger.error("Error storing transcript in MongoDB", {
       error: error.message,
       stack: error.stack,
     });
@@ -244,7 +244,7 @@ async function getTranscripts(query = {}, options = {}) {
       transcript_data: JSON.parse(doc.transcript_data)
     }));
     
-    logger.info('Transcripts retrieved from MongoDB', {
+    logger.info("Transcripts retrieved from MongoDB", {
       documentCount: transcripts.length,
       query: JSON.stringify(query),
     });
@@ -252,7 +252,7 @@ async function getTranscripts(query = {}, options = {}) {
     return processedTranscripts;
     
   } catch (error) {
-    logger.error('Error retrieving transcripts from MongoDB', {
+    logger.error("Error retrieving transcripts from MongoDB", {
       error: error.message,
       stack: error.stack,
       query: JSON.stringify(query),
@@ -301,7 +301,7 @@ async function getTasks(query = {}, options = {}) {
     
     const tasks = await collection.find(query, queryOptions).toArray();
     
-    logger.info('Tasks retrieved from MongoDB', {
+    logger.info("Tasks retrieved from MongoDB", {
       documentCount: tasks.length,
       query: JSON.stringify(query),
     });
@@ -309,7 +309,7 @@ async function getTasks(query = {}, options = {}) {
     return tasks;
     
   } catch (error) {
-    logger.error('Error retrieving tasks from MongoDB', {
+    logger.error("Error retrieving tasks from MongoDB", {
       error: error.message,
       stack: error.stack,
       query: JSON.stringify(query),
@@ -379,22 +379,22 @@ async function getActiveTasks() {
       
       // Process each participant in the document
       for (const [participantName, participantData] of Object.entries(doc)) {
-        if (participantName === '_id' || participantName === 'timestamp') continue;
+        if (participantName === "_id" || participantName === "timestamp") continue;
         
         // Process coding tasks
         if (participantData.Coding && Array.isArray(participantData.Coding)) {
           for (let i = 0; i < participantData.Coding.length; i++) {
             const task = participantData.Coding[i];
-            const taskObj = typeof task === 'string' ? { description: task, status: 'To-do' } : task;
+            const taskObj = typeof task === "string" ? { description: task, status: "To-do" } : task;
             
-            if (taskObj.status === 'To-do' || taskObj.status === 'In-progress' || taskObj.status === 'In Progress') {
+            if (taskObj.status === "To-do" || taskObj.status === "In-progress" || taskObj.status === "In Progress") {
               activeTasks.push({
                 participantName,
                 ticketId: taskObj.ticketId || null, // Include ticket ID if available
                 title: taskObj.title || null, // Include title if available
                 description: taskObj.description,
                 status: taskObj.status,
-                type: 'Coding',
+                type: "Coding",
                 estimatedTime: taskObj.estimatedTime || 0,
                 timeTaken: taskObj.timeTaken || 0,
                 documentId: docId,
@@ -407,19 +407,19 @@ async function getActiveTasks() {
         }
         
         // Process non-coding tasks
-        if (participantData['Non-Coding'] && Array.isArray(participantData['Non-Coding'])) {
-          for (let i = 0; i < participantData['Non-Coding'].length; i++) {
-            const task = participantData['Non-Coding'][i];
-            const taskObj = typeof task === 'string' ? { description: task, status: 'To-do' } : task;
+        if (participantData["Non-Coding"] && Array.isArray(participantData["Non-Coding"])) {
+          for (let i = 0; i < participantData["Non-Coding"].length; i++) {
+            const task = participantData["Non-Coding"][i];
+            const taskObj = typeof task === "string" ? { description: task, status: "To-do" } : task;
             
-            if (taskObj.status === 'To-do' || taskObj.status === 'In-progress' || taskObj.status === 'In Progress') {
+            if (taskObj.status === "To-do" || taskObj.status === "In-progress" || taskObj.status === "In Progress") {
               activeTasks.push({
                 participantName,
                 ticketId: taskObj.ticketId || null, // Include ticket ID if available
                 title: taskObj.title || null, // Include title if available
                 description: taskObj.description,
                 status: taskObj.status,
-                type: 'Non-Coding',
+                type: "Non-Coding",
                 estimatedTime: taskObj.estimatedTime || 0,
                 timeTaken: taskObj.timeTaken || 0,
                 documentId: docId,
@@ -433,7 +433,7 @@ async function getActiveTasks() {
       }
     }
     
-    logger.info('Active tasks retrieved from MongoDB', {
+    logger.info("Active tasks retrieved from MongoDB", {
       totalActiveTasks: activeTasks.length,
       documentsProcessed: documents.length,
     });
@@ -441,7 +441,7 @@ async function getActiveTasks() {
     return activeTasks;
     
   } catch (error) {
-    logger.error('Error retrieving active tasks from MongoDB', {
+    logger.error("Error retrieving active tasks from MongoDB", {
       error: error.message,
       stack: error.stack,
     });
@@ -493,7 +493,7 @@ async function updateTask(documentId, taskPath, updateData) {
       { $set: updateObj }
     );
     
-    logger.info('Task updated in MongoDB', {
+    logger.info("Task updated in MongoDB", {
       documentId,
       taskPath,
       updateData,
@@ -508,7 +508,7 @@ async function updateTask(documentId, taskPath, updateData) {
     };
     
   } catch (error) {
-    logger.error('Error updating task in MongoDB', {
+    logger.error("Error updating task in MongoDB", {
       documentId,
       taskPath,
       updateData,
@@ -529,11 +529,11 @@ async function testMongoConnection() {
     // Test with a simple ping
     await db.admin().ping();
     
-    logger.info('MongoDB connection test successful');
+    logger.info("MongoDB connection test successful");
     return true;
     
   } catch (error) {
-    logger.error('MongoDB connection test failed', {
+    logger.error("MongoDB connection test failed", {
       error: error.message,
     });
     return false;
@@ -557,7 +557,7 @@ async function getCollectionStats() {
     };
     
   } catch (error) {
-    logger.error('Error getting collection stats', {
+    logger.error("Error getting collection stats", {
       error: error.message,
     });
     throw error;
@@ -576,18 +576,18 @@ async function getNextTicketId() {
     
     // Use atomic findOneAndUpdate to ensure unique IDs even in concurrent environments
     const result = await countersCollection.findOneAndUpdate(
-      { _id: 'ticket_counter' },
+      { _id: "ticket_counter" },
       { $inc: { count: 1 } },
       { 
         upsert: true, // Create the document if it doesn't exist
-        returnDocument: 'after' // Return the updated document
+        returnDocument: "after" // Return the updated document
       }
     );
     
     const ticketNumber = result.count;
     const ticketId = `SP-${ticketNumber}`;
     
-    logger.info('Generated new ticket ID', {
+    logger.info("Generated new ticket ID", {
       ticketId,
       ticketNumber,
     });
@@ -595,7 +595,7 @@ async function getNextTicketId() {
     return ticketId;
     
   } catch (error) {
-    logger.error('Error generating ticket ID', {
+    logger.error("Error generating ticket ID", {
       error: error.message,
       stack: error.stack,
     });
@@ -616,10 +616,10 @@ async function initializeTicketCounter(startingNumber = 1) {
     const countersCollection = db.collection(COUNTERS_COLLECTION);
     
     // Check if counter already exists
-    const existingCounter = await countersCollection.findOne({ _id: 'ticket_counter' });
+    const existingCounter = await countersCollection.findOne({ _id: "ticket_counter" });
     
     if (existingCounter) {
-      logger.info('Ticket counter already exists', {
+      logger.info("Ticket counter already exists", {
         currentCount: existingCounter.count,
       });
       return true;
@@ -627,13 +627,13 @@ async function initializeTicketCounter(startingNumber = 1) {
     
     // Initialize the counter
     await countersCollection.insertOne({
-      _id: 'ticket_counter',
+      _id: "ticket_counter",
       count: startingNumber - 1, // Set to startingNumber - 1 so next increment gives startingNumber
       createdAt: new Date(),
-      description: 'Auto-incrementing counter for SP ticket IDs'
+      description: "Auto-incrementing counter for SP ticket IDs"
     });
     
-    logger.info('Ticket counter initialized', {
+    logger.info("Ticket counter initialized", {
       startingNumber: startingNumber,
       nextTicketId: `SP-${startingNumber}`,
     });
@@ -641,7 +641,7 @@ async function initializeTicketCounter(startingNumber = 1) {
     return true;
     
   } catch (error) {
-    logger.error('Error initializing ticket counter', {
+    logger.error("Error initializing ticket counter", {
       error: error.message,
       startingNumber,
     });
@@ -659,7 +659,7 @@ async function getCurrentTicketCount() {
     
     const countersCollection = db.collection(COUNTERS_COLLECTION);
     
-    const counter = await countersCollection.findOne({ _id: 'ticket_counter' });
+    const counter = await countersCollection.findOne({ _id: "ticket_counter" });
     
     if (!counter) {
       // Counter doesn't exist, initialize it
@@ -670,7 +670,7 @@ async function getCurrentTicketCount() {
     return counter.count;
     
   } catch (error) {
-    logger.error('Error getting current ticket count', {
+    logger.error("Error getting current ticket count", {
       error: error.message,
     });
     throw new Error(`Getting ticket count failed: ${error.message}`);
@@ -689,7 +689,7 @@ async function resetTicketCounter(newCount) {
     const countersCollection = db.collection(COUNTERS_COLLECTION);
     
     await countersCollection.updateOne(
-      { _id: 'ticket_counter' },
+      { _id: "ticket_counter" },
       { 
         $set: { 
           count: newCount,
@@ -699,7 +699,7 @@ async function resetTicketCounter(newCount) {
       { upsert: true }
     );
     
-    logger.warn('Ticket counter reset', {
+    logger.warn("Ticket counter reset", {
       newCount,
       nextTicketId: `SP-${newCount + 1}`,
     });
@@ -707,7 +707,7 @@ async function resetTicketCounter(newCount) {
     return true;
     
   } catch (error) {
-    logger.error('Error resetting ticket counter', {
+    logger.error("Error resetting ticket counter", {
       error: error.message,
       newCount,
     });
@@ -725,10 +725,10 @@ async function closeMongoDB() {
       await client.close();
       client = null;
       db = null;
-      logger.info('MongoDB connection closed');
+      logger.info("MongoDB connection closed");
     }
   } catch (error) {
-    logger.error('Error closing MongoDB connection', {
+    logger.error("Error closing MongoDB connection", {
       error: error.message,
     });
   }

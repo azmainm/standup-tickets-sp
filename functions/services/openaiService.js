@@ -7,11 +7,11 @@
  * 3. Return structured task data
  */
 
-const OpenAI = require('openai');
+const OpenAI = require("openai");
 const {logger} = require("firebase-functions");
 
 // Load environment variables
-require('dotenv').config();
+require("dotenv").config();
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -25,7 +25,7 @@ const openai = new OpenAI({
  */
 async function processTranscriptForTasks(transcript) {
   try {
-    logger.info('Starting OpenAI processing for transcript', {
+    logger.info("Starting OpenAI processing for transcript", {
       entryCount: transcript.length,
       timestamp: new Date().toISOString(),
     });
@@ -38,14 +38,14 @@ async function processTranscriptForTasks(transcript) {
     
     // Call OpenAI GPT API
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', 
+      model: "gpt-4o-mini", 
       messages: [
         {
-          role: 'system',
-          content: 'You are an expert meeting analyst who extracts actionable tasks from meeting transcripts and categorizes them by participant and task type.'
+          role: "system",
+          content: "You are an expert meeting analyst who extracts actionable tasks from meeting transcripts and categorizes them by participant and task type."
         },
         {
-          role: 'user',
+          role: "user",
           content: prompt
         }
       ],
@@ -54,7 +54,7 @@ async function processTranscriptForTasks(transcript) {
     });
 
     const gptResponse = response.choices[0].message.content;
-    logger.info('OpenAI response received', {
+    logger.info("OpenAI response received", {
       responseLength: gptResponse.length,
       tokensUsed: response.usage.total_tokens,
     });
@@ -62,10 +62,10 @@ async function processTranscriptForTasks(transcript) {
     // Parse the GPT response into structured data
     const structuredTasks = parseGPTResponse(gptResponse);
     
-    logger.info('Successfully processed transcript', {
+    logger.info("Successfully processed transcript", {
       participantCount: Object.keys(structuredTasks).length,
       totalTasks: Object.values(structuredTasks).reduce((total, participant) => 
-        total + (participant.Coding?.length || 0) + (participant['Non-Coding']?.length || 0), 0
+        total + (participant.Coding?.length || 0) + (participant["Non-Coding"]?.length || 0), 0
       ),
     });
 
@@ -74,7 +74,7 @@ async function processTranscriptForTasks(transcript) {
       tasks: structuredTasks,
       rawGptResponse: gptResponse,
       metadata: {
-        model: 'gpt-4o-mini',
+        model: "gpt-4o-mini",
         tokensUsed: response.usage.total_tokens,
         processedAt: new Date().toISOString(),
         participantCount: Object.keys(structuredTasks).length,
@@ -82,7 +82,7 @@ async function processTranscriptForTasks(transcript) {
     };
 
   } catch (error) {
-    logger.error('Error processing transcript with OpenAI', {
+    logger.error("Error processing transcript with OpenAI", {
       error: error.message,
       stack: error.stack,
     });
@@ -100,39 +100,39 @@ function formatTranscriptForGPT(transcript) {
   return transcript
     .map(entry => {
       // Extract speaker name from the text field using <v ParticipantName> format
-      let speaker = 'Unknown';
-      let text = entry.text || '';
+      let speaker = "Unknown";
+      let text = entry.text || "";
       
       // Look for <v ParticipantName> pattern in the text
       const speakerMatch = text.match(/<v\s*([^>]+)>/);
       if (speakerMatch) {
         speaker = speakerMatch[1].trim();
         // Remove the <v ParticipantName> tag from the text
-        text = text.replace(/<v[^>]*>/, '').replace(/<\/v>/, '').trim();
+        text = text.replace(/<v[^>]*>/, "").replace(/<\/v>/, "").trim();
         
         // Skip entries with empty speaker names
         if (!speaker || speaker.length === 0) {
-          return '';
+          return "";
         }
       } else {
         // Fallback: clean up speaker field if no <v> tag found
         speaker = entry.speaker
-          .replace(/<[^>]*>/g, '') // Remove HTML tags
-          .replace(/^v\s+/, '') // Remove 'v ' prefix if present
+          .replace(/<[^>]*>/g, "") // Remove HTML tags
+          .replace(/^v\s+/, "") // Remove 'v ' prefix if present
           .trim();
         
         // Clean up text (remove all HTML tags)
-        text = text.replace(/<[^>]*>/g, '').trim();
+        text = text.replace(/<[^>]*>/g, "").trim();
       }
       
       // Only return meaningful entries
       if (text.length > 0) {
         return `${speaker}: ${text}`;
       }
-      return '';
+      return "";
     })
     .filter(line => line.trim().length > 0) // Remove empty lines
-    .join('\n');
+    .join("\n");
 }
 
 /**
@@ -214,7 +214,7 @@ ${transcriptText}
  * @returns {number} Time in hours
  */
 function parseTimeToHours(timeStr) {
-  if (!timeStr || typeof timeStr !== 'string') return 0;
+  if (!timeStr || typeof timeStr !== "string") return 0;
   
   const str = timeStr.toLowerCase().trim();
   
@@ -232,33 +232,33 @@ function parseTimeToHours(timeStr) {
   
   // Word number conversions
   const wordNumbers = {
-    'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
-    'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20,
-    'a': 1, 'an': 1, 'couple': 2, 'few': 3, 'several': 4
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+    "a": 1, "an": 1, "couple": 2, "few": 3, "several": 4
   };
   
   // Check for word numbers with time units
   for (const [word, num] of Object.entries(wordNumbers)) {
     if (str.includes(word)) {
-      if (str.includes('hour') || str.includes('hr')) {
+      if (str.includes("hour") || str.includes("hr")) {
         return num;
       }
-      if (str.includes('day')) {
+      if (str.includes("day")) {
         return num * 8;
       }
     }
   }
   
   // Special cases
-  if (str.includes('half day') || str.includes('half-day')) {
+  if (str.includes("half day") || str.includes("half-day")) {
     return 4;
   }
-  if (str.includes('morning') || str.includes('afternoon')) {
+  if (str.includes("morning") || str.includes("afternoon")) {
     return 4;
   }
-  if (str.includes('full day') || str.includes('whole day')) {
+  if (str.includes("full day") || str.includes("whole day")) {
     return 8;
   }
   
@@ -267,7 +267,7 @@ function parseTimeToHours(timeStr) {
   if (numberMatch) {
     const num = parseFloat(numberMatch[1]);
     // If the string contains 'day' assume it's days, otherwise assume hours
-    if (str.includes('day')) {
+    if (str.includes("day")) {
       return num * 8;
     }
     return num;
@@ -285,11 +285,11 @@ function parseGPTResponse(gptResponse) {
   const structuredTasks = {};
   
   // Check if GPT responded with no tasks found
-  if (gptResponse.trim().toUpperCase().includes('NO TASKS IDENTIFIED')) {
+  if (gptResponse.trim().toUpperCase().includes("NO TASKS IDENTIFIED")) {
     return structuredTasks; // Return empty object
   }
   
-  const lines = gptResponse.split('\n').filter(line => line.trim());
+  const lines = gptResponse.split("\n").filter(line => line.trim());
   let currentParticipant = null;
   
   for (const line of lines) {
@@ -301,17 +301,17 @@ function parseGPTResponse(gptResponse) {
       currentParticipant = participantMatch[1].trim();
       
       // Skip if this is a placeholder name
-      if (currentParticipant.includes('[') || 
-          currentParticipant.includes('Participant Name') ||
-          currentParticipant.includes('Next Participant') ||
-          currentParticipant.includes('Another Participant')) {
+      if (currentParticipant.includes("[") || 
+          currentParticipant.includes("Participant Name") ||
+          currentParticipant.includes("Next Participant") ||
+          currentParticipant.includes("Another Participant")) {
         currentParticipant = null;
         continue;
       }
       
       structuredTasks[currentParticipant] = {
-        'Coding': [],
-        'Non-Coding': []
+        "Coding": [],
+        "Non-Coding": []
       };
       continue;
     }
@@ -322,21 +322,21 @@ function parseGPTResponse(gptResponse) {
     if (taskMatch && currentParticipant) {
       const taskDescription = taskMatch[1].trim();
       const taskType = taskMatch[2]; // 'Coding' or 'Non-Coding'
-      const additionalInfo = taskMatch[3] || '';
+      const additionalInfo = taskMatch[3] || "";
       
       // Skip if this looks like a placeholder task (only obvious placeholders)
-      if (taskDescription.includes('[') || 
-          taskDescription.includes('Task description') ||
-          taskDescription.includes('Actual task mentioned')) {
+      if (taskDescription.includes("[") || 
+          taskDescription.includes("Task description") ||
+          taskDescription.includes("Actual task mentioned")) {
         continue;
       }
       
       if (structuredTasks[currentParticipant]) {
         // Parse additional information from the enhanced format
-        let taskType_extracted = 'NEW TASK';
+        let taskType_extracted = "NEW TASK";
         let estimatedTime = 0;
         let timeSpent = 0;
-        let status = 'To-do';
+        let status = "To-do";
         let existingTaskId = null;
         
         // Extract TYPE
@@ -349,7 +349,7 @@ function parseGPTResponse(gptResponse) {
         const taskIdMatch = additionalInfo.match(/\[TASK_ID:\s*([^\]]+)\]/i);
         if (taskIdMatch) {
           const taskIdValue = taskIdMatch[1].trim();
-          if (taskIdValue !== 'NONE' && taskIdValue.match(/^SP-\d+$/i)) {
+          if (taskIdValue !== "NONE" && taskIdValue.match(/^SP-\d+$/i)) {
             existingTaskId = taskIdValue.toUpperCase();
           }
         }
@@ -390,7 +390,7 @@ function parseGPTResponse(gptResponse) {
   // Clean up empty participants (remove participants with no tasks)
   Object.keys(structuredTasks).forEach(participant => {
     const tasks = structuredTasks[participant];
-    if (tasks.Coding.length === 0 && tasks['Non-Coding'].length === 0) {
+    if (tasks.Coding.length === 0 && tasks["Non-Coding"].length === 0) {
       delete structuredTasks[participant];
     }
   });
@@ -406,7 +406,7 @@ function parseGPTResponse(gptResponse) {
 async function generateTaskTitle(description) {
   try {
     if (!description || description.trim().length === 0) {
-      return 'Untitled Task';
+      return "Untitled Task";
     }
 
     // If description is already short, use it as title
@@ -415,14 +415,14 @@ async function generateTaskTitle(description) {
     }
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: "gpt-4o-mini",
       messages: [
         {
-          role: 'system',
-          content: 'You are an expert at creating concise, descriptive titles from task descriptions. Create titles that are 2-5 words and capture the main action and subject.'
+          role: "system",
+          content: "You are an expert at creating concise, descriptive titles from task descriptions. Create titles that are 2-5 words and capture the main action and subject."
         },
         {
-          role: 'user',
+          role: "user",
           content: `Create a concise title (2-5 words) for this task description: "${description}"`
         }
       ],
@@ -433,33 +433,33 @@ async function generateTaskTitle(description) {
     let title = response.choices[0].message.content.trim();
     
     // Clean up the title
-    title = title.replace(/['"]/g, ''); // Remove quotes
-    title = title.replace(/^Title:\s*/i, ''); // Remove "Title:" prefix if present
-    title = title.replace(/\.$/, ''); // Remove trailing period
+    title = title.replace(/['"]/g, ""); // Remove quotes
+    title = title.replace(/^Title:\s*/i, ""); // Remove "Title:" prefix if present
+    title = title.replace(/\.$/, ""); // Remove trailing period
     
     // Ensure title is reasonable length
     if (title.length > 60) {
-      title = title.substring(0, 57) + '...';
+      title = title.substring(0, 57) + "...";
     }
     
     // Fallback if title is empty or too short
     if (title.length < 3) {
       // Extract first few meaningful words from description
       const words = description.split(/\s+/).filter(word => word.length > 2);
-      title = words.slice(0, 3).join(' ');
+      title = words.slice(0, 3).join(" ");
     }
     
-    return title || 'Untitled Task';
+    return title || "Untitled Task";
     
   } catch (error) {
-    logger.error('Error generating task title', {
+    logger.error("Error generating task title", {
       error: error.message,
       description: description.substring(0, 100),
     });
     
     // Fallback: use first few words of description
     const words = description.split(/\s+/).filter(word => word.length > 2);
-    return words.slice(0, 3).join(' ') || 'Untitled Task';
+    return words.slice(0, 3).join(" ") || "Untitled Task";
   }
 }
 
@@ -471,23 +471,23 @@ async function generateTaskTitle(description) {
 async function generateTaskTitlesInBatch(tasks) {
   try {
     const titlesPromises = tasks.map(task => {
-      if (typeof task === 'string') {
+      if (typeof task === "string") {
         return generateTaskTitle(task);
       } else if (task.description) {
         return generateTaskTitle(task.description);
       } else {
-        return Promise.resolve('Untitled Task');
+        return Promise.resolve("Untitled Task");
       }
     });
     
     const titles = await Promise.all(titlesPromises);
     
     return tasks.map((task, index) => {
-      if (typeof task === 'string') {
+      if (typeof task === "string") {
         return {
           description: task,
           title: titles[index],
-          status: 'To-do',
+          status: "To-do",
           estimatedTime: 0,
           timeTaken: 0
         };
@@ -500,22 +500,22 @@ async function generateTaskTitlesInBatch(tasks) {
     });
     
   } catch (error) {
-    logger.error('Error generating task titles in batch', {
+    logger.error("Error generating task titles in batch", {
       error: error.message,
       taskCount: tasks.length,
     });
     
     // Fallback: add simple titles
     return tasks.map(task => {
-      const description = typeof task === 'string' ? task : task.description || '';
+      const description = typeof task === "string" ? task : task.description || "";
       const words = description.split(/\s+/).filter(word => word.length > 2);
-      const fallbackTitle = words.slice(0, 3).join(' ') || 'Untitled Task';
+      const fallbackTitle = words.slice(0, 3).join(" ") || "Untitled Task";
       
-      if (typeof task === 'string') {
+      if (typeof task === "string") {
         return {
           description: task,
           title: fallbackTitle,
-          status: 'To-do',
+          status: "To-do",
           estimatedTime: 0,
           timeTaken: 0
         };
@@ -536,19 +536,19 @@ async function generateTaskTitlesInBatch(tasks) {
 async function testOpenAIConnection() {
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: "gpt-4o-mini",
       messages: [
         {
-          role: 'user',
-          content: 'Hello, please respond with "Connection successful"'
+          role: "user",
+          content: "Hello, please respond with \"Connection successful\""
         }
       ],
       max_tokens: 10,
     });
     
-    return response.choices[0].message.content.includes('successful');
+    return response.choices[0].message.content.includes("successful");
   } catch (error) {
-    logger.error('OpenAI connection test failed', { error: error.message });
+    logger.error("OpenAI connection test failed", { error: error.message });
     return false;
   }
 }

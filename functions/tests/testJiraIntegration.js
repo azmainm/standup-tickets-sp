@@ -12,12 +12,12 @@
  * - Environment variable: TRANSCRIPT_FILE=filename node tests/testJiraIntegration.js
  */
 
-const { testJiraConnection, getProjectInfo, createJiraIssuesForCodingTasks } = require('../services/jiraService');
-const { processTranscriptFromFile } = require('../services/taskProcessor');
-const { validateParticipantMapping, getJiraAssigneeForParticipant } = require('../config/participantMapping');
-const fs = require('fs');
-const path = require('path');
-require('dotenv').config();
+const { testJiraConnection, getProjectInfo, createJiraIssuesForCodingTasks } = require("../services/jiraService");
+const { processTranscriptFromFile } = require("../services/taskProcessor");
+const { validateParticipantMapping, getJiraAssigneeForParticipant } = require("../config/participantMapping");
+const fs = require("fs");
+const path = require("path");
+require("dotenv").config();
 
 /**
  * Load transcript data from a JSON file
@@ -25,14 +25,14 @@ require('dotenv').config();
  * @returns {Object} Transcript data and metadata
  */
 function loadTranscriptFile(filename) {
-  const outputDir = path.join(__dirname, '../output');
+  const outputDir = path.join(__dirname, "../output");
   const filePath = path.join(outputDir, filename);
   
   if (!fs.existsSync(filePath)) {
     throw new Error(`Transcript file not found: ${filePath}`);
   }
   
-  const transcriptData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const transcriptData = JSON.parse(fs.readFileSync(filePath, "utf8"));
   
   return {
     transcript: transcriptData,
@@ -48,55 +48,55 @@ function loadTranscriptFile(filename) {
  * @returns {Object} Mock task data structure
  */
 function createMockTasksFromTranscript(transcriptFileData) {
-  console.log('   🔄 Creating mock tasks from transcript entries...');
+  console.log("   🔄 Creating mock tasks from transcript entries...");
   
   // Extract participant names and create sample coding tasks
   const participants = {};
   const transcriptText = transcriptFileData.transcript
-    .map(entry => entry.text || '')
-    .join(' ');
+    .map(entry => entry.text || "")
+    .join(" ");
   
   // Look for participant names in <v ParticipantName> format
   const participantMatches = transcriptText.match(/<v\s*([^>]+)>/g) || [];
   const uniqueParticipants = [...new Set(
     participantMatches.map(match => 
-      match.replace(/<v\s*([^>]+)>/, '$1').trim()
+      match.replace(/<v\s*([^>]+)>/, "$1").trim()
     )
   )];
   
-  console.log(`   👥 Found participants: ${uniqueParticipants.join(', ')}`);
+  console.log(`   👥 Found participants: ${uniqueParticipants.join(", ")}`);
   
   // Create mock coding tasks for each participant
   uniqueParticipants.forEach((participant, index) => {
     const jiraAssignee = getJiraAssigneeForParticipant(participant);
-    const assigneeStatus = jiraAssignee ? '✓' : '⚠️';
+    const assigneeStatus = jiraAssignee ? "✓" : "⚠️";
     
-    console.log(`   ${assigneeStatus} "${participant}" → ${jiraAssignee || 'Unassigned'}`);
+    console.log(`   ${assigneeStatus} "${participant}" → ${jiraAssignee || "Unassigned"}`);
     
     // Only create tasks for Azmain and Shafkat, and only 1 coding task each
-    if (participant === 'Azmain Morshed' || participant === 'Shafkat Kabir') {
+    if (participant === "Azmain Morshed" || participant === "Shafkat Kabir") {
       participants[participant] = {
-        'Coding': [
+        "Coding": [
           {
             description: `Implement feature ${String.fromCharCode(65 + index)} for the admin panel`,
-            status: 'To-do'
+            status: "To-do"
           }
         ],
-        'Non-Coding': [
+        "Non-Coding": [
           {
             description: `Research best practices for project ${String.fromCharCode(65 + index)}`,
-            status: 'To-do'
+            status: "To-do"
           }
         ]
       };
     } else {
       // For other participants, only create non-coding tasks
       participants[participant] = {
-        'Coding': [],
-        'Non-Coding': [
+        "Coding": [],
+        "Non-Coding": [
           {
             description: `Research best practices for project ${String.fromCharCode(65 + index)}`,
-            status: 'To-do'
+            status: "To-do"
           }
         ]
       };
@@ -112,18 +112,18 @@ function createMockTasksFromTranscript(transcriptFileData) {
  * Test Jira integration with a specific transcript file
  * @param {string} filename - Transcript filename (default: 'test_transcript.json')
  */
-async function testJiraIntegration(filename = 'test_transcript.json') {
-  console.log('='.repeat(80));
-  console.log('TESTING JIRA INTEGRATION');
-  console.log('='.repeat(80));
+async function testJiraIntegration(filename = "test_transcript.json") {
+  console.log("=".repeat(80));
+  console.log("TESTING JIRA INTEGRATION");
+  console.log("=".repeat(80));
   
   // Check environment variables
-  console.log('\n1. Checking Jira environment variables...');
+  console.log("\n1. Checking Jira environment variables...");
   const requiredEnvVars = [
-    'JIRA_URL',
-    'JIRA_EMAIL', 
-    'JIRA_API_TOKEN',
-    'JIRA_PROJECT_KEY'
+    "JIRA_URL",
+    "JIRA_EMAIL", 
+    "JIRA_API_TOKEN",
+    "JIRA_PROJECT_KEY"
   ];
   
   const missingVars = [];
@@ -131,43 +131,43 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
     if (!process.env[envVar]) {
       missingVars.push(envVar);
     } else {
-      const displayValue = envVar.includes('TOKEN') ? '[HIDDEN]' : 
-                          process.env[envVar].length > 30 ? 
-                          process.env[envVar].substring(0, 30) + '...' :
-                          process.env[envVar];
+      const displayValue = envVar.includes("TOKEN") ? "[HIDDEN]" : 
+        process.env[envVar].length > 30 ? 
+          process.env[envVar].substring(0, 30) + "..." :
+          process.env[envVar];
       console.log(`✓ ${envVar}: ${displayValue}`);
     }
   }
   
   if (missingVars.length > 0) {
-    console.error('\n❌ Missing Jira environment variables:');
+    console.error("\n❌ Missing Jira environment variables:");
     missingVars.forEach(envVar => console.error(`   - ${envVar}`));
-    console.error('\nPlease check your .env file in the functions directory.');
-    console.error('Required variables for Jira integration:');
-    console.error('   JIRA_URL=https://your-domain.atlassian.net/');
-    console.error('   JIRA_EMAIL=your-email@domain.com');
-    console.error('   JIRA_API_TOKEN=your-api-token');
-    console.error('   JIRA_PROJECT_KEY=YOUR_PROJECT_KEY');
+    console.error("\nPlease check your .env file in the functions directory.");
+    console.error("Required variables for Jira integration:");
+    console.error("   JIRA_URL=https://your-domain.atlassian.net/");
+    console.error("   JIRA_EMAIL=your-email@domain.com");
+    console.error("   JIRA_API_TOKEN=your-api-token");
+    console.error("   JIRA_PROJECT_KEY=YOUR_PROJECT_KEY");
     process.exit(1);
   }
   
-  console.log('\n✓ All Jira environment variables found');
+  console.log("\n✓ All Jira environment variables found");
   
   // Test participant mapping configuration
-  console.log('\n1.5. Testing participant mapping configuration...');
+  console.log("\n1.5. Testing participant mapping configuration...");
   const mappingValidation = validateParticipantMapping();
   
   if (mappingValidation.valid && mappingValidation.validCount > 0) {
     console.log(`✓ Participant mapping configured (${mappingValidation.validCount} participants)`);
-    console.log('   Configured participants:');
+    console.log("   Configured participants:");
     mappingValidation.validEntries.forEach(entry => {
       console.log(`      • "${entry.participant}" → ${entry.email}`);
     });
   } else {
-    console.log('⚠️  Participant mapping issues detected:');
+    console.log("⚠️  Participant mapping issues detected:");
     if (mappingValidation.validCount === 0) {
-      console.log('      - No valid participant mappings found');
-      console.log('      - Issues will be created unassigned');
+      console.log("      - No valid participant mappings found");
+      console.log("      - Issues will be created unassigned");
     }
     if (mappingValidation.invalidCount > 0) {
       console.log(`      - ${mappingValidation.invalidCount} invalid email formats`);
@@ -175,76 +175,76 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
         console.log(`        • "${entry.participant}" → "${entry.email}" (${entry.reason})`);
       });
     }
-    console.log('   Please check config/participantMapping.js');
+    console.log("   Please check config/participantMapping.js");
   }
   
   // Test Jira connection
-  console.log('\n2. Testing Jira API connection...');
-  console.log('   🔄 Connecting to Jira...');
+  console.log("\n2. Testing Jira API connection...");
+  console.log("   🔄 Connecting to Jira...");
   
   const connectionTest = await testJiraConnection();
   if (!connectionTest) {
-    console.error('   ❌ Jira connection test failed');
-    console.error('\n   Common issues:');
-    console.error('      - Invalid API token or email');
-    console.error('      - Incorrect Jira URL');
-    console.error('      - Network connectivity issues');
-    console.error('      - Jira instance not accessible');
+    console.error("   ❌ Jira connection test failed");
+    console.error("\n   Common issues:");
+    console.error("      - Invalid API token or email");
+    console.error("      - Incorrect Jira URL");
+    console.error("      - Network connectivity issues");
+    console.error("      - Jira instance not accessible");
     process.exit(1);
   }
-  console.log('   ✓ Jira connection successful');
+  console.log("   ✓ Jira connection successful");
   
   // Test project access
-  console.log('\n3. Testing project access...');
+  console.log("\n3. Testing project access...");
   console.log(`   🔄 Checking access to project: ${process.env.JIRA_PROJECT_KEY}`);
   
   const projectInfo = await getProjectInfo(process.env.JIRA_PROJECT_KEY);
   if (!projectInfo) {
     console.error(`   ❌ Cannot access project: ${process.env.JIRA_PROJECT_KEY}`);
-    console.error('\n   Possible issues:');
-    console.error('      - Project key does not exist');
-    console.error('      - No permission to access the project');
-    console.error('      - Project key is case-sensitive');
+    console.error("\n   Possible issues:");
+    console.error("      - Project key does not exist");
+    console.error("      - No permission to access the project");
+    console.error("      - Project key is case-sensitive");
     process.exit(1);
   }
   
-  console.log('   ✓ Project access confirmed');
+  console.log("   ✓ Project access confirmed");
   console.log(`      - Project Name: ${projectInfo.name}`);
   console.log(`      - Project Key: ${projectInfo.key}`);
   console.log(`      - Project Type: ${projectInfo.projectTypeKey}`);
   
   // Load transcript file
-  console.log('\n4. Loading transcript file...');
+  console.log("\n4. Loading transcript file...");
   console.log(`   📁 Loading: ${filename}`);
   
   let transcriptData;
   try {
     transcriptData = loadTranscriptFile(filename);
-    console.log('   ✓ Transcript file loaded successfully');
+    console.log("   ✓ Transcript file loaded successfully");
     console.log(`      - File path: ${transcriptData.filePath}`);
     console.log(`      - Entry count: ${transcriptData.entryCount}`);
   } catch (error) {
     console.error(`   ❌ Failed to load transcript file: ${error.message}`);
-    console.error('\n   Available files in output directory:');
+    console.error("\n   Available files in output directory:");
     
     try {
-      const outputDir = path.join(__dirname, '../output');
-      const files = fs.readdirSync(outputDir).filter(f => f.endsWith('.json'));
+      const outputDir = path.join(__dirname, "../output");
+      const files = fs.readdirSync(outputDir).filter(f => f.endsWith(".json"));
       files.forEach(file => console.error(`      - ${file}`));
     } catch (dirError) {
-      console.error('      (Could not read output directory)');
+      console.error("      (Could not read output directory)");
     }
     
     process.exit(1);
   }
   
   // Option 1: Test with mock tasks (faster, doesn't require OpenAI)
-  console.log('\n5. Testing Jira issue creation with mock tasks...');
-  console.log('   📋 Generating mock coding tasks from transcript participants...');
+  console.log("\n5. Testing Jira issue creation with mock tasks...");
+  console.log("   📋 Generating mock coding tasks from transcript participants...");
   
   const mockTasks = createMockTasksFromTranscript(transcriptData);
   
-  console.log('\n   🎫 Creating Jira issues for mock coding tasks...');
+  console.log("\n   🎫 Creating Jira issues for mock coding tasks...");
   const mockStartTime = Date.now();
   
   try {
@@ -254,13 +254,13 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
     console.log(`   ⏱️  Mock test duration: ${mockDuration} seconds`);
     
     if (mockJiraResult.success) {
-      console.log('   ✅ Mock Jira issue creation successful!');
+      console.log("   ✅ Mock Jira issue creation successful!");
     } else {
-      console.log('   ⚠️  Mock Jira issue creation completed with some failures');
+      console.log("   ⚠️  Mock Jira issue creation completed with some failures");
     }
     
     // Display results
-    console.log('\n   📊 Mock Test Results:');
+    console.log("\n   📊 Mock Test Results:");
     console.log(`      - Total coding tasks: ${mockJiraResult.totalCodingTasks}`);
     console.log(`      - Successfully created: ${mockJiraResult.createdIssues.length}`);
     console.log(`      - Failed to create: ${mockJiraResult.failedIssues.length}`);
@@ -268,7 +268,7 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
     
     // Show created issues
     if (mockJiraResult.createdIssues.length > 0) {
-      console.log('\n   🎉 Successfully Created Issues:');
+      console.log("\n   🎉 Successfully Created Issues:");
       mockJiraResult.createdIssues.forEach((issue, index) => {
         console.log(`      ${index + 1}. ${issue.issueKey}: "${issue.title}"`);
         console.log(`         - Participant: ${issue.participant}`);
@@ -278,7 +278,7 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
     
     // Show failed issues
     if (mockJiraResult.failedIssues.length > 0) {
-      console.log('\n   ❌ Failed Issues:');
+      console.log("\n   ❌ Failed Issues:");
       mockJiraResult.failedIssues.forEach((issue, index) => {
         console.log(`      ${index + 1}. Error: ${issue.error}`);
         console.log(`         - Participant: ${issue.participant}`);
@@ -289,7 +289,7 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
     }
     
   } catch (mockError) {
-    console.error('   ❌ Mock Jira test failed:');
+    console.error("   ❌ Mock Jira test failed:");
     console.error(`      Error: ${mockError.message}`);
     
     if (mockError.response) {
@@ -299,14 +299,14 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
   }
   
   // Option 2: Test with full processing (requires OpenAI)
-  console.log('\n6. Testing full processing flow (OpenAI + Jira)...');
-  console.log('   ⚠️  This will use OpenAI API and may consume tokens');
+  console.log("\n6. Testing full processing flow (OpenAI + Jira)...");
+  console.log("   ⚠️  This will use OpenAI API and may consume tokens");
   
   // Check if OpenAI is configured
   if (!process.env.OPENAI_API_KEY) {
-    console.log('   ⏭️  Skipping full processing test - OPENAI_API_KEY not configured');
+    console.log("   ⏭️  Skipping full processing test - OPENAI_API_KEY not configured");
   } else {
-    console.log('   🔄 Processing transcript with OpenAI and creating Jira issues...');
+    console.log("   🔄 Processing transcript with OpenAI and creating Jira issues...");
     
     try {
       const fullStartTime = Date.now();
@@ -319,10 +319,10 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
       console.log(`   ⏱️  Full processing duration: ${fullDuration} seconds`);
       
       if (fullResult.success) {
-        console.log('   ✅ Full processing flow successful!');
+        console.log("   ✅ Full processing flow successful!");
         
         // Display full results
-        console.log('\n   📊 Full Processing Results:');
+        console.log("\n   📊 Full Processing Results:");
         console.log(`      - Participants: ${fullResult.summary.participantCount}`);
         console.log(`      - Total tasks: ${fullResult.summary.totalTasks}`);
         console.log(`      - Coding tasks: ${fullResult.summary.totalCodingTasks}`);
@@ -334,7 +334,7 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
         
         // Show actual extracted tasks and created issues
         if (fullResult.jira && fullResult.jira.createdIssues.length > 0) {
-          console.log('\n   🎯 Real Issues Created from Actual Tasks:');
+          console.log("\n   🎯 Real Issues Created from Actual Tasks:");
           fullResult.jira.createdIssues.forEach((issue, index) => {
             console.log(`      ${index + 1}. ${issue.issueKey}: "${issue.title}"`);
             console.log(`         - Participant: ${issue.participant}`);
@@ -343,33 +343,33 @@ async function testJiraIntegration(filename = 'test_transcript.json') {
         }
         
       } else {
-        console.error('   ❌ Full processing flow failed');
+        console.error("   ❌ Full processing flow failed");
       }
       
     } catch (fullError) {
-      console.error('   ❌ Full processing test failed:');
+      console.error("   ❌ Full processing test failed:");
       console.error(`      Error: ${fullError.message}`);
     }
   }
   
-  console.log('\n' + '='.repeat(80));
-  console.log('JIRA INTEGRATION TEST COMPLETED! 🎉');
-  console.log('='.repeat(80));
-  console.log('\nNext steps:');
-  console.log('- Check your Jira project for created issues');
-  console.log('- Review the test results above');
-  console.log('- Test with different transcript files if needed');
-  console.log('- Run the full flow test: node tests/testFullFlow.js');
+  console.log("\n" + "=".repeat(80));
+  console.log("JIRA INTEGRATION TEST COMPLETED! 🎉");
+  console.log("=".repeat(80));
+  console.log("\nNext steps:");
+  console.log("- Check your Jira project for created issues");
+  console.log("- Review the test results above");
+  console.log("- Test with different transcript files if needed");
+  console.log("- Run the full flow test: node tests/testFullFlow.js");
 }
 
 /**
  * Test with only Jira issue creation (no transcript processing)
  * @param {string} filename - Transcript filename for mock data generation
  */
-async function testJiraOnly(filename = 'test_transcript.json') {
-  console.log('='.repeat(60));
-  console.log('TESTING JIRA ISSUE CREATION ONLY');
-  console.log('='.repeat(60));
+async function testJiraOnly(filename = "test_transcript.json") {
+  console.log("=".repeat(60));
+  console.log("TESTING JIRA ISSUE CREATION ONLY");
+  console.log("=".repeat(60));
   
   // Load transcript for participant names
   let transcriptData;
@@ -385,27 +385,27 @@ async function testJiraOnly(filename = 'test_transcript.json') {
   const mockTasks = createMockTasksFromTranscript(transcriptData);
   
   // Test Jira connection
-  console.log('\n🔄 Testing Jira connection...');
+  console.log("\n🔄 Testing Jira connection...");
   const connected = await testJiraConnection();
   if (!connected) {
-    console.error('❌ Jira connection failed');
+    console.error("❌ Jira connection failed");
     process.exit(1);
   }
-  console.log('✓ Jira connection successful');
+  console.log("✓ Jira connection successful");
   
   // Create issues
-  console.log('\n🎫 Creating Jira issues...');
+  console.log("\n🎫 Creating Jira issues...");
   try {
     const result = await createJiraIssuesForCodingTasks(mockTasks);
     
-    console.log('\n📊 Results:');
+    console.log("\n📊 Results:");
     console.log(`   - Coding tasks: ${result.totalCodingTasks}`);
     console.log(`   - Issues created: ${result.createdIssues.length}`);
     console.log(`   - Issues failed: ${result.failedIssues.length}`);
     console.log(`   - Processing time: ${result.processingTime}`);
     
     if (result.createdIssues.length > 0) {
-      console.log('\n✅ Created Issues:');
+      console.log("\n✅ Created Issues:");
       result.createdIssues.forEach(issue => {
         console.log(`   • ${issue.issueKey}: ${issue.title} (${issue.participant})`);
       });
@@ -419,33 +419,33 @@ async function testJiraOnly(filename = 'test_transcript.json') {
 
 // Handle command line arguments
 const args = process.argv.slice(2);
-const isJiraOnly = args.includes('--jira-only');
-const filename = args.find(arg => !arg.startsWith('--')) || process.env.TRANSCRIPT_FILE || 'test_transcript.json';
+const isJiraOnly = args.includes("--jira-only");
+const filename = args.find(arg => !arg.startsWith("--")) || process.env.TRANSCRIPT_FILE || "test_transcript.json";
 
 // Check for specific test modes
 if (isJiraOnly) {
-  console.log('Running Jira-only test mode...\n');
+  console.log("Running Jira-only test mode...\n");
   testJiraOnly(filename).catch(error => {
-    console.error('Jira-only test failed:', error);
+    console.error("Jira-only test failed:", error);
     process.exit(1);
   });
 } else {
   console.log(`Running full Jira integration test with file: ${filename}\n`);
   testJiraIntegration(filename).catch(error => {
-    console.error('Jira integration test failed:', error);
+    console.error("Jira integration test failed:", error);
     process.exit(1);
   });
 }
 
 // Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
   process.exit(1);
 });
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
   process.exit(1);
 });
 

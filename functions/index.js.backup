@@ -41,7 +41,7 @@ if (process.env.NODE_ENV === "production" && !process.env.OPENAI_API_KEY) {
 // Import our services
 const {getMeetingTranscript} = require("./services/getTranscript");
 const {processTranscriptToTasks} = require("./services/taskProcessor");
-const {getMeetingUrlWithFallback, shouldHaveMeetingOnDay, getBangladeshTimeComponents} = require("./services/meetingUrlService");
+const {getMeetingUrlWithFallback, shouldHaveMeetingOnDay} = require("./services/meetingUrlService");
 
 // For cost control, set maximum container instances
 setGlobalOptions({maxInstances: 10});
@@ -99,37 +99,7 @@ app.post("/fetch-transcript", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
 
-    // Calculate target date for filename
-
-
-    const bdTimeForFile = getBangladeshTimeComponents(new Date());
-
-
-    let targetDateForFile = bdTimeForFile.dateString;
-
-
-    if (bdTimeForFile.hour >= 0 && bdTimeForFile.hour < 6) {
-
-
-      // Early morning - use previous day for filename
-
-
-      const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
-
-
-      targetDateObj.setDate(targetDateObj.getDate() - 1);
-
-
-      targetDateForFile = targetDateObj.toISOString().slice(0, 10);
-
-
-    }
-
-
-    
-
-
-    const result = await getMeetingTranscript(meetingUrl, targetDateForFile);
+    const result = await getMeetingTranscript(meetingUrl);
 
     if (!result) {
       return res.status(404).json({
@@ -279,18 +249,7 @@ exports.dailyTranscriptFetch = onSchedule({
       meetingUrlPrefix: meetingUrl.substring(0, 50) + "...",
     });
 
-    // Calculate target date for filename
-    const bdTimeForFile = getBangladeshTimeComponents(new Date());
-    let targetDateForFile = bdTimeForFile.dateString;
-    if (bdTimeForFile.hour >= 0 && bdTimeForFile.hour < 6) {
-    // Early morning - use previous day for filename
-    const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
-    targetDateObj.setDate(targetDateObj.getDate() - 1);
-    targetDateForFile = targetDateObj.toISOString().slice(0, 10);
-    }
-
-
-    const result = await getMeetingTranscript(meetingUrl, targetDateForFile);
+    const result = await getMeetingTranscript(meetingUrl);
 
     if (result) {
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
