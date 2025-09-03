@@ -2,6 +2,15 @@
 
 This Firebase Functions project automatically fetches Microsoft Teams meeting transcripts for daily standups, processes them with AI to extract actionable tasks, and stores the results in MongoDB for further processing.
 
+## 🆕 NEW: All Meetings Support
+
+The system now supports **two approaches** for fetching transcripts:
+
+1. **🆕 All Meetings Approach** - Fetches ALL meetings for a user on a specific date (NEW)
+2. **🔄 Legacy Approach** - Fetches transcript from specific meeting URLs (existing, maintained for backward compatibility)
+
+The system automatically chooses the best approach and gracefully falls back when needed. See the [System Flow Documentation](../SYSTEM_FLOW_DOCUMENTATION.md) for complete technical details and real-world examples.
+
 ## Setup Instructions
 
 ### 1. Environment Variables
@@ -14,7 +23,10 @@ AZURE_CLIENT_ID=
 AZURE_CLIENT_SECRET=
 AZURE_AUTHORITY=
 
-# Meeting Configuration (NEW: Day-based URLs)
+# 🆕 NEW: All Meetings Approach Configuration
+TARGET_USER_ID=50a66395-f31b-4dee-a45e-ef41f3920c9b  # User whose calendar to fetch
+
+# 🔄 Legacy Meeting Configuration (Day-based URLs)
 DAILY_STANDUP_URL_MWF=  # Monday, Wednesday, Friday meetings
 DAILY_STANDUP_URL_TT=   # Tuesday, Thursday meetings
 
@@ -285,52 +297,92 @@ firebase deploy --only functions
 
 ## Functions
 
-### `dailyTranscriptFetch` (Scheduled)
-- **Schedule**: Monday-Friday at 2:00 AM Bangladesh time (Asia/Dhaka) - **Skips weekends**
-- **Purpose**: Automatically fetches the previous day's standup transcript
-- **Day-based URL Selection** (Inverted Logic - Use opposite URL for previous day's meeting): 
-  - **Tuesday 2 AM**: Fetches Monday's meeting (uses DAILY_STANDUP_URL_MWF)
-  - **Wednesday 2 AM**: Fetches Tuesday's meeting (uses DAILY_STANDUP_URL_TT)
-  - **Thursday 2 AM**: Fetches Wednesday's meeting (uses DAILY_STANDUP_URL_MWF)
-  - **Friday 2 AM**: Fetches Thursday's meeting (uses DAILY_STANDUP_URL_TT)
-  - **Monday 2 AM**: Fetches Friday's meeting (uses DAILY_STANDUP_URL_MWF)
-  - **Saturday/Sunday**: No scheduled runs (no meetings)
-- **Processing**: 
-  - Fetches transcript from Microsoft Teams using day-appropriate URL
+### `dailyTranscriptFetch` (Scheduled) - 🆕 ALL MEETINGS ONLY
+- **Schedule**: Tuesday-Saturday at 2:00 AM Bangladesh time (Asia/Dhaka) - **Skips weekends**
+- **Purpose**: Automatically fetches the previous day's meeting transcript(s)
+- **🆕 Current Implementation**: ALL MEETINGS APPROACH ONLY
+  - **Requires `TARGET_USER_ID`**: Must be configured or function fails
+  - **No Legacy Fallback**: Current implementation does not fall back to Legacy approach
+  - **All Meetings Processing**: Fetches ALL meetings for the target user on previous day
+  - **Individual Processing**: Each transcript processed separately through complete pipeline
+  - **Example**: 3 meetings found → 3 transcripts processed → 3 separate Teams notifications
+- **Processing** (Applied to Each Transcript Individually):
   - Processes with OpenAI to extract tasks by participant with **task ID support**
   - **Assigns unique ticket IDs** (SP-{number}) to new tasks
   - Stores structured task data in MongoDB
   - Categorizes tasks as "Coding" or "Non-Coding"
-  - Creates Jira issues for coding tasks with AI-generated titles
-  - **Sends standup summary to Microsoft Teams channel** (if webhook configured)
+  - Creates Jira issues for NEW coding tasks with AI-generated titles
+  - **Sends separate Teams notification for EACH meeting** (if webhook configured)
+- **🔄 Legacy Support**: Environment variables maintained for potential future use
 
-### `transcriptApi` (HTTP)
+### `transcriptApi` (HTTP) - 🆕 ENHANCED
 - **Endpoints**:
-  - `GET /health` - Health check
-  - `POST /fetch-transcript` - Manual transcript fetch and processing
+  - `GET /health` - Health check (now shows `allMeetingsEnabled` status)
+  - `POST /fetch-transcript` - Manual transcript fetch and processing (enhanced with dual approach support)
 
-#### Manual Transcript Fetch and Processing
-The `/fetch-transcript` endpoint now performs the complete flow:
-1. Fetches transcript from Microsoft Teams
-2. Processes with OpenAI to extract tasks
+#### Manual Transcript Fetch and Processing - 🆕 ALL MEETINGS FOCUSED
+The `/fetch-transcript` endpoint primarily uses All Meetings Approach:
+
+**🆕 Current Behavior**:
+- **`TARGET_USER_ID` configured**: Uses All Meetings Approach (PRIMARY)
+- **No `TARGET_USER_ID` configured**: Returns error requiring configuration
+- **Legacy URLs**: Supported in environment but not actively used in endpoint
+
+**Processing Flow**:
+1. Fetches transcript(s) from Microsoft Teams (All Meetings Approach)
+2. Processes EACH transcript with OpenAI to extract tasks
 3. Stores results in MongoDB
-4. Creates Jira issues for coding tasks
-5. Sends standup summary to Teams channel 
+4. Creates Jira issues for NEW coding tasks
+5. **Sends separate Teams notification for EACH transcript/meeting**
+
+**⚠️ Important**: Multiple meetings = Multiple Teams notifications (not consolidated)
+
+**Usage Examples**:
 
 ```bash
-# Using the default meeting URL from environment
+# 🆕 NEW: Use All Meetings Approach (if TARGET_USER_ID configured)
 curl -X POST https://your-region-your-project.cloudfunctions.net/transcriptApi/fetch-transcript
 
-# Using a custom meeting URL
+# 🔄 Force Legacy Approach with specific meeting URL
 curl -X POST https://your-region-your-project.cloudfunctions.net/transcriptApi/fetch-transcript \
   -H "Content-Type: application/json" \
   -d '{"meetingUrl": "your_custom_meeting_url"}'
+
+# 🔄 Use Legacy Approach with environment meeting URLs
+# (when TARGET_USER_ID not configured)
+curl -X POST https://your-region-your-project.cloudfunctions.net/transcriptApi/fetch-transcript
 ```
 
-**Response Format:**
+**🆕 NEW Response Format (All Meetings Approach):**
+```json
+{
+  "message": "All meetings fetched and processed - 2 successful, 0 failed",
+  "approach": "ALL_MEETINGS",
+  "targetDate": "2025-09-02",
+  "totalTranscripts": 2,
+  "successfullyProcessed": 2,
+  "failedProcessing": 0,
+  "results": [
+    {
+      "transcript": { /* transcript data with metadata */ },
+      "tasks": { /* complete task processing result */ },
+      "success": true
+    },
+    {
+      "transcript": { /* transcript data with metadata */ },
+      "tasks": { /* complete task processing result */ },
+      "success": true
+    }
+  ],
+  "timestamp": "2025-..."
+}
+```
+
+**🔄 Legacy Response Format:**
 ```json
 {
   "message": "Transcript fetched and processed successfully",
+  "approach": "LEGACY",
   "transcript": { /* transcript data */ },
   "tasks": {
     "success": true,
@@ -357,7 +409,7 @@ curl -X POST https://your-region-your-project.cloudfunctions.net/transcriptApi/f
     },
     "summary": { /* processing summary with Jira statistics */ }
   },
-  "timestamp": "2024-..."
+  "timestamp": "2025-..."
 }
 ```
 
@@ -365,19 +417,23 @@ curl -X POST https://your-region-your-project.cloudfunctions.net/transcriptApi/f
 
 ```
 functions/
-├── index.js                    # Main Firebase Functions entry point
+├── index.js                    # Main Firebase Functions entry point (🆕 ENHANCED)
 ├── services/
-│   ├── getTranscript.js        # Microsoft Graph API service
+│   ├── getTranscript.js        # Microsoft Graph API service (legacy approach)
+│   ├── allMeetingsService.js   # 🆕 NEW: All meetings fetching service
 │   ├── openaiService.js        # OpenAI GPT processing service
 │   ├── mongoService.js         # MongoDB storage service
 │   ├── jiraService.js          # Jira API integration service
 │   ├── teamsService.js         # Microsoft Teams webhook integration
 │   ├── taskProcessor.js        # Task processing orchestration
-│   └── taskMatcher.js          # Task matching and similarity detection
+│   ├── taskMatcher.js          # Task matching and similarity detection
+│   ├── meetingUrlService.js    # Meeting URL selection service
+│   └── teamsService.js         # Teams webhook integration
 ├── config/
 │   └── participantMapping.js   # Participant name to email mapping
 ├── tests/
 │   ├── testTranscript.js       # Test transcript fetching only
+│   ├── testFetchAllMeetings.js # 🆕 NEW: Test all meetings functionality
 │   ├── testOpenAI.js          # Test OpenAI processing only
 │   ├── testTranscriptParsing.js # Test transcript parsing/formatting
 │   ├── testParticipantMapping.js # Test participant email mapping
@@ -393,37 +449,63 @@ functions/
 
 ## How It Works
 
-### Complete Processing Flow
+### 🆕 ENHANCED Complete Processing Flow
+
+#### Phase 1: Approach Selection & Transcript Fetching
+**🆕 All Meetings Approach** (when `TARGET_USER_ID` configured):
 1. **Authentication**: Uses Azure MSAL with client credentials flow
+2. **Calendar Discovery**: Fetches all calendar events for target user and date
+3. **Meeting Filtering**: Identifies online meetings with `isOnlineMeeting = true`
+4. **Transcript Collection**: For each online meeting:
+   - Extracts join URL from calendar event
+   - Finds corresponding online meeting object
+   - Downloads all transcripts for that meeting
+   - Filters transcripts by target date
+5. **Format Conversion**: Converts each VTT to structured JSON
+
+**🔄 Legacy Approach** (fallback or when `TARGET_USER_ID` not configured):
+1. **Authentication**: Uses Azure MSAL with client credentials flow  
 2. **Meeting Discovery**: Extracts organizer info from Teams URL and finds the meeting
 3. **Transcript Fetching**: Gets the latest transcript in VTT format
 4. **Format Conversion**: Converts VTT to structured JSON
-5. **AI Processing**: Sends transcript to OpenAI GPT-4o-mini to extract tasks with enhanced prompting for:
+
+#### Phase 2: Processing Pipeline (Applied to EACH Transcript INDIVIDUALLY)
+**⚠️ IMPORTANT**: Each transcript from each meeting goes through the complete pipeline separately.
+
+For EACH transcript:
+5. **Raw Transcript Storage**: Store complete transcript in MongoDB 'transcripts' collection
+6. **AI Processing**: Send transcript to OpenAI GPT-4o-mini to extract tasks with enhanced prompting for:
    - Time estimates and actual time spent
    - Task status updates (To-do, In-progress, Completed)
    - Task type identification (NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE)
-6. **Task Matching**: Compares extracted tasks with existing database tasks
-   - Retrieves all active tasks (To-do/In-progress) from database
-   - Uses similarity matching to identify task updates vs new tasks
-   - Determines which tasks to create vs update
-7. **Task Updates**: Updates existing tasks in database with new information
-   - Adds progress updates and new information to task descriptions
-   - Updates status changes (started, completed, etc.)
-   - Updates time tracking (estimated time, time spent)
-8. **Transcript Storage**: Stores raw transcript data in MongoDB collection 'transcripts'
-9. **New Task Storage**: Stores only new tasks in MongoDB collection 'sptasks'
-10. **Jira Integration**: Creates Jira issues for NEW coding tasks only (not updates)
-    - Maps participant names to email addresses using configuration
-    - Generates concise titles (max 5 words) using GPT
-    - Creates issues in the configured Jira project
-    - Assigns issues to participants using email mapping
-11. **Teams Integration**: Sends standup summary to Teams channel (if webhook configured)
-    - Formats summary with new and updated tasks per participant
-    - Includes ticket IDs and coding/non-coding classifications
-    - Provides link to admin panel for detailed task view
-    - Gracefully skips if webhook URL not configured
-12. **Local Backup**: Saves transcript to local file for reference
-13. **Logging**: Comprehensive logging for monitoring and debugging
+7. **Task Matching**: Compare extracted tasks with existing database tasks
+   - Retrieve all active tasks (To-do/In-progress) from database
+   - Use similarity matching to identify task updates vs new tasks
+   - Determine which tasks to create vs update
+8. **Task Updates**: Update existing tasks in database with new information
+   - Add progress updates and new information to task descriptions
+   - Update status changes (started, completed, etc.)
+   - Update time tracking (estimated time, time spent)
+9. **New Task Storage**: Store only new tasks in MongoDB 'sptasks' collection with unique SP-XX IDs
+10. **Jira Integration**: Create Jira issues for NEW coding tasks only (not updates)
+    - Map participant names to email addresses using configuration
+    - Generate concise titles (max 5 words) using GPT
+    - Create issues in the configured Jira project
+    - Assign issues to participants using email mapping
+11. **📢 Teams Notification**: Send summary to Teams channel for THIS transcript (if webhook configured)
+    - Generate summary of new and updated tasks from this specific meeting
+    - Format with participant breakdown and ticket IDs
+    - Send immediately after processing this transcript
+12. **Local Backup**: Save transcript to local file for reference
+
+#### Phase 3: Multiple Meetings Result
+**🆕 All Meetings Approach Result**: 
+- If 3 meetings found → 3 separate transcripts processed → 3 separate Teams notifications sent
+- Each meeting's tasks are processed and stored independently
+- Teams receives separate summary for each meeting (not consolidated)
+
+**🔄 Legacy Approach Result**:
+- Single meeting → Single transcript processed → Single Teams notification sent
 
 ### MongoDB Data Structure
 
@@ -514,7 +596,33 @@ Each document in the 'transcripts' collection stores the raw transcript data:
 - `source`: Source of the transcript (e.g., "microsoft_teams")
 - `original_filename`: Name of the local backup file
 
-## 🆕 New Features (Version 2.0)
+## 🆕 New Features (Version 3.0 - All Meetings Support)
+
+### All Meetings Approach
+- **Multi-Meeting Processing**: Automatically finds and processes ALL online meetings for a user on target date
+- **Calendar Integration**: Uses Microsoft Graph Calendar API to discover meetings
+- **Comprehensive Coverage**: No meeting is missed - captures standup, planning, retro, and any other meetings
+- **Individual Processing**: Each transcript goes through complete processing pipeline separately
+- **Consolidated Reporting**: Aggregated results and notifications across all meetings
+
+### Enhanced Approach Selection
+- **Intelligent Fallback**: Automatically falls back to Legacy approach if All Meetings fails
+- **Configuration-Based**: Uses `TARGET_USER_ID` presence to determine approach
+- **Manual Override**: Force Legacy approach by providing specific `meetingUrl`
+- **Backward Compatibility**: Existing configurations continue working without changes
+
+### Improved Monitoring & Logging
+- **Approach Identification**: Clear logging of which approach is being used (🆕/🔄)
+- **Per-Transcript Tracking**: Individual success/failure tracking for multiple transcripts
+- **Enhanced Statistics**: Aggregated metrics across all processed transcripts
+- **Fallback Visibility**: Clear logging when fallback scenarios occur
+
+### API Enhancements
+- **Dual Response Formats**: Different response structures for All Meetings vs Legacy
+- **Health Check Enhancement**: `/health` endpoint now shows `allMeetingsEnabled` status
+- **Detailed Results**: Individual transcript results with success/failure status
+
+## 🆕 New Features (Version 2.0 - Previous Updates)
 
 ### Unique Task ID System
 - **Automatic ID Assignment**: Every new task gets a unique ID in format SP-{number} (e.g., SP-1, SP-2, SP-3)
@@ -708,3 +816,127 @@ if (result.jira) {
   });
 }
 ```
+
+## 🆕 Migration Guide - Upgrading to All Meetings Support
+
+### For New Deployments
+1. **Configure All Meetings Approach**:
+   ```bash
+   # Add to your .env file
+   TARGET_USER_ID=50a66395-f31b-4dee-a45e-ef41f3920c9b
+   ```
+
+2. **Keep Legacy Configuration** (recommended as fallback):
+   ```bash
+   # Keep existing variables for fallback
+   DAILY_STANDUP_URL_MWF=https://teams.microsoft.com/...
+   DAILY_STANDUP_URL_TT=https://teams.microsoft.com/...
+   ```
+
+3. **Deploy and Test**:
+   ```bash
+   firebase deploy --only functions
+   
+   # Test All Meetings approach
+   curl -X POST https://your-function-url/fetch-transcript
+   
+   # Test Legacy fallback
+   curl -X POST https://your-function-url/fetch-transcript \
+     -d '{"meetingUrl": "your-specific-url"}'
+   ```
+
+### For Existing Deployments
+✅ **Zero Breaking Changes** - Your existing system continues working exactly as before.
+
+#### Option 1: Keep Current Setup (Recommended)
+- **No action required** - system continues using Legacy approach
+- All existing functionality preserved
+- No configuration changes needed
+
+#### Option 2: Enable All Meetings (Optional Enhancement)
+1. **Add new environment variable**:
+   ```bash
+   # Add this to enable All Meetings approach
+   TARGET_USER_ID=your-user-id-here
+   ```
+
+2. **Test the enhancement**:
+   ```bash
+   # This will now use All Meetings approach
+   curl -X POST https://your-function-url/fetch-transcript
+   ```
+
+3. **Monitor logs** for approach selection:
+   ```
+   🆕 Using ALL MEETINGS approach
+   🔄 Using LEGACY approach
+   ```
+
+#### Option 3: Gradual Migration
+1. **Week 1**: Add `TARGET_USER_ID` but keep it commented out
+2. **Week 2**: Enable `TARGET_USER_ID` and monitor logs
+3. **Week 3**: Validate All Meetings results vs Legacy results
+4. **Week 4**: Full confidence in All Meetings approach
+
+### Testing Your Upgrade
+
+#### Test All Meetings Approach
+```bash
+# Ensure TARGET_USER_ID is set
+export TARGET_USER_ID="50a66395-f31b-4dee-a45e-ef41f3920c9b"
+
+# Test the new functionality
+node tests/testFetchAllMeetings.js
+```
+
+#### Test Fallback Behavior
+```bash
+# Temporarily unset TARGET_USER_ID to test Legacy approach
+unset TARGET_USER_ID
+
+# Should fall back to Legacy approach
+curl -X POST https://your-function-url/fetch-transcript
+```
+
+#### Test Both Approaches
+```bash
+# All Meetings approach (no meetingUrl provided)
+curl -X POST https://your-function-url/fetch-transcript
+
+# Force Legacy approach (meetingUrl provided)
+curl -X POST https://your-function-url/fetch-transcript \
+  -H "Content-Type: application/json" \
+  -d '{"meetingUrl": "https://teams.microsoft.com/..."}'
+```
+
+### Monitoring & Validation
+
+#### Key Metrics to Monitor
+- **Transcript Count**: All Meetings should find more transcripts than Legacy
+- **Processing Success Rate**: Should remain high (>95%)
+- **Jira Integration**: Should continue working for all transcripts
+- **Teams Notifications**: Should include aggregated results
+
+#### Log Patterns to Watch
+```
+🆕 Using ALL MEETINGS approach
+✓ All meetings fetched successfully: 3 transcripts
+✓ Processing transcript 1/3: Daily Standup
+✓ Processing transcript 2/3: Sprint Planning  
+✓ Processing transcript 3/3: Team Retro
+🆕 ALL MEETINGS processing completed: 3 successful, 0 failed
+```
+
+#### Rollback Plan
+If issues occur, simply remove or comment out `TARGET_USER_ID`:
+```bash
+# In .env file
+# TARGET_USER_ID=50a66395-f31b-4dee-a45e-ef41f3920c9b
+```
+System immediately reverts to Legacy approach.
+
+### Benefits After Migration
+- **📈 100% Meeting Coverage**: Never miss transcripts from other meetings
+- **🎯 Better Task Tracking**: Capture tasks from all team interactions
+- **📊 Comprehensive Reports**: Holistic view of team activities
+- **🔄 Maintained Reliability**: Same processing quality with broader scope

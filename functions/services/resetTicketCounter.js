@@ -7,7 +7,7 @@
  * Usage: node resetTicketCounter.js
  */
 
-const { resetTicketCounter, getCurrentTicketCount, testMongoConnection } = require("./services/mongoService");
+const { resetTicketCounter, getCurrentTicketCount, testMongoConnection } = require("./mongoService");
 require("dotenv").config();
 
 async function resetCounter() {

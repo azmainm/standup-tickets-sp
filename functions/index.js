@@ -2,9 +2,14 @@
  * Standup Tickets SP - Firebase Functions
  * 
  * This Firebase Functions app handles:
- * - Scheduled transcript fetching from Microsoft Teams
- * - Manual transcript fetch endpoints
+ * - Scheduled transcript fetching from Microsoft Teams (with NEW all meetings support)
+ * - Manual transcript fetch endpoints (with NEW all meetings support)
  * - Health check endpoints
+ * 
+ * NEW FEATURES:
+ * - All Meetings Approach: If TARGET_USER_ID is configured, fetches all meetings for user
+ * - Legacy Fallback: Maintains backward compatibility with specific meeting URLs
+ * - Multiple Transcript Processing: Each transcript goes through complete processing pipeline
  */
 
 const {setGlobalOptions} = require("firebase-functions");
@@ -36,12 +41,15 @@ if (process.env.NODE_ENV === "production" && !process.env.OPENAI_API_KEY) {
   process.env.JIRA_API_TOKEN = functions.config().jira?.api_token;
   process.env.JIRA_PROJECT_KEY = functions.config().jira?.project_key;
   process.env.TEAMS_WEBHOOK_URL = functions.config().teams?.webhook_url;
+  // NEW: All meetings support
+  process.env.TARGET_USER_ID = functions.config().target?.user_id;
 }
 
 // Import our services
-const {getMeetingTranscript} = require("./services/getTranscript");
 const {processTranscriptToTasks} = require("./services/taskProcessor");
-const {getMeetingUrlWithFallback, shouldHaveMeetingOnDay, getBangladeshTimeComponents} = require("./services/meetingUrlService");
+const {getBangladeshTimeComponents} = require("./services/meetingUrlService");
+// Main service: All meetings approach
+const {fetchAllMeetingsForUser} = require("./services/allMeetingsService");
 
 // For cost control, set maximum container instances
 setGlobalOptions({maxInstances: 10});
@@ -54,30 +62,36 @@ app.use(express.json());
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({
-    message: "Standup Tickets SP Service is running",
+    message: "Standup Tickets SP Service is running - All Meetings Approach",
     timestamp: new Date().toISOString(),
     timezone: "Asia/Dhaka",
+    targetUserId: process.env.TARGET_USER_ID ? process.env.TARGET_USER_ID.substring(0, 20) + "..." : "Not configured",
+    approach: "ALL_MEETINGS"
   });
 });
 
-// Manual transcript fetch endpoint
+// Manual transcript fetch endpoint - All Meetings Approach
 app.post("/fetch-transcript", async (req, res) => {
   try {
-    // Use provided URL or determine from current day
-    const meetingUrl = req.body?.meetingUrl || getMeetingUrlWithFallback();
-
-    if (!meetingUrl) {
-      const currentDay = new Date().toLocaleDateString("en-US", { 
-        weekday: "long", 
-        timeZone: "Asia/Dhaka" 
-      });
-      
+    // Validate TARGET_USER_ID is configured
+    if (!process.env.TARGET_USER_ID) {
       return res.status(400).json({
-        error: "Meeting URL is required",
-        message: `No meeting URL available for ${currentDay}. Provide meetingUrl in request body or set DAILY_STANDUP_URL_MWF/DAILY_STANDUP_URL_TT environment variables.`,
-        currentDay,
-        hasMeetingToday: shouldHaveMeetingOnDay(new Date()),
+        error: "All Meetings approach requires configuration",
+        message: "TARGET_USER_ID environment variable must be set to use All Meetings approach",
+        approach: "ALL_MEETINGS",
+        timestamp: new Date().toISOString(),
       });
+    }
+
+    // Calculate target date for processing
+    const bdTimeForFile = getBangladeshTimeComponents(new Date());
+    let targetDateForFile = bdTimeForFile.dateString;
+    
+    if (bdTimeForFile.hour >= 0 && bdTimeForFile.hour < 6) {
+      // Early morning - use previous day for filename
+      const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
+      targetDateObj.setDate(targetDateObj.getDate() - 1);
+      targetDateForFile = targetDateObj.toISOString().slice(0, 10);
     }
 
     // Enhanced logging for manual fetch
@@ -85,86 +99,104 @@ app.post("/fetch-transcript", async (req, res) => {
     const bangladeshTime = new Date(currentTime.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const currentDayName = dayNames[bangladeshTime.getDay()];
-    
-    logger.info("🔧 MANUAL TRANSCRIPT FETCH INITIATED", {
+
+    logger.info("🆕 Manual fetch using ALL MEETINGS approach", {
+      targetUserId: process.env.TARGET_USER_ID.substring(0, 20) + "...",
+      targetDate: targetDateForFile,
       requestedAt: currentTime.toISOString(),
       bangladeshTime: bangladeshTime.toISOString(),
       currentDay: currentDayName,
-      meetingUrlPreview: meetingUrl.substring(0, 50) + "...",
       isWeekend: bangladeshTime.getDay() === 0 || bangladeshTime.getDay() === 6
     });
-
-    logger.info("Manual transcript fetch requested", {
-      meetingUrl: meetingUrl.substring(0, 50) + "...",
-      timestamp: new Date().toISOString(),
-    });
-
-    // Calculate target date for filename
-
-
-    const bdTimeForFile = getBangladeshTimeComponents(new Date());
-
-
-    let targetDateForFile = bdTimeForFile.dateString;
-
-
-    if (bdTimeForFile.hour >= 0 && bdTimeForFile.hour < 6) {
-
-
-      // Early morning - use previous day for filename
-
-
-      const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
-
-
-      targetDateObj.setDate(targetDateObj.getDate() - 1);
-
-
-      targetDateForFile = targetDateObj.toISOString().slice(0, 10);
-
-
-    }
-
-
     
-
-
-    const result = await getMeetingTranscript(meetingUrl, targetDateForFile);
-
-    if (!result) {
-      return res.status(404).json({
-        message: "No transcript found for the meeting",
-        timestamp: new Date().toISOString(),
+    let allTranscriptsResults = [];
+    
+    try {
+      const allTranscripts = await fetchAllMeetingsForUser(process.env.TARGET_USER_ID, targetDateForFile);
+      
+      if (allTranscripts.length > 0) {
+        logger.info("Manual fetch: All meetings fetched successfully", {
+          transcriptCount: allTranscripts.length,
+          targetDate: targetDateForFile,
+        });
+        allTranscriptsResults = allTranscripts;
+      } else {
+        logger.info("Manual fetch: No transcripts found", {
+          targetDate: targetDateForFile,
+          userId: process.env.TARGET_USER_ID.substring(0, 20) + "...",
+        });
+      }
+    } catch (allMeetingsError) {
+      logger.error("Manual fetch: All meetings approach failed", {
+        error: allMeetingsError.message,
+        targetDate: targetDateForFile,
       });
+      throw allMeetingsError;
     }
 
-    logger.info("Transcript fetched successfully", {
-      entryCount: result.metadata.entryCount,
-      meetingId: result.metadata.meetingId,
-    });
+    // Process all transcripts
+    if (allTranscriptsResults.length > 0) {
+      logger.info("🆕 Manual fetch processing ALL MEETINGS transcripts", {
+        transcriptCount: allTranscriptsResults.length,
+        targetDate: targetDateForFile,
+      });
 
-    // Process transcript for tasks
-    try {
-      logger.info("Processing transcript for tasks");
-      const taskResult = await processTranscriptToTasks(result.transcript, result.metadata);
-      
+      const allTaskResults = [];
+      let totalSuccessfulProcessing = 0;
+      let totalFailedProcessing = 0;
+
+      for (let i = 0; i < allTranscriptsResults.length; i++) {
+        const transcriptData = allTranscriptsResults[i];
+        
+        logger.info(`Manual fetch processing transcript ${i + 1}/${allTranscriptsResults.length}`, {
+          meetingSubject: transcriptData.metadata.meetingSubject,
+          entries: transcriptData.metadata.entryCount,
+          filename: transcriptData.metadata.filename,
+        });
+
+        try {
+          const taskResult = await processTranscriptToTasks(transcriptData.transcript, transcriptData.metadata);
+          allTaskResults.push({
+            transcript: transcriptData,
+            tasks: taskResult,
+            success: true,
+          });
+          totalSuccessfulProcessing++;
+          
+        } catch (taskError) {
+          logger.error(`Manual fetch transcript ${i + 1} processing failed`, {
+            meetingSubject: transcriptData.metadata.meetingSubject,
+            filename: transcriptData.metadata.filename,
+            error: taskError.message,
+          });
+          allTaskResults.push({
+            transcript: transcriptData,
+            tasks: null,
+            success: false,
+            error: taskError.message,
+          });
+          totalFailedProcessing++;
+        }
+      }
+
       res.json({
-        message: "Transcript fetched and processed successfully",
-        transcript: result,
-        tasks: taskResult,
+        message: `All meetings fetched and processed - ${totalSuccessfulProcessing} successful, ` +
+          `${totalFailedProcessing} failed`,
+        approach: "ALL_MEETINGS",
+        targetDate: targetDateForFile,
+        totalTranscripts: allTranscriptsResults.length,
+        successfullyProcessed: totalSuccessfulProcessing,
+        failedProcessing: totalFailedProcessing,
+        results: allTaskResults,
         timestamp: new Date().toISOString(),
       });
-      
-    } catch (taskError) {
-      logger.error("Task processing failed, returning transcript only", {
-        error: taskError.message,
-      });
-      
-      // Return transcript even if task processing fails
-      res.json({
-        message: "Transcript fetched successfully, but task processing failed",
-        transcript: result,
-        taskProcessingError: taskError.message,
+
+    } else {
+      return res.status(404).json({
+        message: "No transcripts found for the target date",
+        targetDate: targetDateForFile,
+        approach: "ALL_MEETINGS",
+        targetUserId: process.env.TARGET_USER_ID.substring(0, 20) + "...",
         timestamp: new Date().toISOString(),
       });
     }
@@ -185,9 +217,10 @@ app.post("/fetch-transcript", async (req, res) => {
 // Export HTTP function
 exports.transcriptApi = onRequest(app);
 
-// Scheduled function that runs daily at 2 AM Bangladesh time (GMT+6)
-// Cron: "0 2 * * 1-5" - runs Monday through Friday only (skips weekends)
-// This fetches the previous day's meeting transcript
+// Scheduled function with ALL MEETINGS approach only
+// Runs daily at 2 AM Bangladesh time (GMT+6)
+// Cron: "0 2 * * 2-6" - runs Tuesday through Saturday only (skips weekends)
+// This fetches the previous day's meeting transcript(s) for all meetings
 exports.dailyTranscriptFetch = onSchedule({
   schedule: "0 2 * * 2-6", // Tuesday through Saturday only at 2 AM Bangladesh time
   timeZone: "Asia/Dhaka",
@@ -212,7 +245,7 @@ exports.dailyTranscriptFetch = onSchedule({
     targetDayName = dayNames[targetDate.getDay()];
   }
   
-  logger.info("🗓️ DAILY TRANSCRIPT FETCH - DAY & TIME CHECK", {
+  logger.info("🗓️ DAILY TRANSCRIPT FETCH - ALL MEETINGS APPROACH", {
     scheduledTime: event.scheduleTime,
     timestamp: currentTime.toISOString(),
     timezone: "Asia/Dhaka",
@@ -220,10 +253,11 @@ exports.dailyTranscriptFetch = onSchedule({
     currentDay: currentDayName,
     targetDay: targetDayName,
     isEarlyMorning: hour >= 0 && hour < 6,
-    usingPreviousDay: hour >= 0 && hour < 6
+    usingPreviousDay: hour >= 0 && hour < 6,
+    approach: "ALL_MEETINGS"
   });
 
-  logger.info("Starting daily transcript fetch", {
+  logger.info("🆕 Starting daily transcript fetch - All Meetings approach", {
     scheduledTime: event.scheduleTime,
     timestamp: currentTime.toISOString(),
     timezone: "Asia/Dhaka",
@@ -231,102 +265,133 @@ exports.dailyTranscriptFetch = onSchedule({
   });
 
   try {
-    // Check if we should have a meeting today (based on previous day logic)
-    if (!shouldHaveMeetingOnDay(currentTime)) {
-      logger.info("No meeting scheduled for this day, skipping transcript fetch", {
-        currentDay: currentTime.toLocaleDateString("en-US", { weekday: "long", timeZone: "Asia/Dhaka" }),
+    // Validate TARGET_USER_ID is configured
+    if (!process.env.TARGET_USER_ID) {
+      logger.error("TARGET_USER_ID not configured for All Meetings approach", {
+        message: "Set TARGET_USER_ID environment variable to enable All Meetings approach",
+        currentDay: currentDayName,
         date: currentTime.toISOString().split("T")[0],
       });
-      return null;
-    }
-    
-    // Get the appropriate meeting URL for the day
-    const meetingUrl = getMeetingUrlWithFallback(currentTime);
-    
-    // Log which meeting URL is being used
-    const meetingUrlForLogging = meetingUrl ? meetingUrl.substring(0, 50) + "..." : "NO URL";
-    const targetDayOfWeek = targetDate.getDay();
-    let meetingSchedule = "UNKNOWN";
-    
-    if (targetDayOfWeek === 1 || targetDayOfWeek === 3 || targetDayOfWeek === 5) {
-      meetingSchedule = "MWF (Mon/Wed/Fri) → Using TT URL";
-    } else if (targetDayOfWeek === 2 || targetDayOfWeek === 4) {
-      meetingSchedule = "TT (Tue/Thu) → Using MWF URL";
-    }
-    
-    logger.info("🔗 MEETING URL DETERMINATION", {
-      targetDay: targetDayName,
-      targetDayOfWeek: targetDayOfWeek,
-      meetingSchedule: meetingSchedule,
-      hasUrl: !!meetingUrl,
-      urlPreview: meetingUrlForLogging,
-      explanation: hour >= 0 && hour < 6 ? 
-        `Running at ${hour}:xx AM, using ${targetDayName}'s meeting URL` :
-        `Running during ${currentDayName}, using ${targetDayName}'s meeting URL`
-    });
-
-    if (!meetingUrl) {
-      const currentDay = currentTime.toLocaleDateString("en-US", { weekday: "long", timeZone: "Asia/Dhaka" });
-      logger.error("No meeting URL available for the current day", {
-        currentDay,
-        date: currentTime.toISOString().split("T")[0],
-        message: "Set DAILY_STANDUP_URL_MWF and DAILY_STANDUP_URL_TT environment variables",
-      });
-      throw new Error(`No meeting URL available for ${currentDay}. Set DAILY_STANDUP_URL_MWF and DAILY_STANDUP_URL_TT environment variables.`);
+      throw new Error("TARGET_USER_ID environment variable must be set for All Meetings approach");
     }
 
-    logger.info("Fetching transcript for daily standup", {
-      meetingUrlPrefix: meetingUrl.substring(0, 50) + "...",
-    });
-
-    // Calculate target date for filename
+    // Calculate target date for filename and processing
     const bdTimeForFile = getBangladeshTimeComponents(new Date());
     let targetDateForFile = bdTimeForFile.dateString;
     if (bdTimeForFile.hour >= 0 && bdTimeForFile.hour < 6) {
-    // Early morning - use previous day for filename
-    const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
-    targetDateObj.setDate(targetDateObj.getDate() - 1);
-    targetDateForFile = targetDateObj.toISOString().slice(0, 10);
+      // Early morning - use previous day for filename
+      const targetDateObj = new Date(bdTimeForFile.year, bdTimeForFile.month - 1, bdTimeForFile.day);
+      targetDateObj.setDate(targetDateObj.getDate() - 1);
+      targetDateForFile = targetDateObj.toISOString().slice(0, 10);
     }
 
+    // ALL MEETINGS APPROACH: Fetch all meetings for the user
+    logger.info("🆕 Using ALL MEETINGS approach", {
+      targetUserId: process.env.TARGET_USER_ID.substring(0, 20) + "...",
+      targetDate: targetDateForFile,
+      explanation: "Fetching all meetings for user"
+    });
+    
+    let allTranscriptsResults = [];
+    
+    try {
+      const allTranscripts = await fetchAllMeetingsForUser(process.env.TARGET_USER_ID, targetDateForFile);
+      
+      if (allTranscripts.length > 0) {
+        logger.info("All meetings fetched successfully", {
+          transcriptCount: allTranscripts.length,
+          targetDate: targetDateForFile,
+        });
+        allTranscriptsResults = allTranscripts;
+      } else {
+        logger.info("No transcripts found for target date", {
+          targetDate: targetDateForFile,
+          userId: process.env.TARGET_USER_ID.substring(0, 20) + "...",
+          possibleReasons: [
+            "No meetings occurred on the target date",
+            "No transcripts were generated", 
+            "Transcription is still processing",
+            "User calendar access issues"
+          ]
+        });
+      }
+    } catch (allMeetingsError) {
+      logger.error("All meetings approach failed", {
+        error: allMeetingsError.message,
+        targetDate: targetDateForFile,
+        stack: allMeetingsError.stack,
+      });
+      throw allMeetingsError;
+    }
 
-    const result = await getMeetingTranscript(meetingUrl, targetDateForFile);
-
-    if (result) {
+    // Process all transcripts found
+    if (allTranscriptsResults.length > 0) {
+      // Process each transcript from all meetings
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
       
-      logger.info("Transcript fetched successfully", {
-        entryCount: result.metadata.entryCount,
-        meetingId: result.metadata.meetingId,
+      logger.info("🆕 Processing ALL MEETINGS transcripts", {
+        transcriptCount: allTranscriptsResults.length,
+        targetDate: targetDateForFile,
         duration: `${duration}s`,
       });
 
-      // Process transcript for tasks
-      try {
-        logger.info("Processing transcript for tasks in scheduled function");
-        const taskResult = await processTranscriptToTasks(result.transcript, result.metadata);
+      let totalSuccessfulProcessing = 0;
+      let totalFailedProcessing = 0;
+
+      for (let i = 0; i < allTranscriptsResults.length; i++) {
+        const transcriptData = allTranscriptsResults[i];
         
-        logger.info("Tasks processed and stored successfully", {
-          participantCount: taskResult.summary.participantCount,
-          totalTasks: taskResult.summary.totalTasks,
-          mongoDocumentId: taskResult.storage.documentId,
+        logger.info(`Processing transcript ${i + 1}/${allTranscriptsResults.length}`, {
+          meetingSubject: transcriptData.metadata.meetingSubject,
+          entries: transcriptData.metadata.entryCount,
+          filename: transcriptData.metadata.filename,
         });
-        
-      } catch (taskError) {
-        logger.error("Task processing failed in scheduled function", {
-          error: taskError.message,
-          stack: taskError.stack,
-        });
-        // Don't throw error here, just log it - transcript was successful
+
+        try {
+          const taskResult = await processTranscriptToTasks(transcriptData.transcript, transcriptData.metadata);
+          
+          logger.info(`Transcript ${i + 1} processed successfully`, {
+            meetingSubject: transcriptData.metadata.meetingSubject,
+            participantCount: taskResult.summary.participantCount,
+            extractedTasks: taskResult.summary.extractedTasks,
+            newTasksCreated: taskResult.summary.newTasksCreated,
+            existingTasksUpdated: taskResult.summary.existingTasksUpdated,
+            jiraIssuesCreated: taskResult.summary.jiraIssuesCreated,
+            mongoDocumentId: taskResult.storage?.documentId,
+          });
+          
+          totalSuccessfulProcessing++;
+          
+        } catch (taskError) {
+          logger.error(`Transcript ${i + 1} processing failed`, {
+            meetingSubject: transcriptData.metadata.meetingSubject,
+            filename: transcriptData.metadata.filename,
+            error: taskError.message,
+            stack: taskError.stack,
+          });
+          totalFailedProcessing++;
+          // Continue processing other transcripts
+        }
       }
 
+      logger.info("🆕 ALL MEETINGS processing completed", {
+        totalTranscripts: allTranscriptsResults.length,
+        successfullyProcessed: totalSuccessfulProcessing,
+        failedProcessing: totalFailedProcessing,
+        targetDate: targetDateForFile,
+        duration: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
+      });
+
     } else {
-      logger.warn("No transcript found for today", {
-        date: new Date().toISOString().slice(0, 10),
+      logger.warn("No transcripts found for target date", {
+        date: targetDateForFile,
+        targetUserId: process.env.TARGET_USER_ID.substring(0, 20) + "...",
+        approach: "ALL_MEETINGS",
         possibleReasons: [
-          "Meeting hasn't occurred yet",
-          "No transcript was generated", 
+          "No meetings occurred on the target date",
+          "No transcripts were generated", 
           "Transcription is still processing",
+          "User calendar access issues",
         ],
       });
     }
