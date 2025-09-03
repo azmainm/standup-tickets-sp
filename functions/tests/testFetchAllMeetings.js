@@ -36,49 +36,34 @@ const scopes = ["https://graph.microsoft.com/.default"];
  * @returns {Array} Array of transcript entries
  */
 function parseVttToJson(vttContent) {
-    const jsonOutput = [];
-    const lines = vttContent.split('\n');
-  
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-  
-      // Skip blank lines, metadata, and the WEBVTT header
-      if (!line || line === 'WEBVTT' || line.includes('NOTE')) {
-        continue;
-      }
-  
-      // Check if the line contains a timestamp (e.g., 00:00:00.000 --> 00:00:00.000)
-      if (line.includes('-->')) {
-        const timestampLine = line;
-        let textLine = lines[i + 1].trim();
-        let speaker = '';
-  
-        // Extract speaker from the text line if it's in the format <v Speaker>
-        if (textLine.startsWith('<v ')) {
-          const speakerEndIndex = textLine.indexOf('>');
-          if (speakerEndIndex !== -1) {
-            speaker = textLine.substring(3, speakerEndIndex);
-            textLine = textLine.substring(speakerEndIndex + 1);
-          }
-        }
-  
-        const [startTime, , endTime] = timestampLine.split(' ');
-  
-        // Add to output if text is not empty
-        if (textLine.length > 0) {
-          jsonOutput.push({
-            speaker: speaker,
-            startTime: startTime,
-            endTime: endTime,
-            text: textLine.replace(/<\/v>$/, '').trim(),
-          });
-        }
-        i++; // Move to the next line since we've processed it
-      }
+  const jsonOutput = [];
+  const lines = vttContent.split("\n");
+  let currentTimestamp = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Skip empty lines and metadata
+    if (!line || line === 'WEBVTT' || line.includes('NOTE')) {
+      continue;
     }
-  
-    return jsonOutput;
+
+    // Check if line contains timestamp
+    if (line.includes("-->")) {
+      currentTimestamp = line.split(" ")[0]; // Get the start timestamp
+    } else if (currentTimestamp && line.startsWith("<v ")) {
+      // This is a text line with speaker info, create entry with the "broken" format
+      jsonOutput.push({
+        speaker: currentTimestamp,
+        startTime: "-->", 
+        text: line
+      });
+      currentTimestamp = null; // Reset for next entry
+    }
   }
+
+  return jsonOutput;
+}
 
 /**
  * Initialize the output directory
@@ -299,22 +284,8 @@ async function downloadAndSaveTranscripts(accessToken, meetingData, outputPath) 
           const filename = `${TARGET_DATE}_${timestamp}_${meetingSubject}_transcript_${i + 1}.json`;
           const filePath = path.join(outputPath, filename);
   
-          const transcriptData = {
-            metadata: {
-              meetingId: onlineMeeting.id,
-              transcriptId: transcript.id,
-              meetingSubject: onlineMeeting.subject,
-              startTime: onlineMeeting.startDateTime,
-              endTime: onlineMeeting.endDateTime,
-              organizer: onlineMeeting.organizer?.identity?.user?.displayName,
-              organizerId: onlineMeeting.organizer?.identity?.user?.id,
-              fetchedAt: new Date().toISOString(),
-              entryCount: transcriptJson.length,
-            },
-            transcript: transcriptJson
-          };
-  
-          fs.writeFileSync(filePath, JSON.stringify(transcriptData, null, 2));
+                     // Save transcript as direct array without metadata wrapper
+           fs.writeFileSync(filePath, JSON.stringify(transcriptJson, null, 2));
           
           console.log(`   ✅ Saved transcript: ${filename}`);
           console.log(`   📊 Entries: ${transcriptJson.length}`);
