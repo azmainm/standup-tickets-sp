@@ -16,7 +16,7 @@ require("dotenv").config();
 
 // Target configuration
 const TARGET_USER_ID = "50a66395-f31b-4dee-a45e-ef41f3920c9b";
-const TARGET_DATE = "2025-09-02"; // September 2, 2025
+const TARGET_DATE = "2025-09-02"; 
 const OUTPUT_FOLDER = "output/testFetchAll";
 
 // Azure App Configuration
