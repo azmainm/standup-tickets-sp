@@ -123,13 +123,16 @@ function formatStandupSummary(summaryData, metadata = {}) {
   let message = "";
 
   const participants = summaryData.participants || {};
+  const futurePlans = summaryData.futurePlans || [];
   
   // Check if there are any tasks to report
   const hasAnyTasks = Object.values(participants).some(participant => 
     (participant.newTasks?.length > 0) || (participant.updatedTasks?.length > 0)
   );
+  
+  const hasFuturePlans = futurePlans.length > 0;
 
-  if (!hasAnyTasks) {
+  if (!hasAnyTasks && !hasFuturePlans) {
     message += "**No new or updated tasks reported in today's standup.**\n\n";
   } else {
     // Process each participant
@@ -168,6 +171,18 @@ function formatStandupSummary(summaryData, metadata = {}) {
     }
   }
 
+  // Add Future Plans section if any exist
+  if (hasFuturePlans) {
+    message += "**Future Plans discussed in this meeting:**\n";
+    futurePlans.forEach((plan, index) => {
+      const planType = plan.type === "Coding" ? "Coding" : "Non-Coding";
+      const ticketId = plan.ticketId || "SP-??";
+      const title = plan.title || plan.description;
+      message += `${index + 1}. ${ticketId}: ${title} (${planType})\n`;
+    });
+    message += "\n";
+  }
+
   // Add admin panel link
   message += "**Please check [Admin Panel](https://sherpaprompt-admin.vercel.app/dashboard/tasks) to see the new and updated tasks.**";
 
@@ -183,9 +198,11 @@ function formatStandupSummary(summaryData, metadata = {}) {
 function generateSummaryDataFromTaskResult(taskResult, mongoResult = null) {
   const summaryData = {
     participants: {},
+    futurePlans: [],
     summary: {
       totalNewTasks: 0,
       totalUpdatedTasks: 0,
+      totalFuturePlans: 0,
       totalParticipants: 0,
     }
   };
@@ -196,32 +213,56 @@ function generateSummaryDataFromTaskResult(taskResult, mongoResult = null) {
       for (const newTask of taskResult.taskMatching.tasksToCreate) {
         const participantName = newTask.participantName;
         
-        if (!summaryData.participants[participantName]) {
-          summaryData.participants[participantName] = {
-            newTasks: [],
-            updatedTasks: []
-          };
-        }
-        
-        // Try to find the ticket ID from MongoDB storage result
-        let ticketId = newTask.ticketId;
-        if (mongoResult?.assignedTicketIds) {
-          // Map new task to assigned ticket ID by index
-          const taskIndex = summaryData.summary.totalNewTasks;
-          if (taskIndex < mongoResult.assignedTicketIds.length) {
-            ticketId = mongoResult.assignedTicketIds[taskIndex];
+        // Check if this is a future plan (assigned to "TBD")
+        if (newTask.isFuturePlan || participantName === "TBD") {
+          // Try to find the ticket ID from MongoDB storage result
+          let ticketId = newTask.ticketId;
+          if (mongoResult?.assignedTicketIds) {
+            // Map new task to assigned ticket ID by index (considering all tasks)
+            const allTaskIndex = summaryData.summary.totalNewTasks + summaryData.summary.totalFuturePlans;
+            if (allTaskIndex < mongoResult.assignedTicketIds.length) {
+              ticketId = mongoResult.assignedTicketIds[allTaskIndex];
+            }
           }
+          
+          summaryData.futurePlans.push({
+            ticketId: ticketId || null,
+            title: newTask.title || newTask.description,
+            description: newTask.description,
+            type: newTask.type, // 'Coding' or 'Non-Coding'
+            status: newTask.status
+          });
+          
+          summaryData.summary.totalFuturePlans++;
+        } else {
+          // Regular task processing
+          if (!summaryData.participants[participantName]) {
+            summaryData.participants[participantName] = {
+              newTasks: [],
+              updatedTasks: []
+            };
+          }
+          
+          // Try to find the ticket ID from MongoDB storage result
+          let ticketId = newTask.ticketId;
+          if (mongoResult?.assignedTicketIds) {
+            // Map new task to assigned ticket ID by index
+            const taskIndex = summaryData.summary.totalNewTasks;
+            if (taskIndex < mongoResult.assignedTicketIds.length) {
+              ticketId = mongoResult.assignedTicketIds[taskIndex];
+            }
+          }
+          
+          summaryData.participants[participantName].newTasks.push({
+            ticketId: ticketId || null,
+            title: newTask.title || newTask.description,
+            description: newTask.description,
+            type: newTask.type, // 'Coding' or 'Non-Coding'
+            status: newTask.status
+          });
+          
+          summaryData.summary.totalNewTasks++;
         }
-        
-        summaryData.participants[participantName].newTasks.push({
-          ticketId: ticketId || null,
-          title: newTask.title || newTask.description,
-          description: newTask.description,
-          type: newTask.type, // 'Coding' or 'Non-Coding'
-          status: newTask.status
-        });
-        
-        summaryData.summary.totalNewTasks++;
       }
     }
 
@@ -255,6 +296,7 @@ function generateSummaryDataFromTaskResult(taskResult, mongoResult = null) {
     logger.info("Generated summary data from task result", {
       totalNewTasks: summaryData.summary.totalNewTasks,
       totalUpdatedTasks: summaryData.summary.totalUpdatedTasks,
+      totalFuturePlans: summaryData.summary.totalFuturePlans,
       totalParticipants: summaryData.summary.totalParticipants,
       participants: Object.keys(summaryData.participants),
     });

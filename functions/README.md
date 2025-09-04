@@ -138,6 +138,10 @@ Updated Tasks
 1. SP-90: Bug Fix (Coding)
 2. SP-85: Documentation (Non-Coding)
 
+**Future Plans discussed in this meeting:**
+1. SP-105: Mobile App Development (Coding)
+2. SP-106: API Versioning System (Non-Coding)
+
 Please check Admin Panel to see the new and updated tasks.
 ```
 
@@ -523,7 +527,8 @@ Each document in the 'sptasks' collection follows this structure with **unique t
         "description": "Build a certain feature in the admin panel",
         "status": "To-do",
         "estimatedTime": 5,
-        "timeTaken": 0
+        "timeTaken": 0,
+        "isFuturePlan": false
       }
     ],
     "Non-Coding": [
@@ -533,7 +538,8 @@ Each document in the 'sptasks' collection follows this structure with **unique t
         "description": "Research on XYZ",
         "status": "To-do",
         "estimatedTime": 2,
-        "timeTaken": 0
+        "timeTaken": 0,
+        "isFuturePlan": false
       }
     ]
   },
@@ -545,7 +551,8 @@ Each document in the 'sptasks' collection follows this structure with **unique t
         "description": "Implement user authentication",
         "status": "To-do",
         "estimatedTime": 8,
-        "timeTaken": 3
+        "timeTaken": 3,
+        "isFuturePlan": false
       }
     ],
     "Non-Coding": [
@@ -555,10 +562,35 @@ Each document in the 'sptasks' collection follows this structure with **unique t
         "description": "Prepare privacy policy",
         "status": "To-do",
         "estimatedTime": 4,
-        "timeTaken": 0
+        "timeTaken": 0,
+        "isFuturePlan": false
       }
     ]
   },
+  "TBD": {
+    "Coding": [
+      {
+        "ticketId": "SP-5",
+        "title": "Mobile App Development",
+        "description": "Develop mobile application for iOS and Android",
+        "status": "To-do",
+        "estimatedTime": 0,
+        "timeTaken": 0,
+        "isFuturePlan": true
+      }
+    ],
+    "Non-Coding": [
+      {
+        "ticketId": "SP-6",
+        "title": "API Documentation Revamp",
+        "description": "Completely revamp API documentation structure",
+        "status": "To-do",
+        "estimatedTime": 0,
+        "timeTaken": 0,
+        "isFuturePlan": true
+      }
+    ]
+  }
 }
 ```
 
@@ -585,6 +617,7 @@ Each document in the 'transcripts' collection stores the raw transcript data:
 - `status`: Current status ("To-do", "In-progress", "Completed")
 - `estimatedTime`: Estimated time to complete the task (in hours) - **Enhanced extraction**
 - `timeTaken`: Actual time spent on the task so far (in hours) - **Enhanced extraction**
+- `isFuturePlan`: **NEW** - Boolean indicating if this is a future plan (true) or regular task (false)
 
 **Fields Explanation:**
 - `timestamp`: When the transcript was stored
@@ -679,11 +712,19 @@ The system automatically detects and updates task status:
 - **In-progress**: When participants mention starting work
 - **Completed**: When participants report finishing tasks
 
+### Future Plans Tracking
+The system now automatically detects when participants mention future plans or ideas:
+- **Detection**: Uses phrases like "is a future plan", "future enhancement", "planned for future"
+- **Assignment**: Automatically assigned to "TBD" (To Be Determined)
+- **Tracking**: Marked with `isFuturePlan: true` flag for easy identification
+- **Teams Integration**: Included in a separate "Future Plans discussed in this meeting" section
+
 ### Task Types
 The enhanced prompting identifies different types of task mentions:
 - **NEW TASK**: Completely new tasks being assigned
 - **EXISTING TASK UPDATE**: Progress updates on existing tasks
 - **STATUS CHANGE**: Changes in task status (started, completed, etc.)
+- **FUTURE PLAN**: Future plans or ideas mentioned for consideration
 
 ### Participant Guidelines
 See `MEETING_PARTICIPANT_GUIDELINES.md` for detailed guidance on how participants should communicate about tasks during meetings to ensure accurate tracking.

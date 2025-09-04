@@ -98,7 +98,8 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
           description: newTask.description,
           status: newTask.status,
           estimatedTime: newTask.estimatedTime || 0,
-          timeTaken: newTask.timeTaken || 0
+          timeTaken: newTask.timeTaken || 0,
+          isFuturePlan: newTask.isFuturePlan || false
         };
         
         newTasksForStorage[newTask.participantName][newTask.type].push(taskObject);

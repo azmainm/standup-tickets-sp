@@ -94,7 +94,8 @@ async function storeTasks(tasksData, metadata = {}) {
             description: task.description,
             status: task.status || "To-do",
             estimatedTime: task.estimatedTime || 0,
-            timeTaken: task.timeTaken || 0
+            timeTaken: task.timeTaken || 0,
+            isFuturePlan: task.isFuturePlan || false
           };
           
           processedTasksData[participantName]["Coding"].push(taskWithId);
@@ -116,7 +117,8 @@ async function storeTasks(tasksData, metadata = {}) {
             description: task.description,
             status: task.status || "To-do",
             estimatedTime: task.estimatedTime || 0,
-            timeTaken: task.timeTaken || 0
+            timeTaken: task.timeTaken || 0,
+            isFuturePlan: task.isFuturePlan || false
           };
           
           processedTasksData[participantName]["Non-Coding"].push(taskWithId);

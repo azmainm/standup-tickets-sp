@@ -153,7 +153,8 @@ Example: `2025-11-05_2025-11-05T09-00-00_Daily_Stand_Up_transcript_1.json`
 - Send transcript to GPT-4o-mini for task extraction
 - Extract tasks by participant with status, time estimates, descriptions
 - Categorize as "Coding" or "Non-Coding"
-- Identify task types: NEW TASK vs EXISTING TASK UPDATE vs STATUS CHANGE
+- Identify task types: NEW TASK vs EXISTING TASK UPDATE vs STATUS CHANGE vs FUTURE PLAN
+- Detect future plan language and assign to "TBD" with isFuturePlan: true
 
 #### Step 3: Task Matching
 - Retrieve existing active tasks from database
@@ -179,6 +180,7 @@ Example: `2025-11-05_2025-11-05T09-00-00_Daily_Stand_Up_transcript_1.json`
 #### Step 7: Teams Notification (PER TRANSCRIPT)
 - Generate standup summary for THIS SPECIFIC transcript/meeting
 - Include new and updated tasks from this meeting only
+- Include "Future Plans discussed in this meeting" section if any future plans detected
 - Send immediately to configured Teams webhook
 - **Result**: Multiple Teams messages (one per meeting)
 
@@ -207,7 +209,9 @@ Example: `2025-11-05_2025-11-05T09-00-00_Daily_Stand_Up_transcript_1.json`
 ├─ Teams: Send summary for Daily Standup
 │   "📋 Daily Standup Summary - Nov 5th
 │    John: New Tasks: SP-77: Auth System (Coding)
-│    Jane: Updated Tasks: SP-45: Bug Fix (Coding)"
+│    Jane: Updated Tasks: SP-45: Bug Fix (Coding)
+│    Future Plans discussed in this meeting:
+│    1. SP-78: Mobile App Development (Coding)"
 └─ Files: Save daily_standup_transcript.json
 
 📋 Processing Meeting 2: "Sprint Planning"  
@@ -295,6 +299,10 @@ Updated Tasks
 **Jane Smith:**
 New Tasks
 1. SP-79: Refactor database queries (Coding)
+
+**Future Plans discussed in this meeting:**
+1. SP-80: Mobile app development (Coding)
+2. SP-81: API versioning system (Non-Coding)
 
 Please check Admin Panel to see the new and updated tasks.
 ```

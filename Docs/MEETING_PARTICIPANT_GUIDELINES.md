@@ -26,7 +26,23 @@ To ensure our automated task tracking system captures all task information accur
 
 ## 🚀 Guidelines for Mentioning Tasks
 
-### 1. **New Tasks**
+### 1. **Future Plans**
+When discussing future ideas, initiatives, or plans that should be tracked but are not yet assigned to anyone:
+
+**✅ Good Examples:**
+- "**Mobile app development is a future plan** we should consider for next quarter."
+- "**Integration with Slack** would be a **future enhancement** we need to think about."
+- "**Migrating to microservices** is **something for the future** when we have more resources."
+- "**Machine learning integration** is **on our roadmap** for later this year."
+- "**Real-time notifications** are **planned for future** iterations."
+
+**❌ Avoid:**
+- "We might do something later" (too vague, no specific plan mentioned)
+- "Future stuff" (no clear initiative or plan described)
+
+**What happens:** The system will create a task with `isFuturePlan: true`, assigned to "TBD" (To Be Determined), and include it in the "Future Plans discussed in this meeting" section of the Teams summary.
+
+### 2. **New Tasks**
 When introducing a completely new task, be explicit:
 
 **✅ Good Examples:**
@@ -38,7 +54,9 @@ When introducing a completely new task, be explicit:
 - "I need to work on authentication" (unclear if new or existing)
 - "The dashboard needs work" (not clearly assigned)
 
-### 2. **Existing Task Updates**
+**What happens:** The system will create a regular task assigned to you with a unique SP-{number} ID.
+
+### 3. **Existing Task Updates**
 When providing updates on existing tasks, always start with the task ID:
 
 **✅ Good Examples:**
@@ -51,7 +69,7 @@ When providing updates on existing tasks, always start with the task ID:
 - "Dashboard is coming along" (no task ID, vague update)
 - "Update on the user authentication task" (no task ID - will be treated as NEW task)
 
-### 3. **Status Changes**
+### 4. **Status Changes**
 Be explicit about status changes and always include the task ID:
 
 **✅ Good Examples:**
@@ -65,7 +83,7 @@ Be explicit about status changes and always include the task ID:
 - "Working on dashboard" (no task ID, unclear if started or continuing)
 - "I completed the user authentication task" (no task ID - will be treated as NEW completed task)
 
-### 4. **Time Information**
+### 5. **Time Information**
 Always mention time estimates for new tasks and actual time spent (include task ID for existing tasks):
 
 **✅ Good Examples:**
@@ -80,7 +98,7 @@ Always mention time estimates for new tasks and actual time spent (include task 
 - "Worked on it for some time" (no specific hours, no task ID)
 - "The authentication feature took 3 hours" (no task ID - will be treated as NEW task)
 
-### 5. **Task Modifications**
+### 6. **Task Modifications**
 When adding or removing features from existing tasks, always include the task ID:
 
 **✅ Good Examples:**
@@ -117,49 +135,59 @@ Use these specific phrases to help the system capture time information:
 
 ## 🎯 Complete Example Statements
 
+### Future Plan Example:
+> "**API rate limiting is a future plan** we should implement when we scale up. It's not urgent but should be on our roadmap."
+> *System will assign: SP-35 to "TBD" with isFuturePlan: true*
+
 ### New Task Example:
 > "I have a **new coding task** to implement the search functionality for the user dashboard. This will involve creating the search API and updating the frontend. I estimate this will take **8 hours** total."
-> *System will assign: SP-35*
+> *System will assign: SP-36*
 
 ### Update Example:
-> "**SP-35** - Update on the search functionality task: I've completed the API part which **took 4 hours**, and I'm now working on the frontend integration. The frontend should take another **3 hours**."
+> "**SP-36** - Update on the search functionality task: I've completed the API part which **took 4 hours**, and I'm now working on the frontend integration. The frontend should take another **3 hours**."
 
 ### Completion Example:
-> "**SP-35** - I have **completed** the search functionality task. The total time was **7 hours** instead of the estimated 8. Everything is tested and deployed."
+> "**SP-36** - I have **completed** the search functionality task. The total time was **7 hours** instead of the estimated 8. Everything is tested and deployed."
 
 ### Status Change Example:
 > "I've **started working on** the new user notification system. This is a **new task** that should take about **6 hours**."
-> *System will assign: SP-36*
+> *System will assign: SP-37*
 > 
-> Later: "**SP-36** - Progress update on the user notification system: I've implemented the basic structure and it's going well."
+> Later: "**SP-37** - Progress update on the user notification system: I've implemented the basic structure and it's going well."
 
 ## ⚠️ Important Notes
 
 1. **Task IDs are CRITICAL**: Always mention task ID for existing tasks (SP-XX format)
-2. **Be Specific**: Always mention the task name/description clearly
-3. **Use Keywords**: Include the suggested keywords for better detection
-4. **Separate Tasks**: If discussing multiple tasks, address them one by one with their respective IDs
-5. **Time Units**: Use "hours" or "days" consistently
-6. **Assignee Clarity**: Make it clear who is responsible for each task
-7. **No Task ID = New Task**: If you don't mention a task ID, the system assumes it's a new task
+2. **Future Plans**: Use phrases like "is a future plan", "future enhancement", "planned for future" to create future plan tasks
+3. **Be Specific**: Always mention the task name/description clearly
+4. **Use Keywords**: Include the suggested keywords for better detection
+5. **Separate Tasks**: If discussing multiple tasks, address them one by one with their respective IDs
+6. **Time Units**: Use "hours" or "days" consistently
+7. **Assignee Clarity**: Make it clear who is responsible for each task
+8. **No Task ID = New Task**: If you don't mention a task ID, the system assumes it's a new task
 
 ## 🔄 Task Lifecycle Communication
 
+### Phase 0: Future Plan Creation
+- "**[Plan description] is a future plan** we should consider"
+- *System assigns to "TBD" with isFuturePlan: true (e.g., SP-40)*
+
 ### Phase 1: Task Creation
 - "**New task**: [Description] - estimated **X hours**"
-- *System assigns ID automatically (e.g., SP-40)*
+- *System assigns ID automatically (e.g., SP-41)*
 
 ### Phase 2: Progress Updates
-- "**SP-40** - Update on [task name]: [progress details] - spent **X hours**"
+- "**SP-41** - Update on [task name]: [progress details] - spent **X hours**"
 
 ### Phase 3: Completion
-- "**SP-40** - Completed [task name] - total time **X hours**"
+- "**SP-41** - Completed [task name] - total time **X hours**"
 
 ### Phase 4: Additional Work
-- "**SP-40** - For [task name], need to add [new requirement] - estimated additional **X hours**"
+- "**SP-41** - For [task name], need to add [new requirement] - estimated additional **X hours**"
 
 ## ✅ Quick Checklist Before Speaking
 
+- [ ] **For future plans: Did I use "future plan" language clearly?**
 - [ ] **For existing tasks: Did I start with the task ID (SP-XX)?**
 - [ ] Did I specify if this is a new task or update to existing?
 - [ ] Did I include time estimates for new tasks?

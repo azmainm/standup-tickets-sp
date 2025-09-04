@@ -161,38 +161,61 @@ Please analyze the following meeting transcript and extract ONLY actual actionab
 8. If NO actual tasks are mentioned in the transcript, respond with: "NO TASKS IDENTIFIED"
 9. Categorize actual tasks as "Coding" (development/technical work) or "Non-Coding" (documentation/research/meetings)
 
+**CRITICAL - Future Plan Detection:**
+10. **FUTURE PLAN IDENTIFICATION**: Look for phrases that indicate future planning or ideas:
+    - "XYZ is a future plan", "XYZ will be a future plan", "that's a future plan"
+    - "we should consider XYZ in the future", "XYZ is something for later"
+    - "XYZ is on our roadmap", "XYZ is planned for future", "XYZ is a future initiative"
+    - "down the line we want XYZ", "eventually we'll do XYZ", "future enhancement XYZ"
+11. **CONTEXT EXTRACTION**: When future plan language is detected, determine what "XYZ" refers to:
+    - Use conversation context from preceding and following sentences
+    - Look for specific features, improvements, or initiatives mentioned nearby
+    - Extract the actual plan/feature being discussed, not just "future plan"
+12. **FUTURE PLAN TASK CREATION**: When future plans are identified:
+    - Create a task with the extracted plan as description
+    - Mark with [IS_FUTURE_PLAN: true]
+    - Assign to "TBD" (To Be Determined)
+    - Status should be "To-do"
+    - Generate appropriate title from the plan description
+
 **Time and Progress Extraction (CRITICAL - PAY CLOSE ATTENTION):**
-10. **Time Estimates**: Look for ANY mention of future time commitment:
+13. **Time Estimates**: Look for ANY mention of future time commitment:
     - Numbers: "3 hours", "5 hours", "2 days", "half day", "8 hours" 
     - Words: "three hours", "five hours", "two days", "a day", "couple hours"
     - Phrases: "will take", "should take", "estimated", "probably", "might need", "around", "about"
     - Examples: "this will take 3 hours", "estimated five hours", "probably around 2 days", "should take about 4 hours"
 
-11. **Time Spent**: Look for ANY mention of time already worked:
+14. **Time Spent**: Look for ANY mention of time already worked:
     - Phrases: "spent", "took me", "worked", "did", "completed in", "finished in"
     - Numbers: Convert words to numbers ("three" = 3, "five" = 5, "two" = 2)
     - Examples: "spent 4 hours", "took me two hours", "worked three hours on it", "did about 5 hours"
 
-12. **Time Units**: Convert everything to hours:
+15. **Time Units**: Convert everything to hours:
     - "1 day" = 8 hours, "2 days" = 16 hours, "half day" = 4 hours
     - "morning" = 4 hours, "afternoon" = 4 hours
 
-13. Extract status updates (e.g., "completed the login feature", "started working on", "finished the database")
-14. Extract task updates (e.g., "need to add validation to the form", "found an issue with...")
+16. Extract status updates (e.g., "completed the login feature", "started working on", "finished the database")
+17. Extract task updates (e.g., "need to add validation to the form", "found an issue with...")
 
 **Task Types:**
 - NEW TASK: A completely new task being assigned or mentioned (NO task ID mentioned)
 - EXISTING TASK UPDATE: Updates or progress on a previously mentioned task (task ID like SP-XX mentioned)
 - STATUS CHANGE: Changes in task status (started, completed, etc.) for existing tasks (task ID mentioned)
+- FUTURE PLAN: A future plan or idea mentioned for consideration (use "TBD" as participant)
 
 **Required Output Format (ONLY if tasks are found):**
 [Actual Participant Name]'s Tasks:
-1. [Task description] (Coding/Non-Coding) [TYPE: NEW TASK/EXISTING TASK UPDATE/STATUS CHANGE] [TASK_ID: SP-XX or NONE] [ESTIMATED: X hours] [TIME SPENT: X hours] [STATUS: To-do/In-progress/Completed]
+1. [Task description] (Coding/Non-Coding) [TYPE: NEW TASK/EXISTING TASK UPDATE/STATUS CHANGE/FUTURE PLAN] [TASK_ID: SP-XX or NONE] [ESTIMATED: X hours] [TIME SPENT: X hours] [STATUS: To-do/In-progress/Completed] [IS_FUTURE_PLAN: true/false]
+
+**For Future Plans:**
+TBD's Tasks:
+1. [Future plan description] (Coding/Non-Coding) [TYPE: FUTURE PLAN] [TASK_ID: NONE] [STATUS: To-do] [IS_FUTURE_PLAN: true]
 
 **Examples:**
-- "Implement user authentication (Coding) [TYPE: NEW TASK] [TASK_ID: NONE] [ESTIMATED: 5 hours]"
-- "Login feature - added validation (Coding) [TYPE: EXISTING TASK UPDATE] [TASK_ID: SP-25] [TIME SPENT: 2 hours]"
-- "Database setup task (Coding) [TYPE: STATUS CHANGE] [TASK_ID: SP-30] [STATUS: Completed]"
+- "Implement user authentication (Coding) [TYPE: NEW TASK] [TASK_ID: NONE] [ESTIMATED: 5 hours] [IS_FUTURE_PLAN: false]"
+- "Login feature - added validation (Coding) [TYPE: EXISTING TASK UPDATE] [TASK_ID: SP-25] [TIME SPENT: 2 hours] [IS_FUTURE_PLAN: false]"
+- "Database setup task (Coding) [TYPE: STATUS CHANGE] [TASK_ID: SP-30] [STATUS: Completed] [IS_FUTURE_PLAN: false]"
+- "Mobile app development (Coding) [TYPE: FUTURE PLAN] [TASK_ID: NONE] [STATUS: To-do] [IS_FUTURE_PLAN: true]" (assigned to TBD)
 
 **Important**: 
 - If participant says "SP-25 - I made progress on authentication", extract task ID as SP-25 and mark as EXISTING TASK UPDATE
@@ -201,6 +224,8 @@ Please analyze the following meeting transcript and extract ONLY actual actionab
 - When SP-XX is mentioned with status words like "completed", "done", "finished", mark STATUS as "Completed"
 - When SP-XX is mentioned with "started", "working on", "in progress", mark STATUS as "In-progress"
 - CRITICAL: If someone says "SP-25 is complete" or "I completed SP-30", this is a STATUS CHANGE, not a new task
+- FUTURE PLANS: When detecting future plan language, assign to "TBD" participant and mark [IS_FUTURE_PLAN: true]
+- REGULAR TASKS: All regular tasks should have [IS_FUTURE_PLAN: false]
 
 **Meeting Transcript:**
 ${transcriptText}
@@ -338,6 +363,7 @@ function parseGPTResponse(gptResponse) {
         let timeSpent = 0;
         let status = "To-do";
         let existingTaskId = null;
+        let isFuturePlan = false;
         
         // Extract TYPE
         const typeMatch = additionalInfo.match(/\[TYPE:\s*([^\]]+)\]/i);
@@ -372,14 +398,22 @@ function parseGPTResponse(gptResponse) {
           status = statusMatch[1].trim();
         }
         
+        // Extract IS_FUTURE_PLAN
+        const futurePlanMatch = additionalInfo.match(/\[IS_FUTURE_PLAN:\s*([^\]]+)\]/i);
+        if (futurePlanMatch) {
+          const futurePlanValue = futurePlanMatch[1].trim().toLowerCase();
+          isFuturePlan = futurePlanValue === "true";
+        }
+        
         // Create task object with enhanced data
         const taskObject = {
           description: taskDescription,
           status: status,
           estimatedTime: estimatedTime,
           timeTaken: timeSpent,
-          taskType: taskType_extracted, // NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE
-          existingTaskId: existingTaskId // SP-XX if this is an update to existing task, null if new
+          taskType: taskType_extracted, // NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE, FUTURE PLAN
+          existingTaskId: existingTaskId, // SP-XX if this is an update to existing task, null if new
+          isFuturePlan: isFuturePlan // true for future plans, false for regular tasks
         };
         
         structuredTasks[currentParticipant][taskType].push(taskObject);
