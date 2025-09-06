@@ -120,16 +120,12 @@ async function testCompleteFlow() {
   // Step 1: Fetch ALL meeting transcripts using All Meetings approach
   console.log("\n3. 🆕 Fetching ALL meeting transcripts using All Meetings approach...");
   
-  // Calculate target date
+  // Calculate target date - ALWAYS use previous day for standup data
   const bdTime = getBangladeshTimeComponents(new Date());
-  let targetDateForFile = bdTime.dateString;
-  if (bdTime.hour >= 0 && bdTime.hour < 6) {
-    // Early morning - use previous day
-    // Fix: Use dateString directly to avoid timezone issues
-    const targetDateObj = new Date(bdTime.dateString);
-    targetDateObj.setDate(targetDateObj.getDate() - 1);
-    targetDateForFile = targetDateObj.toISOString().slice(0, 10);
-  }
+  // Always use previous day regardless of current time
+  const targetDateObj = new Date(bdTime.dateString);
+  targetDateObj.setDate(targetDateObj.getDate() - 1);
+  const targetDateForFile = targetDateObj.toISOString().slice(0, 10);
   
   console.log(`   📅 Target date: ${targetDateForFile}`);
   console.log(`   👤 Target user: ${process.env.TARGET_USER_ID.substring(0, 20)}...`);

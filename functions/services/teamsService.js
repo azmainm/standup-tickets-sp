@@ -208,13 +208,43 @@ function generateSummaryDataFromTaskResult(taskResult, mongoResult = null) {
   };
 
   try {
+    // Extract future plans from taskResult (OpenAI processed tasks)
+    if (taskResult?.tasks) {
+      // Look for TBD participant in the OpenAI task results
+      if (taskResult.tasks.TBD) {
+        let ticketIndex = 0; // Track ticket assignment for TBD tasks
+        
+        for (const taskType of ["Coding", "Non-Coding"]) {
+          if (taskResult.tasks.TBD[taskType] && Array.isArray(taskResult.tasks.TBD[taskType])) {
+            for (const task of taskResult.tasks.TBD[taskType]) {
+              // Get ticket ID from MongoDB result
+              let ticketId = null;
+              if (mongoResult?.assignedTicketIds && ticketIndex < mongoResult.assignedTicketIds.length) {
+                ticketId = mongoResult.assignedTicketIds[ticketIndex];
+                ticketIndex++;
+              }
+              
+              summaryData.futurePlans.push({
+                ticketId: ticketId || "SP-??",
+                title: task.title || task.description,
+                description: task.description,
+                type: taskType, // 'Coding' or 'Non-Coding'
+                status: task.status || "To-do"
+              });
+              summaryData.summary.totalFuturePlans++;
+            }
+          }
+        }
+      }
+    }
+
     // Process new tasks from the task matching results with ticket IDs from MongoDB result
     if (taskResult.taskMatching?.tasksToCreate) {
       for (const newTask of taskResult.taskMatching.tasksToCreate) {
         const participantName = newTask.participantName;
         
-        // Check if this is a future plan (assigned to "TBD")
-        if (newTask.isFuturePlan || participantName === "TBD") {
+        // Check if this is a future plan (but not already processed above)
+        if ((newTask.isFuturePlan || participantName === "TBD") && participantName !== "TBD") {
           // Try to find the ticket ID from MongoDB storage result
           let ticketId = newTask.ticketId;
           if (mongoResult?.assignedTicketIds) {
@@ -234,7 +264,7 @@ function generateSummaryDataFromTaskResult(taskResult, mongoResult = null) {
           });
           
           summaryData.summary.totalFuturePlans++;
-        } else {
+        } else if (participantName !== "TBD") {
           // Regular task processing
           if (!summaryData.participants[participantName]) {
             summaryData.participants[participantName] = {

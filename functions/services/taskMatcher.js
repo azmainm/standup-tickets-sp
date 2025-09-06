@@ -20,36 +20,61 @@ const openai = new OpenAI({
 });
 
 /**
- * Use GPT to determine if two task descriptions refer to the same task
+ * Enhanced GPT-based task similarity detection with improved context analysis
  * @param {string} newTaskDescription - New task description
  * @param {string} existingTaskDescription - Existing task description
- * @returns {Promise<Object>} Object with isMatch boolean and confidence score
+ * @param {Object} context - Additional context for better matching
+ * @returns {Promise<Object>} Object with isMatch boolean and enhanced analysis
  */
-async function checkTaskSimilarityWithGPT(newTaskDescription, existingTaskDescription) {
+async function checkTaskSimilarityWithGPT(newTaskDescription, existingTaskDescription, context = {}) {
   try {
+    const contextInfo = context.assignee ? `Both tasks are assigned to: ${context.assignee}\n` : "";
+    const existingTaskInfo = context.existingTask ? 
+      `Existing task details: Status: ${context.existingTask.status}, Type: ${context.existingTask.type}\n` : "";
+    
     const prompt = `
-You are a task management expert. Please analyze whether these two task descriptions refer to the same task or different tasks.
+You are an expert task management analyst with deep understanding of software development workflows. Analyze whether these task descriptions refer to the same work item.
 
-Task 1 (New): "${newTaskDescription}"
-Task 2 (Existing): "${existingTaskDescription}"
+${contextInfo}${existingTaskInfo}
+Task 1 (New from transcript): "${newTaskDescription}"
+Task 2 (Existing in database): "${existingTaskDescription}"
 
-Consider:
-1. Are they describing the same feature/functionality?
-2. Are they part of the same project component?
-3. Could one be an update/continuation of the other?
-4. Are they just different ways of describing the same work?
+**Analysis Framework:**
+1. **Feature/Component Match**: Do they target the same feature, component, or system?
+2. **Work Continuation**: Could the new task be an update, extension, or continuation of existing work?
+3. **Semantic Similarity**: Are they describing the same work using different terminology?
+4. **Scope Overlap**: Is there significant overlap in what needs to be accomplished?
+5. **Context Clues**: Do they reference the same technical concepts, tools, or requirements?
 
-Respond with ONLY a JSON object in this exact format:
+**Enhanced Matching Criteria:**
+- Same feature with different phrasing ("user login" vs "authentication system")
+- Progress updates ("fix authentication bug" matches "implement authentication")
+- Refinements ("improve dashboard UI" matches "create admin dashboard")
+- Different abstraction levels ("database optimization" vs "fix slow queries")
+- Related sub-tasks ("API integration" vs "connect payment gateway")
+
+**Return ONLY this JSON format:**
 {
   "isMatch": true/false,
   "confidence": 0.0-1.0,
-  "reasoning": "brief explanation"
+  "reasoning": "detailed explanation of analysis",
+  "similarities": ["list", "of", "key", "similarities"],
+  "differences": ["list", "of", "key", "differences"],
+  "recommendation": "UPDATE_EXISTING|CREATE_NEW|NEEDS_CLARIFICATION"
 }
 
-Examples:
-- "Implement user login" vs "Add authentication system" → isMatch: true, confidence: 0.8
-- "Build payment gateway" vs "Fix login bug" → isMatch: false, confidence: 0.9
-- "Create admin dashboard" vs "Add user management to admin panel" → isMatch: true, confidence: 0.7
+**Confidence Guidelines:**
+- 0.9-1.0: Virtually identical or clear continuation
+- 0.7-0.89: Strong match with minor differences
+- 0.5-0.69: Moderate match, likely related work
+- 0.3-0.49: Weak match, possibly related
+- 0.0-0.29: Different tasks
+
+**Examples:**
+- "Implement user authentication" vs "Fix authentication system login bug" → 0.8 (same system, refinement)
+- "Create payment dashboard" vs "Add payment analytics to admin panel" → 0.7 (same feature area)
+- "Database optimization" vs "Fix slow user queries" → 0.6 (related performance work)
+- "Build mobile app" vs "Fix login bug" → 0.1 (completely different)
 `;
 
     const response = await openai.chat.completions.create({
@@ -57,7 +82,7 @@ Examples:
       messages: [
         {
           role: "system",
-          content: "You are a precise task analysis expert. Always respond with valid JSON only."
+          content: "You are a senior software engineering project manager with expertise in task analysis, requirements management, and development workflow optimization. You excel at identifying semantic relationships between work items and understanding when tasks represent the same or related work. Always respond with valid JSON only."
         },
         {
           role: "user",
@@ -65,49 +90,65 @@ Examples:
         }
       ],
       temperature: 0.1,
-      max_tokens: 200,
+      max_tokens: 400,
     });
 
-    const responseText = response.choices[0].message.content.trim();
+    let responseText = response.choices[0].message.content.trim();
+    
+    // Clean the response to handle markdown code blocks
+    responseText = responseText.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "");
     
     // Parse the JSON response
     const result = JSON.parse(responseText);
     
-    logger.info("GPT task similarity check completed", {
-      newTask: newTaskDescription.substring(0, 50),
-      existingTask: existingTaskDescription.substring(0, 50),
-      isMatch: result.isMatch,
-      confidence: result.confidence,
-      reasoning: result.reasoning
-    });
-    
-    return {
-      isMatch: result.isMatch,
-      confidence: result.confidence,
-      reasoning: result.reasoning || "No reasoning provided"
+    // Validate and enhance the result
+    const enhancedResult = {
+      isMatch: Boolean(result.isMatch),
+      confidence: Math.max(0, Math.min(1, Number(result.confidence) || 0)),
+      reasoning: result.reasoning || "No reasoning provided",
+      similarities: Array.isArray(result.similarities) ? result.similarities : [],
+      differences: Array.isArray(result.differences) ? result.differences : [],
+      recommendation: result.recommendation || "CREATE_NEW"
     };
     
+    logger.info("Enhanced GPT task similarity check completed", {
+      newTask: newTaskDescription.substring(0, 50),
+      existingTask: existingTaskDescription.substring(0, 50),
+      isMatch: enhancedResult.isMatch,
+      confidence: enhancedResult.confidence,
+      recommendation: enhancedResult.recommendation,
+      similaritiesCount: enhancedResult.similarities.length,
+      differencesCount: enhancedResult.differences.length
+    });
+    
+    return enhancedResult;
+    
   } catch (error) {
-    logger.error("Error in GPT task similarity check", {
+    logger.error("Error in enhanced GPT task similarity check", {
       error: error.message,
       newTask: newTaskDescription.substring(0, 50),
       existingTask: existingTaskDescription.substring(0, 50)
     });
     
-    // Fallback to simple word-based similarity
+    // Enhanced fallback with simple semantic analysis
+    const fallbackResult = performFallbackSimilarityCheck(newTaskDescription, existingTaskDescription);
+    
     return {
-      isMatch: false,
-      confidence: 0.0,
-      reasoning: "GPT check failed, defaulting to no match"
+      isMatch: fallbackResult.isMatch,
+      confidence: fallbackResult.confidence,
+      reasoning: `GPT check failed, using fallback analysis: ${fallbackResult.reasoning}`,
+      similarities: fallbackResult.similarities || [],
+      differences: fallbackResult.differences || [],
+      recommendation: "NEEDS_CLARIFICATION"
     };
   }
 }
 
 /**
- * Find matching existing task for a new task using GPT
+ * Enhanced matching of existing task for a new task using improved GPT analysis
  * @param {Object} newTask - New task from transcript
  * @param {Array} existingTasks - Array of existing active tasks for the participant
- * @returns {Promise<Object|null>} Matching task or null if no match found
+ * @returns {Promise<Object|null>} Enhanced matching task or null if no match found
  */
 async function findMatchingTask(newTask, existingTasks) {
   if (!existingTasks || existingTasks.length === 0) {
@@ -116,41 +157,124 @@ async function findMatchingTask(newTask, existingTasks) {
   
   let bestMatch = null;
   let bestConfidence = 0;
+  let allAnalyses = [];
   
-  // Minimum confidence threshold for considering a match
-  const CONFIDENCE_THRESHOLD = 0.6;
+  // Dynamic confidence threshold based on task type and context
+  const BASE_CONFIDENCE_THRESHOLD = 0.6;
+  const adjustedThreshold = getAdjustedConfidenceThreshold(newTask, existingTasks);
+  
+  logger.info("Starting enhanced task matching", {
+    newTaskDesc: newTask.description.substring(0, 100),
+    newTaskType: newTask.type,
+    existingTasksCount: existingTasks.length,
+    confidenceThreshold: adjustedThreshold
+  });
   
   for (const existingTask of existingTasks) {
-    // Only match tasks of the same type (Coding vs Non-Coding)
-    if (existingTask.type !== newTask.type) {
+    // Enhanced type matching - allow cross-type for related work
+    const typeCompatibility = checkTypeCompatibility(newTask.type, existingTask.type);
+    if (!typeCompatibility.compatible) {
       continue;
     }
     
     try {
+      // Enhanced context for similarity analysis
+      const context = {
+        assignee: newTask.assignee,
+        existingTask: {
+          status: existingTask.status,
+          type: existingTask.type,
+          ticketId: existingTask.ticketId,
+          estimatedTime: existingTask.estimatedTime,
+          timeTaken: existingTask.timeTaken
+        },
+        typeCompatibility
+      };
+      
       const similarityResult = await checkTaskSimilarityWithGPT(
         newTask.description, 
-        existingTask.description
+        existingTask.description,
+        context
       );
       
+      // Adjust confidence based on type compatibility
+      const adjustedConfidence = similarityResult.confidence * typeCompatibility.multiplier;
+      
+      allAnalyses.push({
+        task: existingTask,
+        analysis: similarityResult,
+        adjustedConfidence,
+        typeCompatibility
+      });
+      
       if (similarityResult.isMatch && 
-          similarityResult.confidence > bestConfidence && 
-          similarityResult.confidence >= CONFIDENCE_THRESHOLD) {
-        bestConfidence = similarityResult.confidence;
+          adjustedConfidence > bestConfidence && 
+          adjustedConfidence >= adjustedThreshold) {
+        bestConfidence = adjustedConfidence;
         bestMatch = {
           ...existingTask,
-          similarityScore: similarityResult.confidence,
-          reasoning: similarityResult.reasoning
+          similarityScore: adjustedConfidence,
+          originalConfidence: similarityResult.confidence,
+          reasoning: similarityResult.reasoning,
+          similarities: similarityResult.similarities,
+          differences: similarityResult.differences,
+          recommendation: similarityResult.recommendation,
+          typeCompatibility
         };
       }
     } catch (error) {
-      logger.error("Error checking task similarity", {
+      logger.error("Error in enhanced task similarity check", {
         error: error.message,
         newTask: newTask.description.substring(0, 50),
         existingTask: existingTask.description.substring(0, 50)
       });
-      // Continue with next task if one fails
+      
+      // Try fallback analysis for this task
+      try {
+        const fallbackResult = performFallbackSimilarityCheck(
+          newTask.description, 
+          existingTask.description
+        );
+        
+        if (fallbackResult.confidence >= adjustedThreshold) {
+          allAnalyses.push({
+            task: existingTask,
+            analysis: fallbackResult,
+            adjustedConfidence: fallbackResult.confidence,
+            typeCompatibility,
+            fallback: true
+          });
+        }
+      } catch (fallbackError) {
+        logger.error("Fallback similarity check also failed", {
+          error: fallbackError.message,
+          newTask: newTask.description.substring(0, 50),
+          existingTask: existingTask.description.substring(0, 50)
+        });
+      }
+      
       continue;
     }
+  }
+  
+  // Log detailed analysis results
+  if (allAnalyses.length > 0) {
+    logger.info("Task matching analysis completed", {
+      totalAnalyses: allAnalyses.length,
+      bestMatch: bestMatch ? {
+        taskId: bestMatch.ticketId,
+        confidence: bestConfidence,
+        recommendation: bestMatch.recommendation
+      } : null,
+      topAlternatives: allAnalyses
+        .sort((a, b) => b.adjustedConfidence - a.adjustedConfidence)
+        .slice(0, 3)
+        .map(a => ({
+          taskId: a.task.ticketId,
+          confidence: a.adjustedConfidence,
+          fallback: a.fallback || false
+        }))
+    });
   }
   
   return bestMatch;
@@ -467,6 +591,138 @@ async function matchTasksWithDatabase(extractedTasksData) {
   }
 }
 
+/**
+ * Perform fallback similarity check using simple text analysis
+ * @param {string} newDescription - New task description
+ * @param {string} existingDescription - Existing task description
+ * @returns {Object} Fallback similarity result
+ */
+function performFallbackSimilarityCheck(newDescription, existingDescription) {
+  const newWords = tokenizeDescription(newDescription);
+  const existingWords = tokenizeDescription(existingDescription);
+  
+  // Calculate word overlap
+  const commonWords = newWords.filter(word => existingWords.includes(word));
+  const wordOverlap = commonWords.length / Math.max(newWords.length, existingWords.length);
+  
+  // Calculate semantic similarity using simple heuristics
+  const semanticScore = calculateSemanticSimilarity(newDescription, existingDescription);
+  
+  // Combine scores
+  const confidence = (wordOverlap * 0.6) + (semanticScore * 0.4);
+  
+  const similarities = commonWords.slice(0, 5); // Top common words
+  const differences = [
+    ...newWords.filter(word => !existingWords.includes(word)).slice(0, 3),
+    ...existingWords.filter(word => !newWords.includes(word)).slice(0, 3)
+  ];
+  
+  return {
+    isMatch: confidence >= 0.5,
+    confidence: Math.min(confidence, 0.7), // Cap fallback confidence
+    reasoning: `Fallback analysis: ${Math.round(wordOverlap * 100)}% word overlap, ${Math.round(semanticScore * 100)}% semantic similarity`,
+    similarities,
+    differences: differences.slice(0, 5)
+  };
+}
+
+/**
+ * Tokenize task description into meaningful words
+ * @param {string} description - Task description
+ * @returns {Array} Array of meaningful words
+ */
+function tokenizeDescription(description) {
+  if (!description) return [];
+  
+  return description
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 2)
+    .filter(word => !['the', 'and', 'for', 'with', 'from', 'this', 'that', 'will', 'need', 'add', 'fix', 'use'].includes(word));
+}
+
+/**
+ * Calculate semantic similarity using simple heuristics
+ * @param {string} desc1 - First description
+ * @param {string} desc2 - Second description
+ * @returns {number} Similarity score 0-1
+ */
+function calculateSemanticSimilarity(desc1, desc2) {
+  const lower1 = desc1.toLowerCase();
+  const lower2 = desc2.toLowerCase();
+  
+  // Check for key technical terms and action verbs
+  const techTerms = ['api', 'database', 'auth', 'login', 'dashboard', 'ui', 'frontend', 'backend', 'component', 'feature'];
+  const actionVerbs = ['implement', 'create', 'build', 'develop', 'design', 'fix', 'update', 'refactor', 'optimize'];
+  
+  let similarity = 0;
+  
+  // Check common tech terms
+  for (const term of techTerms) {
+    if (lower1.includes(term) && lower2.includes(term)) {
+      similarity += 0.1;
+    }
+  }
+  
+  // Check common action verbs
+  for (const verb of actionVerbs) {
+    if (lower1.includes(verb) && lower2.includes(verb)) {
+      similarity += 0.05;
+    }
+  }
+  
+  // Check substring containment
+  if (lower1.includes(lower2) || lower2.includes(lower1)) {
+    similarity += 0.3;
+  }
+  
+  return Math.min(similarity, 1.0);
+}
+
+/**
+ * Check type compatibility between tasks
+ * @param {string} newType - New task type
+ * @param {string} existingType - Existing task type
+ * @returns {Object} Compatibility result
+ */
+function checkTypeCompatibility(newType, existingType) {
+  if (newType === existingType) {
+    return { compatible: true, multiplier: 1.0 };
+  }
+  
+  // Allow cross-type matching with reduced confidence
+  // Some coding tasks can become non-coding (documentation) and vice versa
+  return { compatible: true, multiplier: 0.8 };
+}
+
+/**
+ * Get adjusted confidence threshold based on context
+ * @param {Object} newTask - New task
+ * @param {Array} existingTasks - Existing tasks
+ * @returns {number} Adjusted confidence threshold
+ */
+function getAdjustedConfidenceThreshold(newTask, existingTasks) {
+  let threshold = 0.6; // Base threshold
+  
+  // Lower threshold if there are few existing tasks (more likely to match)
+  if (existingTasks.length <= 3) {
+    threshold = 0.5;
+  }
+  
+  // Higher threshold for very specific or detailed descriptions
+  if (newTask.description.length > 200) {
+    threshold = 0.65;
+  }
+  
+  // Lower threshold for short, generic descriptions
+  if (newTask.description.length < 50) {
+    threshold = 0.55;
+  }
+  
+  return threshold;
+}
+
 module.exports = {
   matchTasksWithDatabase,
   findMatchingTask,
@@ -475,4 +731,9 @@ module.exports = {
   parseTimeSpent,
   parseStatusUpdate,
   processTaskMatching,
+  performFallbackSimilarityCheck,
+  tokenizeDescription,
+  calculateSemanticSimilarity,
+  checkTypeCompatibility,
+  getAdjustedConfidenceThreshold
 };

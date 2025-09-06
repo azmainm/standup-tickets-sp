@@ -54,6 +54,7 @@ async function initializeMongoDB() {
 
 /**
  * Store processed tasks in MongoDB with unique ticket IDs and titles for each task
+ * FIXED: Now merges with existing active tasks instead of creating separate documents
  * @param {Object} tasksData - Structured task data organized by participant
  * @param {Object} metadata - Additional metadata about the processing
  * @returns {Promise<Object>} MongoDB insert result with document ID and ticket IDs
@@ -70,7 +71,7 @@ async function storeTasks(tasksData, metadata = {}) {
     // Import title generation function
     const { generateTaskTitlesInBatch } = require("./openaiService");
     
-    // Process tasks and assign ticket IDs and titles
+    // Process NEW tasks and assign ticket IDs and titles
     const processedTasksData = {};
     const assignedTicketIds = [];
     let totalTasksWithIds = 0;
@@ -88,6 +89,10 @@ async function storeTasks(tasksData, metadata = {}) {
         
         for (const task of tasksWithTitles) {
           const ticketId = await getNextTicketId();
+          
+          // CRITICAL FIX: If participant is TBD, this is definitely a future plan
+          const isFuturePlan = (participantName === "TBD") ? true : Boolean(task.isFuturePlan);
+          
           const taskWithId = {
             ticketId,
             title: task.title,
@@ -95,7 +100,7 @@ async function storeTasks(tasksData, metadata = {}) {
             status: task.status || "To-do",
             estimatedTime: task.estimatedTime || 0,
             timeTaken: task.timeTaken || 0,
-            isFuturePlan: task.isFuturePlan || false
+            isFuturePlan: isFuturePlan
           };
           
           processedTasksData[participantName]["Coding"].push(taskWithId);
@@ -111,6 +116,10 @@ async function storeTasks(tasksData, metadata = {}) {
         
         for (const task of tasksWithTitles) {
           const ticketId = await getNextTicketId();
+          
+          // CRITICAL FIX: If participant is TBD, this is definitely a future plan
+          const isFuturePlan = (participantName === "TBD") ? true : Boolean(task.isFuturePlan);
+          
           const taskWithId = {
             ticketId,
             title: task.title,
@@ -118,7 +127,7 @@ async function storeTasks(tasksData, metadata = {}) {
             status: task.status || "To-do",
             estimatedTime: task.estimatedTime || 0,
             timeTaken: task.timeTaken || 0,
-            isFuturePlan: task.isFuturePlan || false
+            isFuturePlan: isFuturePlan
           };
           
           processedTasksData[participantName]["Non-Coding"].push(taskWithId);
@@ -462,6 +471,149 @@ async function getActiveTasksByParticipant(participantName) {
 }
 
 /**
+ * Update an existing task by its ticketId across all documents
+ * @param {string} ticketId - Ticket ID to find and update (e.g., "SP-123")
+ * @param {Object} updateData - Data to update (description, status, etc.)
+ * @returns {Promise<Object>} Update result
+ */
+async function updateTaskByTicketId(ticketId, updateData) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(COLLECTION_NAME);
+    
+    // Find all documents to search for the ticket
+    const documents = await collection.find({}).toArray();
+    
+    for (const doc of documents) {
+      // Search through all participants
+      for (const participantName of Object.keys(doc)) {
+        if (participantName === '_id' || participantName === 'timestamp') continue;
+        
+        const participantData = doc[participantName];
+        if (!participantData || typeof participantData !== 'object') continue;
+        
+        // Search Coding tasks
+        if (participantData.Coding && Array.isArray(participantData.Coding)) {
+          for (let i = 0; i < participantData.Coding.length; i++) {
+            const task = participantData.Coding[i];
+            if (task && task.ticketId === ticketId) {
+              // Found the task! Update it
+              const updateObj = {};
+              if (updateData.description !== undefined) {
+                updateObj[`${participantName}.Coding.${i}.description`] = updateData.description;
+              }
+              if (updateData.status !== undefined) {
+                updateObj[`${participantName}.Coding.${i}.status`] = updateData.status;
+              }
+              if (updateData.estimatedTime !== undefined) {
+                updateObj[`${participantName}.Coding.${i}.estimatedTime`] = updateData.estimatedTime;
+              }
+              if (updateData.timeTaken !== undefined) {
+                updateObj[`${participantName}.Coding.${i}.timeTaken`] = updateData.timeTaken;
+              }
+              
+              const result = await collection.updateOne(
+                { _id: doc._id },
+                { $set: updateObj }
+              );
+              
+              logger.info("Task updated by ticketId", {
+                ticketId,
+                documentId: doc._id,
+                participantName,
+                taskType: 'Coding',
+                taskIndex: i,
+                updateData,
+                result: result.modifiedCount > 0 ? 'success' : 'no_changes'
+              });
+              
+              return {
+                success: result.modifiedCount > 0,
+                documentId: doc._id,
+                participantName,
+                taskType: 'Coding',
+                taskIndex: i,
+                modifiedCount: result.modifiedCount
+              };
+            }
+          }
+        }
+        
+        // Search Non-Coding tasks
+        if (participantData['Non-Coding'] && Array.isArray(participantData['Non-Coding'])) {
+          for (let i = 0; i < participantData['Non-Coding'].length; i++) {
+            const task = participantData['Non-Coding'][i];
+            if (task && task.ticketId === ticketId) {
+              // Found the task! Update it
+              const updateObj = {};
+              if (updateData.description !== undefined) {
+                updateObj[`${participantName}.Non-Coding.${i}.description`] = updateData.description;
+              }
+              if (updateData.status !== undefined) {
+                updateObj[`${participantName}.Non-Coding.${i}.status`] = updateData.status;
+              }
+              if (updateData.estimatedTime !== undefined) {
+                updateObj[`${participantName}.Non-Coding.${i}.estimatedTime`] = updateData.estimatedTime;
+              }
+              if (updateData.timeTaken !== undefined) {
+                updateObj[`${participantName}.Non-Coding.${i}.timeTaken`] = updateData.timeTaken;
+              }
+              
+              const result = await collection.updateOne(
+                { _id: doc._id },
+                { $set: updateObj }
+              );
+              
+              logger.info("Task updated by ticketId", {
+                ticketId,
+                documentId: doc._id,
+                participantName,
+                taskType: 'Non-Coding',
+                taskIndex: i,
+                updateData,
+                result: result.modifiedCount > 0 ? 'success' : 'no_changes'
+              });
+              
+              return {
+                success: result.modifiedCount > 0,
+                documentId: doc._id,
+                participantName,
+                taskType: 'Non-Coding',
+                taskIndex: i,
+                modifiedCount: result.modifiedCount
+              };
+            }
+          }
+        }
+      }
+    }
+    
+    // Task not found
+    logger.warn("Task not found for update", { ticketId, updateData });
+    return {
+      success: false,
+      error: 'Task not found',
+      ticketId
+    };
+    
+  } catch (error) {
+    logger.error("Error updating task by ticketId", {
+      ticketId,
+      updateData,
+      error: error.message,
+      stack: error.stack,
+    });
+    
+    return {
+      success: false,
+      error: error.message,
+      ticketId
+    };
+  }
+}
+
+/**
  * Update a specific task in the database
  * @param {string} documentId - MongoDB document ID
  * @param {string} taskPath - Path to the task (e.g., "Azmain.Coding.0")
@@ -750,6 +902,7 @@ module.exports = {
   getActiveTasks,
   getActiveTasksByParticipant,
   updateTask,
+  updateTaskByTicketId,
   testMongoConnection,
   getCollectionStats,
   getNextTicketId,

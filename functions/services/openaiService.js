@@ -1,14 +1,20 @@
 /**
- * OpenAI Service for processing meeting transcripts and extracting tasks
+ * Enhanced OpenAI Service for processing meeting transcripts and extracting tasks
  * 
  * This service takes a meeting transcript and uses GPT to:
- * 1. Identify participants and their tasks
+ * 1. Identify participants and their tasks with enhanced context awareness
  * 2. Categorize tasks as coding or non-coding
- * 3. Return structured task data
+ * 3. Detect status changes for existing tasks
+ * 4. Identify future plans with proper context extraction
+ * 5. Detect assignees including "for me" patterns
+ * 6. Return structured task data with Zod validation
  */
 
 const OpenAI = require("openai");
 const {logger} = require("firebase-functions");
+const { validateLLMResponse, sanitizeLLMResponse } = require("../schemas/taskSchemas");
+const { detectStatusChangesFromTranscript } = require("./statusChangeDetectionService");
+const { detectAssignee, extractParticipantsFromDatabase } = require("./assigneeDetectionService");
 
 // Load environment variables
 require("dotenv").config();
@@ -19,75 +25,111 @@ const openai = new OpenAI({
 });
 
 /**
- * Process transcript and extract tasks for each participant
+ * Enhanced process transcript and extract tasks for each participant
  * @param {Array} transcript - Array of transcript entries with speaker, startTime, endTime, text
- * @returns {Promise<Object>} Structured task data organized by participant
+ * @param {Array} existingTasks - Array of existing tasks for context (optional)
+ * @returns {Promise<Object>} Structured task data organized by participant with validation
  */
-async function processTranscriptForTasks(transcript) {
+async function processTranscriptForTasks(transcript, existingTasks = []) {
   try {
-    logger.info("Starting OpenAI processing for transcript", {
+    logger.info("Starting enhanced OpenAI processing for transcript", {
       entryCount: transcript.length,
+      existingTasksCount: existingTasks.length,
       timestamp: new Date().toISOString(),
     });
 
+    // Extract available participants for assignee detection
+    const availableParticipants = extractParticipantsFromDatabase(existingTasks);
+    
     // Convert transcript to a readable format for GPT
     const transcriptText = formatTranscriptForGPT(transcript);
     
-    // Create the prompt for GPT
-    const prompt = createTaskExtractionPrompt(transcriptText);
+    // Detect status changes first (for context)
+    const statusChanges = detectStatusChangesFromTranscript(transcript);
     
-    // Call OpenAI GPT API
+    // Create the enhanced prompt for GPT
+    const prompt = createEnhancedTaskExtractionPrompt(transcriptText, existingTasks, statusChanges);
+    
+    // Call OpenAI GPT API with enhanced settings
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini", 
       messages: [
         {
           role: "system",
-          content: "You are an expert meeting analyst who extracts actionable tasks from meeting transcripts and categorizes them by participant and task type."
+          content: "You are an expert meeting analyst who extracts actionable tasks from meeting transcripts. You have deep understanding of project context, task relationships, and can identify subtle references to existing work. You excel at extracting complete descriptions and detecting future plans."
         },
         {
           role: "user",
           content: prompt
         }
       ],
-      temperature: 0.3, 
-      max_tokens: 2000,
+      temperature: 0.2, // Lower temperature for more consistent results
+      max_tokens: 3000, // Increased for more detailed responses
     });
 
     const gptResponse = response.choices[0].message.content;
-    logger.info("OpenAI response received", {
+    logger.info("Enhanced OpenAI response received", {
       responseLength: gptResponse.length,
       tokensUsed: response.usage.total_tokens,
+      statusChangesDetected: statusChanges.length,
     });
 
-    // Parse the GPT response into structured data
-    const structuredTasks = parseGPTResponse(gptResponse);
+    // Parse the GPT response into structured data with validation
+    const rawStructuredTasks = parseEnhancedGPTResponse(gptResponse);
     
-    logger.info("Successfully processed transcript", {
-      participantCount: Object.keys(structuredTasks).length,
-      totalTasks: Object.values(structuredTasks).reduce((total, participant) => 
-        total + (participant.Coding?.length || 0) + (participant["Non-Coding"]?.length || 0), 0
-      ),
+    // Sanitize and validate the response
+    const sanitizedTasks = sanitizeLLMResponse(rawStructuredTasks);
+    const validationResult = validateLLMResponse(sanitizedTasks);
+    
+    if (!validationResult.success) {
+      logger.warn("LLM response validation failed, using sanitized version", {
+        errors: validationResult.errors,
+        sanitizedTaskCount: Object.keys(sanitizedTasks).length
+      });
+    }
+    
+    const structuredTasks = validationResult.success ? validationResult.data : sanitizedTasks;
+    
+    // Enhance tasks with better assignee detection
+    const enhancedTasks = await enhanceTasksWithAssigneeDetection(structuredTasks, availableParticipants);
+    
+    const totalTasks = Object.values(enhancedTasks).reduce((total, participant) => 
+      total + (participant.Coding?.length || 0) + (participant["Non-Coding"]?.length || 0), 0
+    );
+    
+    logger.info("Successfully processed transcript with enhancements", {
+      participantCount: Object.keys(enhancedTasks).length,
+      totalTasks,
+      statusChangesDetected: statusChanges.length,
+      validationSuccess: validationResult.success,
+      validationErrors: validationResult.errors?.length || 0,
     });
 
     return {
       success: true,
-      tasks: structuredTasks,
+      tasks: enhancedTasks,
       rawGptResponse: gptResponse,
+      statusChanges,
+      validationResult,
       metadata: {
         model: "gpt-4o-mini",
         tokensUsed: response.usage.total_tokens,
         processedAt: new Date().toISOString(),
-        participantCount: Object.keys(structuredTasks).length,
+        participantCount: Object.keys(enhancedTasks).length,
+        totalTasks,
+        statusChangesDetected: statusChanges.length,
+        validationSuccess: validationResult.success,
+        enhancementsApplied: true
       }
     };
 
   } catch (error) {
-    logger.error("Error processing transcript with OpenAI", {
+    logger.error("Error processing transcript with enhanced OpenAI", {
       error: error.message,
       stack: error.stack,
     });
     
-    throw new Error(`OpenAI processing failed: ${error.message}`);
+    throw new Error(`Enhanced OpenAI processing failed: ${error.message}`);
   }
 }
 
@@ -136,101 +178,148 @@ function formatTranscriptForGPT(transcript) {
 }
 
 /**
- * Create the prompt for GPT to extract tasks
+ * Create the prompt for GPT to extract tasks with better context awareness
  * @param {string} transcriptText - Formatted transcript text
+ * @param {Array} existingTasks - Existing tasks for context
+ * @param {Array} statusChanges - Pre-detected status changes
  * @returns {string} GPT prompt
  */
-function createTaskExtractionPrompt(transcriptText) {
+function createEnhancedTaskExtractionPrompt(transcriptText, existingTasks = [], statusChanges = []) {
+  // Generate context about existing tasks
+  const existingTasksContext = generateExistingTasksContext(existingTasks);
+  const statusChangesContext = generateStatusChangesContext(statusChanges);
+  
   return `
-Please analyze the following meeting transcript and extract ONLY actual actionable tasks for each participant. Our system uses unique task IDs in the format SP-{number} (e.g., SP-25, SP-30, SP-32) to track tasks.
+You are analyzing a meeting transcript to extract actionable tasks. You have access to context about existing tasks and must understand the COMPLETE conversation context to extract full descriptions.
 
-**CRITICAL - Task ID Detection:**
-1. **EXISTING TASK UPDATES**: If a participant mentions a task ID like "SP-25", "Task SP-30", "SP-32 -", "SP32", "SP 25", etc., they are referring to an EXISTING task
-2. **NEW TASKS**: If NO task ID is mentioned when discussing a task, it's a NEW task that needs to be created
-3. **Task ID Formats to Look For**: 
-   - "SP-XX", "SP XX", "SPXX" (with or without dash/space)
-   - "Task SP-XX", "ticket SP-XX", "SP-XX -"
-   - "SP3", "SP12", "SP25" (with any number)
-   - Case insensitive: "sp-25", "Sp-30", "SP-32"
+**SYSTEM CONTEXT:**
+${existingTasksContext}
+${statusChangesContext}
 
-**Critical Instructions:**
-4. ONLY extract tasks that are explicitly mentioned, assigned, or committed to in the conversation
-5. Look for phrases like "I will...", "I'm going to...", "I need to...", "I'll work on...", "My task is...", etc.
-6. Do NOT create fake or example tasks
-7. Do NOT include general discussion topics as tasks
-8. If NO actual tasks are mentioned in the transcript, respond with: "NO TASKS IDENTIFIED"
-9. Categorize actual tasks as "Coding" (development/technical work) or "Non-Coding" (documentation/research/meetings)
+**ENHANCED ANALYSIS REQUIREMENTS:**
 
-**CRITICAL - Future Plan Detection:**
-10. **FUTURE PLAN IDENTIFICATION**: Look for phrases that indicate future planning or ideas:
-    - "XYZ is a future plan", "XYZ will be a future plan", "that's a future plan"
-    - "we should consider XYZ in the future", "XYZ is something for later"
-    - "XYZ is on our roadmap", "XYZ is planned for future", "XYZ is a future initiative"
-    - "down the line we want XYZ", "eventually we'll do XYZ", "future enhancement XYZ"
-11. **CONTEXT EXTRACTION**: When future plan language is detected, determine what "XYZ" refers to:
-    - Use conversation context from preceding and following sentences
-    - Look for specific features, improvements, or initiatives mentioned nearby
-    - Extract the actual plan/feature being discussed, not just "future plan"
-12. **FUTURE PLAN TASK CREATION**: When future plans are identified:
-    - Create a task with the extracted plan as description
-    - Mark with [IS_FUTURE_PLAN: true]
-    - Assign to "TBD" (To Be Determined)
-    - Status should be "To-do"
-    - Generate appropriate title from the plan description
+**1. COMPLETE DESCRIPTION EXTRACTION (CRITICAL):**
+- Extract the ENTIRE context of what is being discussed about each task
+- Don't just extract the immediate sentence - understand the full conversation
+- Include relevant details from preceding and following sentences
+- e.g., If someone says "we need to fix that authentication issue we discussed" - extract the full context of what authentication issue
+- e.g.,If someone references "the dashboard we built" - include context about which dashboard and what needs to be done
+- Look for scattered information across multiple sentences that relates to the same task
 
-**Time and Progress Extraction (CRITICAL - PAY CLOSE ATTENTION):**
-13. **Time Estimates**: Look for ANY mention of future time commitment:
-    - Numbers: "3 hours", "5 hours", "2 days", "half day", "8 hours" 
-    - Words: "three hours", "five hours", "two days", "a day", "couple hours"
-    - Phrases: "will take", "should take", "estimated", "probably", "might need", "around", "about"
-    - Examples: "this will take 3 hours", "estimated five hours", "probably around 2 days", "should take about 4 hours"
+**2. FUTURE PLAN DETECTION (ENHANCED):**
+Look for these specific phrases and variations:
+- "[X] is a future plan" / "[X] will be a future plan" / "that's a future plan"
+- "[X] is for the future" / "[X] is something for later"
+- "we should consider [X] in the future" / "[X] is planned for future"
+- "[X] is on our roadmap" / "[X] is a future initiative"
+- "down the line we want [X]" / "eventually we'll do [X]"
+- "future enhancement [X]" / "[X] is a future enhancement"
+- "this is a future plan" (then extract what "this" refers to)
 
-14. **Time Spent**: Look for ANY mention of time already worked:
-    - Phrases: "spent", "took me", "worked", "did", "completed in", "finished in"
-    - Numbers: Convert words to numbers ("three" = 3, "five" = 5, "two" = 2)
-    - Examples: "spent 4 hours", "took me two hours", "worked three hours on it", "did about 5 hours"
+When found:
+- Extract the COMPLETE description of what the future plan entails
+- Use conversation context to understand the full scope
+- Assign to "TBD" participant
+- Mark with [IS_FUTURE_PLAN: true]
 
-15. **Time Units**: Convert everything to hours:
-    - "1 day" = 8 hours, "2 days" = 16 hours, "half day" = 4 hours
-    - "morning" = 4 hours, "afternoon" = 4 hours
+**3. ASSIGNEE DETECTION AND NON-PARTICIPANT TASK CREATION (CRITICAL):**
+- "for me" / "my task" / "I will" / "I'll" = assign to the speaker
+- "for [Name]" / "[Name] will" / "[Name] should" = assign to that person
+- "new task for [Name]" / "task for [Name]" = assign to that person (even if they're not in the meeting)
+- "for [Name] who isn't here" / "for [Name] when they return" / "for [Name] who's remote" = assign to that person
+- "[Name] needs to" / "[Name] should work on" = assign to that person
+- "task for [Name] who isn't here today" = assign to that person (NOT TBD)
+- "create a task for [Name]" = assign to that person
+- "we have a new task for [Name]" = CREATE NEW TASK assigned to that person
 
-16. Extract status updates (e.g., "completed the login feature", "started working on", "finished the database")
-17. Extract task updates (e.g., "need to add validation to the form", "found an issue with...")
+**CRITICAL RULE FOR NON-PARTICIPANTS:**
+- When someone mentions creating a task for a person NOT in the meeting, you MUST create a separate participant section for that person
+- Example: "I have a task for John who isn't here" → Create "John's Tasks:" section with the task
+- Example: "We need Bob to review this when he returns" → Create "Bob's Tasks:" section
+- NEVER assign tasks for specific named people to TBD
+- TBD is ONLY for future plans, NOT for people who aren't present
+- If unclear assignee, assign to speaker of the task
+- Check against existing team members: ${Object.keys(require("../config/participantMapping").PARTICIPANT_TO_JIRA_MAPPING || {}).join(", ")}
 
-**Task Types:**
-- NEW TASK: A completely new task being assigned or mentioned (NO task ID mentioned)
-- EXISTING TASK UPDATE: Updates or progress on a previously mentioned task (task ID like SP-XX mentioned)
-- STATUS CHANGE: Changes in task status (started, completed, etc.) for existing tasks (task ID mentioned)
-- FUTURE PLAN: A future plan or idea mentioned for consideration (use "TBD" as participant)
+**4. STATUS CHANGE DETECTION (ENHANCED):**
+Pay attention to these patterns and use EXACT status values:
+- "SP-XX is complete/done/finished" = STATUS: Completed
+- "completed SP-XX" / "finished SP-XX" = STATUS: Completed  
+- "SP-XX is in progress" / "working on SP-XX" = STATUS: In-progress
+- "I've been working on SP-XX" / "working on SP-XX" = STATUS: In-progress
+- "started SP-XX" / "begun SP-XX" = STATUS: In-progress
+- "SP-XX is now in progress" = STATUS: In-progress
+- CRITICAL: Status values must be EXACTLY: "To-do", "In-progress", "Completed" (case-sensitive)
 
-**Required Output Format (ONLY if tasks are found):**
-[Actual Participant Name]'s Tasks:
-1. [Task description] (Coding/Non-Coding) [TYPE: NEW TASK/EXISTING TASK UPDATE/STATUS CHANGE/FUTURE PLAN] [TASK_ID: SP-XX or NONE] [ESTIMATED: X hours] [TIME SPENT: X hours] [STATUS: To-do/In-progress/Completed] [IS_FUTURE_PLAN: true/false]
+**5. DESCRIPTION UPDATE DETECTION (CRITICAL):**
+Look for these patterns to detect task description updates:
+- "I need to update SP-XX's description" = EXISTING TASK UPDATE with TASK_ID: SP-XX
+- "SP-XX's description should be updated to..." = EXISTING TASK UPDATE with TASK_ID: SP-XX
+- "Actually, SP-XX is not just [old], but [new comprehensive description]" = EXISTING TASK UPDATE with TASK_ID: SP-XX
+- "let me clarify the scope of SP-XX" = EXISTING TASK UPDATE with TASK_ID: SP-XX
+- "regarding SP-XX, [additional details]" = EXISTING TASK UPDATE with TASK_ID: SP-XX
+- CRITICAL: When someone mentions SP-XX and provides new details, it's an EXISTING TASK UPDATE
 
-**For Future Plans:**
+**6. TASK ID DETECTION:**
+- SP-XX, SP XX, SPXX (any format)
+- "Task SP-XX", "ticket SP-XX", "SP-XX task"
+- Case insensitive: sp-25, Sp-30, SP-32
+
+**7. TIME EXTRACTION (ENHANCED):**
+- Extract ALL time mentions: "3 hours", "two days", "half day", "couple hours"
+- Context matters: "will take 5 hours" = ESTIMATED, "spent 3 hours" = TIME SPENT
+- Convert: 1 day = 8 hours, half day = 4 hours, morning/afternoon = 4 hours
+
+**8. CONTEXT ANALYSIS:**
+- Read the ENTIRE conversation before extracting tasks
+- Look for references to previous discussions
+- Understand what "that feature", "the issue", "this problem" refers to
+- Connect related sentences that discuss the same work item
+
+**OUTPUT FORMAT (STRICTLY FOLLOW THIS FORMAT):**
+[Participant Name]'s Tasks:
+1. [COMPLETE task description with full context] (Coding/Non-Coding) [TYPE: NEW TASK/EXISTING TASK UPDATE/STATUS CHANGE/FUTURE PLAN] [TASK_ID: SP-XX or NONE] [ESTIMATED: X hours] [TIME SPENT: X hours] [STATUS: To-do/In-progress/Completed] [IS_FUTURE_PLAN: true/false] [ASSIGNEE: participant name]
+
+**For TBD/Future Plans, you MUST include (Coding/Non-Coding) and all required fields:**
 TBD's Tasks:
-1. [Future plan description] (Coding/Non-Coding) [TYPE: FUTURE PLAN] [TASK_ID: NONE] [STATUS: To-do] [IS_FUTURE_PLAN: true]
+1. [Future plan description] (Coding/Non-Coding) [TYPE: FUTURE PLAN] [TASK_ID: NONE] [STATUS: To-do] [IS_FUTURE_PLAN: true] [ASSIGNEE: TBD]
 
-**Examples:**
-- "Implement user authentication (Coding) [TYPE: NEW TASK] [TASK_ID: NONE] [ESTIMATED: 5 hours] [IS_FUTURE_PLAN: false]"
-- "Login feature - added validation (Coding) [TYPE: EXISTING TASK UPDATE] [TASK_ID: SP-25] [TIME SPENT: 2 hours] [IS_FUTURE_PLAN: false]"
-- "Database setup task (Coding) [TYPE: STATUS CHANGE] [TASK_ID: SP-30] [STATUS: Completed] [IS_FUTURE_PLAN: false]"
-- "Mobile app development (Coding) [TYPE: FUTURE PLAN] [TASK_ID: NONE] [STATUS: To-do] [IS_FUTURE_PLAN: true]" (assigned to TBD)
+**CRITICAL EXAMPLES (EXACT FORMAT TO FOLLOW):**
 
-**Important**: 
-- If participant says "SP-25 - I made progress on authentication", extract task ID as SP-25 and mark as EXISTING TASK UPDATE
-- If participant says "I need to implement authentication" (no SP-XX mentioned), mark as NEW TASK with TASK_ID: NONE
-- Pay close attention to any SP-XX patterns in participant speech
-- When SP-XX is mentioned with status words like "completed", "done", "finished", mark STATUS as "Completed"
-- When SP-XX is mentioned with "started", "working on", "in progress", mark STATUS as "In-progress"
-- CRITICAL: If someone says "SP-25 is complete" or "I completed SP-30", this is a STATUS CHANGE, not a new task
-- FUTURE PLANS: When detecting future plan language, assign to "TBD" participant and mark [IS_FUTURE_PLAN: true]
-- REGULAR TASKS: All regular tasks should have [IS_FUTURE_PLAN: false]
+If transcript says:
+"Doug: The authentication system we built last week has some issues. I need to refactor the login validation."
+Extract as:
+Doug's Tasks:
+1. Refactor the login validation for the authentication system built last week due to identified issues (Coding) [TYPE: NEW TASK] [TASK_ID: NONE] [ESTIMATED: 0 hours] [TIME SPENT: 0 hours] [STATUS: To-do] [IS_FUTURE_PLAN: false] [ASSIGNEE: Doug]
+
+If transcript says:
+"Jane: Mobile app development is a future plan we should consider for Q2."
+Extract as:
+TBD's Tasks:
+1. Mobile app development for Q2 consideration (Coding) [TYPE: FUTURE PLAN] [TASK_ID: NONE] [ESTIMATED: 0 hours] [TIME SPENT: 0 hours] [STATUS: To-do] [IS_FUTURE_PLAN: true] [ASSIGNEE: TBD]
+
+If transcript says:
+"John: SP-25 is complete. I finished the database schema updates."
+Extract as:
+John's Tasks:
+1. Database schema updates (Coding) [TYPE: STATUS CHANGE] [TASK_ID: SP-25] [ESTIMATED: 0 hours] [TIME SPENT: 0 hours] [STATUS: Completed] [IS_FUTURE_PLAN: false] [ASSIGNEE: John]
+
+If transcript says:
+"Sarah: I need to update SP-30's description. It's actually a comprehensive API redesign with authentication, rate limiting, and documentation."
+Extract as:
+Sarah's Tasks:
+1. Comprehensive API redesign with authentication, rate limiting, and documentation (Coding) [TYPE: EXISTING TASK UPDATE] [TASK_ID: SP-30] [ESTIMATED: 0 hours] [TIME SPENT: 0 hours] [STATUS: To-do] [IS_FUTURE_PLAN: false] [ASSIGNEE: Sarah]
+
+If transcript says:
+"Mike: I also want to mention that we have a new task for John Doe who isn't here today - he needs to work on the mobile app optimization when he returns."
+Extract as:
+John Doe's Tasks:
+1. Work on the mobile app optimization when he returns (Coding) [TYPE: NEW TASK] [TASK_ID: NONE] [ESTIMATED: 0 hours] [TIME SPENT: 0 hours] [STATUS: To-do] [IS_FUTURE_PLAN: false] [ASSIGNEE: John Doe]
 
 **Meeting Transcript:**
 ${transcriptText}
 
-**Response:**`;
+**Your Response (extract ALL actionable tasks with complete context):**`;
 }
 
 /**
@@ -302,7 +391,212 @@ function parseTimeToHours(timeStr) {
 }
 
 /**
- * Parse GPT response into structured task data
+ * Generate context about existing tasks for the prompt
+ * @param {Array} existingTasks - Array of existing tasks
+ * @returns {string} Context string for prompt
+ */
+function generateExistingTasksContext(existingTasks) {
+  if (!existingTasks || existingTasks.length === 0) {
+    return "**EXISTING TASKS CONTEXT:** No existing tasks in database.";
+  }
+  
+  const recentTasks = existingTasks.slice(0, 20); // Limit to recent tasks
+  const taskList = recentTasks.map(task => 
+    `- ${task.ticketId}: ${task.description} (${task.status}, assigned to ${task.participantName})`
+  ).join("\n");
+  
+  return `**EXISTING TASKS CONTEXT:**
+Recent tasks in the system:
+${taskList}
+`;
+}
+
+/**
+ * Generate context about detected status changes
+ * @param {Array} statusChanges - Array of detected status changes
+ * @returns {string} Context string for prompt
+ */
+function generateStatusChangesContext(statusChanges) {
+  if (!statusChanges || statusChanges.length === 0) {
+    return "**STATUS CHANGES DETECTED:** None detected in transcript.";
+  }
+  
+  const changesList = statusChanges.map(change => 
+    `- ${change.taskId}: ${change.newStatus} (confidence: ${change.confidence}, speaker: ${change.speaker})`
+  ).join("\n");
+  
+  return `**STATUS CHANGES DETECTED:**
+${changesList}
+`;
+}
+
+/**
+ * Enhanced parse GPT response into structured task data with better validation
+ * @param {string} gptResponse - Raw response from GPT
+ * @returns {Object} Structured task data organized by participant
+ */
+function parseEnhancedGPTResponse(gptResponse) {
+  const structuredTasks = {};
+  
+  // Check if GPT responded with no tasks found
+  if (gptResponse.trim().toUpperCase().includes("NO TASKS IDENTIFIED")) {
+    return structuredTasks; // Return empty object
+  }
+  
+  const lines = gptResponse.split("\n").filter(line => line.trim());
+  let currentParticipant = null;
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    
+    // Check if line is a participant header (ends with "Tasks:" or "'s Tasks:")
+    const participantMatch = trimmedLine.match(/^(.+?)(?:'s)?\s+Tasks:$/i);
+    if (participantMatch) {
+      currentParticipant = participantMatch[1].trim();
+      
+      // Skip if this is a placeholder name
+      if (currentParticipant.includes("[") || 
+          currentParticipant.includes("Participant Name") ||
+          currentParticipant.includes("Next Participant") ||
+          currentParticipant.includes("Another Participant")) {
+        currentParticipant = null;
+        continue;
+      }
+      
+      structuredTasks[currentParticipant] = {
+        "Coding": [],
+        "Non-Coding": []
+      };
+      continue;
+    }
+    
+    // Enhanced task parsing to handle the new format with better validation
+    const taskMatch = trimmedLine.match(/^\d+\.\s*(.+?)\s*\((Coding|Non-Coding)\)(.*)$/i);
+    if (taskMatch && currentParticipant) {
+      const taskDescription = taskMatch[1].trim();
+      const taskType = taskMatch[2]; // 'Coding' or 'Non-Coding'
+      const additionalInfo = taskMatch[3] || "";
+      
+      // Enhanced validation - skip obvious placeholders but allow real tasks
+      if (taskDescription.includes("[Task description]") || 
+          taskDescription.includes("[COMPLETE task description]") ||
+          taskDescription.includes("Actual task mentioned") ||
+          taskDescription.length < 5) {
+        continue;
+      }
+      
+      if (structuredTasks[currentParticipant]) {
+        // Parse enhanced information from the format
+        let taskType_extracted = "NEW TASK";
+        let estimatedTime = 0;
+        let timeSpent = 0;
+        let status = "To-do";
+        let existingTaskId = null;
+        let isFuturePlan = false;
+        let assignee = currentParticipant;
+        
+        // Extract TYPE
+        const typeMatch = additionalInfo.match(/\[TYPE:\s*([^\]]+)\]/i);
+        if (typeMatch) {
+          taskType_extracted = typeMatch[1].trim();
+        }
+        
+        // Extract TASK_ID
+        const taskIdMatch = additionalInfo.match(/\[TASK_ID:\s*([^\]]+)\]/i);
+        if (taskIdMatch) {
+          const taskIdValue = taskIdMatch[1].trim();
+          if (taskIdValue !== "NONE" && taskIdValue.match(/^SP-\d+$/i)) {
+            existingTaskId = taskIdValue.toUpperCase();
+          }
+        }
+        
+        // Extract ESTIMATED time with enhanced parsing
+        const estimatedMatch = additionalInfo.match(/\[ESTIMATED:\s*([^\]]+)\]/i);
+        if (estimatedMatch) {
+          estimatedTime = parseTimeToHours(estimatedMatch[1].trim());
+        }
+        
+        // Extract TIME SPENT with enhanced parsing
+        const timeSpentMatch = additionalInfo.match(/\[TIME SPENT:\s*([^\]]+)\]/i);
+        if (timeSpentMatch) {
+          timeSpent = parseTimeToHours(timeSpentMatch[1].trim());
+        }
+        
+        // Extract STATUS
+        const statusMatch = additionalInfo.match(/\[STATUS:\s*([^\]]+)\]/i);
+        if (statusMatch) {
+          status = statusMatch[1].trim();
+        }
+        
+        // Extract IS_FUTURE_PLAN
+        const futurePlanMatch = additionalInfo.match(/\[IS_FUTURE_PLAN:\s*([^\]]+)\]/i);
+        if (futurePlanMatch) {
+          const futurePlanValue = futurePlanMatch[1].trim().toLowerCase();
+          isFuturePlan = futurePlanValue === "true";
+        }
+        
+        // Extract ASSIGNEE first (needed for fallback detection)
+        const assigneeMatch = additionalInfo.match(/\[ASSIGNEE:\s*([^\]]+)\]/i);
+        if (assigneeMatch) {
+          assignee = assigneeMatch[1].trim();
+        }
+        
+        // FALLBACK: Detect future plans by task type and assignee (CRITICAL FIX)
+        if (!isFuturePlan) {
+          // If task type is FUTURE PLAN, it's definitely a future plan
+          if (taskType_extracted && taskType_extracted.toUpperCase().includes("FUTURE PLAN")) {
+            isFuturePlan = true;
+            logger.info("Future plan detected by task type", { taskType_extracted, description: taskDescription.substring(0, 100) });
+          }
+          // If participant is TBD, it's definitely a future plan (TBD is reserved for future plans only)
+          else if (currentParticipant === "TBD") {
+            isFuturePlan = true;
+            logger.info("Future plan detected by TBD participant", { currentParticipant, description: taskDescription.substring(0, 100) });
+          }
+          // If assignee is TBD, it's very likely a future plan
+          else if (assignee === "TBD") {
+            isFuturePlan = true;
+            logger.info("Future plan detected by TBD assignee", { assignee, description: taskDescription.substring(0, 100) });
+          }
+          // Additional keyword-based detection
+          else if (taskDescription && 
+                   (/future plan|future enhancement|future consideration|roadmap|Q\d|later|planned for|for the future|something for later|future initiative|down the line|eventually|future enhancement/i.test(taskDescription))) {
+            isFuturePlan = true;
+            logger.info("Future plan detected by keywords", { description: taskDescription.substring(0, 100) });
+          }
+        }
+        
+        // Create enhanced task object
+        const taskObject = {
+          description: taskDescription,
+          status: status,
+          estimatedTime: estimatedTime,
+          timeTaken: timeSpent,
+          taskType: taskType_extracted, // NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE, FUTURE PLAN
+          existingTaskId: existingTaskId, // SP-XX if this is an update to existing task, null if new
+          isFuturePlan: isFuturePlan, // true for future plans, false for regular tasks
+          assignee: assignee, // Enhanced assignee detection
+          type: taskType // Coding or Non-Coding
+        };
+        
+        structuredTasks[currentParticipant][taskType].push(taskObject);
+      }
+    }
+  }
+  
+  // Clean up empty participants (remove participants with no tasks)
+  Object.keys(structuredTasks).forEach(participant => {
+    const tasks = structuredTasks[participant];
+    if (tasks.Coding.length === 0 && tasks["Non-Coding"].length === 0) {
+      delete structuredTasks[participant];
+    }
+  });
+  
+  return structuredTasks;
+}
+
+/**
+ * Legacy parse GPT response function for backward compatibility
  * @param {string} gptResponse - Raw response from GPT
  * @returns {Object} Structured task data organized by participant
  */
@@ -403,6 +697,26 @@ function parseGPTResponse(gptResponse) {
         if (futurePlanMatch) {
           const futurePlanValue = futurePlanMatch[1].trim().toLowerCase();
           isFuturePlan = futurePlanValue === "true";
+        }
+        
+        // FALLBACK: Detect future plans by task type and participant (CRITICAL FIX)
+        if (!isFuturePlan) {
+          // If task type is FUTURE PLAN, it's definitely a future plan
+          if (taskType_extracted && taskType_extracted.toUpperCase().includes("FUTURE PLAN")) {
+            isFuturePlan = true;
+            logger.info("Future plan detected by task type (legacy)", { taskType_extracted, description: taskDescription.substring(0, 100) });
+          }
+          // If participant is TBD, it's very likely a future plan
+          else if (currentParticipant === "TBD") {
+            isFuturePlan = true;
+            logger.info("Future plan detected by TBD participant (legacy)", { currentParticipant, description: taskDescription.substring(0, 100) });
+          }
+          // Additional keyword-based detection
+          else if (taskDescription && 
+                   (/future plan|future enhancement|future consideration|roadmap|Q\d|later|planned for|for the future|something for later|future initiative|down the line|eventually/i.test(taskDescription))) {
+            isFuturePlan = true;
+            logger.info("Future plan detected by keywords (legacy)", { description: taskDescription.substring(0, 100) });
+          }
         }
         
         // Create task object with enhanced data
@@ -587,12 +901,75 @@ async function testOpenAIConnection() {
   }
 }
 
+/**
+ * Enhance tasks with better assignee detection
+ * @param {Object} structuredTasks - Structured task data
+ * @param {Array} availableParticipants - Available participants for matching
+ * @returns {Promise<Object>} Enhanced task data
+ */
+async function enhanceTasksWithAssigneeDetection(structuredTasks, availableParticipants) {
+  const enhancedTasks = {};
+  
+  for (const [participantName, participantTasks] of Object.entries(structuredTasks)) {
+    enhancedTasks[participantName] = {
+      "Coding": [],
+      "Non-Coding": []
+    };
+    
+    // Process each task type
+    for (const taskType of ["Coding", "Non-Coding"]) {
+      if (participantTasks[taskType] && Array.isArray(participantTasks[taskType])) {
+        for (const task of participantTasks[taskType]) {
+          try {
+            // Detect better assignee if needed
+            let finalAssignee = task.assignee || participantName;
+            
+            // If assignee is TBD or unclear, try to detect from description
+            if (finalAssignee === "TBD" && task.description && !task.isFuturePlan) {
+              const assigneeResult = await detectAssignee(
+                task.description, 
+                participantName, 
+                availableParticipants
+              );
+              
+              if (assigneeResult.confidence > 0.6) {
+                finalAssignee = assigneeResult.assignee;
+              }
+            }
+            
+            enhancedTasks[participantName][taskType].push({
+              ...task,
+              assignee: finalAssignee
+            });
+            
+          } catch (error) {
+            logger.error("Error enhancing task with assignee detection", {
+              error: error.message,
+              task: task.description?.substring(0, 50)
+            });
+            
+            // Use original task if enhancement fails
+            enhancedTasks[participantName][taskType].push(task);
+          }
+        }
+      }
+    }
+  }
+  
+  return enhancedTasks;
+}
+
 module.exports = {
   processTranscriptForTasks,
   testOpenAIConnection,
   formatTranscriptForGPT,
   parseGPTResponse,
+  parseEnhancedGPTResponse,
   parseTimeToHours,
   generateTaskTitle,
   generateTaskTitlesInBatch,
+  createEnhancedTaskExtractionPrompt,
+  enhanceTasksWithAssigneeDetection,
+  generateExistingTasksContext,
+  generateStatusChangesContext
 };

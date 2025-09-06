@@ -1,52 +1,145 @@
 /**
- * Task Processing Service - Orchestrates the complete task processing flow
+ * Enhanced Task Processing Service - Orchestrates the complete task processing flow
  * 
  * This service coordinates:
- * 1. Processing transcripts with OpenAI to extract tasks
- * 2. Storing the processed tasks in MongoDB
- * 3. Handling the complete end-to-end flow
+ * 1. Processing transcripts with enhanced OpenAI to extract tasks with better context
+ * 2. Advanced status change detection and handling
+ * 3. Improved task matching with existing database tasks
+ * 4. Enhanced assignee detection including 'for me' patterns
+ * 5. Better future plans detection and processing
+ * 6. Storing the processed tasks in MongoDB with validation
+ * 7. Handling the complete end-to-end flow with comprehensive error handling
  */
 
 const { processTranscriptForTasks } = require("./openaiService");
-const { storeTasks, storeTranscript, updateTask } = require("./mongoService");
+const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("./mongoService");
 // const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow - kept for future reuse
 const { matchTasksWithDatabase } = require("./taskMatcher");
 const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("./teamsService");
+const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("./statusChangeDetectionService");
+const { validateLLMResponse } = require("../schemas/taskSchemas");
 const { logger } = require("firebase-functions");
 
 /**
- * Process a transcript end-to-end: OpenAI extraction + MongoDB storage
+ * Enhanced process a transcript end-to-end with comprehensive task processing
  * @param {Array} transcript - Array of transcript entries
  * @param {Object} transcriptMetadata - Metadata from transcript fetch (optional)
- * @returns {Promise<Object>} Complete processing result with task data and storage info
+ * @returns {Promise<Object>} Complete processing result with enhanced task data and storage info
  */
 async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
   const startTime = Date.now();
   
   try {
-    logger.info("Starting complete task processing flow", {
+    logger.info("Starting enhanced task processing flow", {
       transcriptEntries: transcript.length,
+      hasMetadata: Object.keys(transcriptMetadata).length > 0,
       timestamp: new Date().toISOString(),
     });
 
     // Step 1: Store the raw transcript in MongoDB
-    logger.info("Step 1: Storing transcript in MongoDB");
+    logger.info("📁 Step 1: Storing raw transcript in MongoDB");
     const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
 
-    // Step 2: Process transcript with OpenAI to extract tasks
-    logger.info("Step 2: Processing transcript with OpenAI");
-    const openaiResult = await processTranscriptForTasks(transcript);
+    // Step 2: Get existing tasks for context
+    logger.info("📋 Step 2: Retrieving existing tasks for context");
+    const existingTasks = await getActiveTasks();
+    logger.info("Retrieved existing tasks", {
+      count: existingTasks.length,
+      participants: [...new Set(existingTasks.map(t => t.participantName))].length
+    });
+
+    // Step 3: Enhanced status change detection
+    logger.info("🔍 Step 3: Detecting status changes from transcript");
+    const detectedStatusChanges = detectStatusChangesFromTranscript(transcript);
+    const statusChangeSummary = getStatusChangeSummary(detectedStatusChanges);
     
-    if (!openaiResult.success) {
-      throw new Error("OpenAI processing failed");
+    if (detectedStatusChanges.length > 0) {
+      logger.info("Status changes detected", statusChangeSummary);
     }
 
-    // Step 3: Match extracted tasks with existing database tasks
-    logger.info("Step 3: Matching tasks with existing database tasks");
+    // Step 4: Enhanced process transcript with OpenAI
+    logger.info("🤖 Step 4: Processing transcript with enhanced OpenAI");
+    const openaiResult = await processTranscriptForTasks(transcript, existingTasks);
+    
+    if (!openaiResult.success) {
+      throw new Error("Enhanced OpenAI processing failed");
+    }
+
+    // Step 5: Validate OpenAI response
+    logger.info("✅ Step 5: Validating OpenAI response structure");
+    const validationResult = validateLLMResponse(openaiResult.tasks);
+    if (!validationResult.success) {
+      logger.warn("OpenAI response validation failed", {
+        errors: validationResult.errors,
+        willProceedWithSanitized: true
+      });
+    }
+
+    // Step 6: Enhanced match extracted tasks with existing database tasks
+    logger.info("🔗 Step 6: Enhanced matching tasks with existing database tasks");
     const matchingResult = await matchTasksWithDatabase(openaiResult.tasks);
     
-    // Step 4: Update existing tasks in the database
-    logger.info("Step 4: Updating existing tasks in database", {
+    // Step 7: Process detected status changes first
+    logger.info("🔄 Step 7: Processing detected status changes");
+    const statusChangeResults = [];
+    
+    for (const statusChange of detectedStatusChanges) {
+      try {
+        // Find the task in database by ticket ID
+        const taskToUpdate = existingTasks.find(task => 
+          task.ticketId === statusChange.taskId
+        );
+        
+        if (taskToUpdate) {
+          const updateResult = await updateTaskByTicketId(
+            statusChange.taskId,
+            { status: statusChange.newStatus }
+          );
+          
+          statusChangeResults.push({
+            success: updateResult.success,
+            taskId: statusChange.taskId,
+            oldStatus: taskToUpdate.status,
+            newStatus: statusChange.newStatus,
+            confidence: statusChange.confidence,
+            speaker: statusChange.speaker
+          });
+          
+          logger.info("Status change applied", {
+            taskId: statusChange.taskId,
+            oldStatus: taskToUpdate.status,
+            newStatus: statusChange.newStatus,
+            speaker: statusChange.speaker
+          });
+        } else {
+          logger.warn("Task not found for status change", {
+            taskId: statusChange.taskId,
+            newStatus: statusChange.newStatus
+          });
+          
+          statusChangeResults.push({
+            success: false,
+            taskId: statusChange.taskId,
+            error: "Task not found in database",
+            newStatus: statusChange.newStatus
+          });
+        }
+      } catch (error) {
+        logger.error("Failed to apply status change", {
+          taskId: statusChange.taskId,
+          error: error.message
+        });
+        
+        statusChangeResults.push({
+          success: false,
+          taskId: statusChange.taskId,
+          error: error.message
+        });
+      }
+    }
+
+    // Step 8: Update existing tasks in the database (from task matching)
+    logger.info("📝 Step 8: Updating existing tasks from task matching", {
       tasksToUpdate: matchingResult.summary.updatedTasks,
     });
     
@@ -61,10 +154,12 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
         updateResults.push({
           success: updateResult.success,
           taskPath: taskUpdate.originalTask.taskPath,
-          updates: taskUpdate.updates
+          updates: taskUpdate.updates,
+          similarityScore: taskUpdate.originalTask.similarityScore,
+          reasoning: taskUpdate.originalTask.reasoning
         });
       } catch (error) {
-        logger.error("Failed to update task", {
+        logger.error("Failed to update task from matching", {
           taskPath: taskUpdate.originalTask.taskPath,
           error: error.message,
         });
@@ -76,8 +171,8 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       }
     }
 
-    // Step 5: Store new tasks in MongoDB (only the ones that don't match existing tasks)
-    logger.info("Step 5: Storing new tasks in MongoDB", {
+    // Step 9: Store new tasks in MongoDB (only the ones that don't match existing tasks)
+    logger.info("💾 Step 9: Storing new tasks in MongoDB", {
       newTasksCount: matchingResult.summary.newTasks,
     });
     
@@ -99,7 +194,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
           status: newTask.status,
           estimatedTime: newTask.estimatedTime || 0,
           timeTaken: newTask.timeTaken || 0,
-          isFuturePlan: newTask.isFuturePlan || false
+          isFuturePlan: Boolean(newTask.isFuturePlan)
         };
         
         newTasksForStorage[newTask.participantName][newTask.type].push(taskObject);
@@ -123,8 +218,8 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       };
     }
 
-    // Step 6: Jira integration removed from main flow (kept jiraService.js for future reuse)
-    logger.info("Step 6: Skipping Jira integration (removed from main flow)");
+    // Step 10: Jira integration removed from main flow (kept jiraService.js for future reuse)
+    logger.info("⏭️  Step 10: Skipping Jira integration (removed from main flow)");
     const jiraResult = {
       success: true,
       skipped: true,
@@ -136,8 +231,8 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       processingTime: "0s"
     };
 
-    // Step 7: Send summary to Teams webhook
-    logger.info("Step 7: Sending standup summary to Teams");
+    // Step 11: Send enhanced summary to Teams webhook
+    logger.info("📢 Step 11: Sending enhanced standup summary to Teams");
     let teamsResult = null;
     
     try {
@@ -188,7 +283,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       };
     }
 
-    // Step 8: Prepare complete result
+    // Step 12: Prepare enhanced complete result
     const completeDuration = (Date.now() - startTime) / 1000;
     
     const result = {
@@ -198,14 +293,27 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       transcriptStorage: transcriptStorageResult,
       taskMatching: matchingResult,
       taskUpdates: updateResults,
+      statusChanges: {
+        detected: detectedStatusChanges,
+        applied: statusChangeResults,
+        summary: statusChangeSummary
+      },
       jira: jiraResult,
       teams: teamsResult,
+      validation: {
+        openaiValidation: validationResult,
+        enhancementsApplied: true
+      },
       processing: {
         duration: completeDuration,
         steps: {
           transcriptStorage: true,
-          openaiProcessing: true,
+          existingTasksRetrieval: true,
+          statusChangeDetection: detectedStatusChanges.length > 0,
+          enhancedOpenaiProcessing: true,
+          responseValidation: true,
           taskMatching: true,
+          statusChangeUpdates: statusChangeResults.length > 0,
           taskUpdates: updateResults.length > 0,
           mongodbStorage: mongoResult?.success || false,
           jiraIssueCreation: false, // Removed from main flow
@@ -217,6 +325,9 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
           transcriptDocumentId: transcriptStorageResult.documentId,
           totalProcessingTime: `${completeDuration.toFixed(2)}s`,
           jiraProcessingTime: jiraResult?.processingTime || "0s",
+          existingTasksContext: existingTasks.length,
+          statusChangesDetected: detectedStatusChanges.length,
+          statusChangesApplied: statusChangeResults.filter(r => r.success).length
         }
       },
       summary: {
@@ -226,18 +337,29 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
         ),
         newTasksCreated: matchingResult.summary.newTasks,
         existingTasksUpdated: matchingResult.summary.updatedTasks,
+        statusChangesDetected: detectedStatusChanges.length,
+        statusChangesApplied: statusChangeResults.filter(r => r.success).length,
         totalCodingTasks: 0, // Jira integration removed
         jiraIssuesCreated: 0, // Jira integration removed
         jiraIssuesFailed: 0, // Jira integration removed
         processedAt: new Date().toISOString(),
+        enhancementsUsed: [
+          "Enhanced OpenAI prompts",
+          "Status change detection",
+          "Improved task matching",
+          "Assignee detection",
+          "Response validation"
+        ]
       }
     };
 
-    logger.info("Task processing completed successfully", {
+    logger.info("Enhanced task processing completed successfully", {
       participantCount: result.summary.participantCount,
       extractedTasks: result.summary.extractedTasks,
       newTasksCreated: result.summary.newTasksCreated,
       existingTasksUpdated: result.summary.existingTasksUpdated,
+      statusChangesDetected: result.summary.statusChangesDetected,
+      statusChangesApplied: result.summary.statusChangesApplied,
       totalCodingTasks: result.summary.totalCodingTasks,
       jiraIssuesCreated: result.summary.jiraIssuesCreated,
       jiraIssuesFailed: result.summary.jiraIssuesFailed,
@@ -249,6 +371,9 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       jiraIntegrationSkipped: true, // Jira integration removed from main flow
       teamsNotificationSuccess: teamsResult?.success || false,
       teamsNotificationSkipped: teamsResult?.skipped || false,
+      enhancementsApplied: result.summary.enhancementsUsed.length,
+      validationSuccess: validationResult.success,
+      existingTasksContext: existingTasks.length
     });
 
     return result;
@@ -256,14 +381,16 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
   } catch (error) {
     const duration = (Date.now() - startTime) / 1000;
     
-    logger.error("Task processing failed", {
+    logger.error("Enhanced task processing failed", {
       error: error.message,
       stack: error.stack,
       duration: `${duration.toFixed(2)}s`,
       transcriptEntries: transcript.length,
+      hasMetadata: Object.keys(transcriptMetadata).length > 0,
+      errorType: error.constructor.name
     });
 
-    throw new Error(`Task processing failed: ${error.message}`);
+    throw new Error(`Enhanced task processing failed: ${error.message}`);
   }
 }
 
