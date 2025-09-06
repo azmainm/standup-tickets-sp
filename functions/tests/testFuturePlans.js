@@ -8,7 +8,7 @@
 const { processTranscriptForTasks } = require("../services/openaiService");
 const { logger } = require("firebase-functions");
 
-// Load environment variables
+// Load environment variablesz
 require("dotenv").config();
 
 // Sample transcript with future plan mentions

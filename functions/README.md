@@ -42,11 +42,11 @@ MONGODB_URI=
 # OpenAI Configuration
 OPENAI_API_KEY=
 
-# Jira Configuration
-JIRA_URL=https://your-domain.atlassian.net/
-JIRA_EMAIL=your-email@domain.com
-JIRA_API_TOKEN=your-api-token
-JIRA_PROJECT_KEY=YOUR_PROJECT_KEY
+# Jira Configuration (Optional - removed from main flow)
+# JIRA_URL=https://your-domain.atlassian.net/
+# JIRA_EMAIL=your-email@domain.com
+# JIRA_API_TOKEN=your-api-token
+# JIRA_PROJECT_KEY=YOUR_PROJECT_KEY
 
 # Teams Webhook Configuration
 TEAMS_WEBHOOK_URL=https://your-teams-webhook-url
@@ -55,7 +55,9 @@ TEAMS_WEBHOOK_URL=https://your-teams-webhook-url
 NODE_ENV=production
 ```
 
-### 2. Jira Setup
+### 2. Jira Setup (Optional - Not Used in Main Flow)
+
+> **Note**: Jira integration has been removed from the main processing flow. This section is kept for reference if you want to re-enable Jira integration in the future using the existing `jiraService.js` file.
 
 #### Creating Jira API Token
 1. Go to [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)
@@ -315,7 +317,6 @@ firebase deploy --only functions
   - **Assigns unique ticket IDs** (SP-{number}) to new tasks
   - Stores structured task data in MongoDB
   - Categorizes tasks as "Coding" or "Non-Coding"
-  - Creates Jira issues for NEW coding tasks with AI-generated titles
   - **Sends separate Teams notification for EACH meeting** (if webhook configured)
 - **🔄 Legacy Support**: Environment variables maintained for potential future use
 
@@ -336,7 +337,6 @@ The `/fetch-transcript` endpoint primarily uses All Meetings Approach:
 1. Fetches transcript(s) from Microsoft Teams (All Meetings Approach)
 2. Processes EACH transcript with OpenAI to extract tasks
 3. Stores results in MongoDB
-4. Creates Jira issues for NEW coding tasks
 5. **Sends separate Teams notification for EACH transcript/meeting**
 
 **⚠️ Important**: Multiple meetings = Multiple Teams notifications (not consolidated)
@@ -491,11 +491,6 @@ For EACH transcript:
    - Update status changes (started, completed, etc.)
    - Update time tracking (estimated time, time spent)
 9. **New Task Storage**: Store only new tasks in MongoDB 'sptasks' collection with unique SP-XX IDs
-10. **Jira Integration**: Create Jira issues for NEW coding tasks only (not updates)
-    - Map participant names to email addresses using configuration
-    - Generate concise titles (max 5 words) using GPT
-    - Create issues in the configured Jira project
-    - Assign issues to participants using email mapping
 11. **📢 Teams Notification**: Send summary to Teams channel for THIS transcript (if webhook configured)
     - Generate summary of new and updated tasks from this specific meeting
     - Format with participant breakdown and ticket IDs

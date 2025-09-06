@@ -58,7 +58,7 @@ The system automatically chooses the appropriate approach based on configuration
     │  3. 🔍 Task Matching (Find Existing Tasks)                 │
     │  4. 📝 Update Existing Tasks in MongoDB                    │
     │  5. 💾 Store New Tasks in MongoDB                          │
-    │  6. 🎫 Create Jira Issues (New Coding Tasks Only)          │
+    │  6. ⏭️  Jira Integration Skipped (Removed from Main Flow)  │
     │  7. 📢 Send Teams Notification (THIS TRANSCRIPT)           │
     │  8. 📁 Save Backup Files                                   │
     └─────────────────────────────────────────────────────────────┘
@@ -171,11 +171,11 @@ Example: `2025-11-05_2025-11-05T09-00-00_Daily_Stand_Up_transcript_1.json`
 - Assign unique ticket IDs (SP-1, SP-2, etc.)
 - Generate AI-created titles for tasks
 
-#### Step 6: Jira Integration
-- Create Jira issues for NEW coding tasks only (not updates)
-- Map participant names to email addresses
-- Generate concise titles using GPT
-- Assign issues to participants
+#### Step 6: Jira Integration (Removed from Main Flow)
+- **Note**: Jira integration has been removed from the main processing flow
+- `jiraService.js` is kept intact for future reuse if needed
+- No Jira issues are created automatically anymore
+- Task processing continues without Jira integration
 
 #### Step 7: Teams Notification (PER TRANSCRIPT)
 - Generate standup summary for THIS SPECIFIC transcript/meeting
@@ -205,7 +205,7 @@ Example: `2025-11-05_2025-11-05T09-00-00_Daily_Stand_Up_transcript_1.json`
 ├─ OpenAI: Extract 5 tasks (3 coding, 2 non-coding)
 ├─ Task Matching: 2 existing task updates, 3 new tasks
 ├─ MongoDB: Update 2 existing tasks + Store 3 new tasks (SP-77, SP-78, SP-79)
-├─ Jira: Create 2 issues for new coding tasks
+├─ Jira: Skipped (removed from main flow)
 ├─ Teams: Send summary for Daily Standup
 │   "📋 Daily Standup Summary - Nov 5th
 │    John: New Tasks: SP-77: Auth System (Coding)
@@ -219,7 +219,7 @@ Example: `2025-11-05_2025-11-05T09-00-00_Daily_Stand_Up_transcript_1.json`
 ├─ OpenAI: Extract 12 tasks (8 coding, 4 non-coding)
 ├─ Task Matching: 3 existing task updates, 9 new tasks
 ├─ MongoDB: Update 3 existing tasks + Store 9 new tasks (SP-80 to SP-88)
-├─ Jira: Create 7 issues for new coding tasks
+├─ Jira: Skipped (removed from main flow)
 ├─ Teams: Send summary for Sprint Planning
 │   "📋 Daily Standup Summary - Nov 5th
 │    John: New Tasks: SP-80: API Design (Coding), SP-81: Testing (Non-Coding)
@@ -231,7 +231,7 @@ Example: `2025-11-05_2025-11-05T09-00-00_Daily_Stand_Up_transcript_1.json`
 ├─ OpenAI: Extract 3 tasks (1 coding, 2 non-coding) 
 ├─ Task Matching: 1 existing task update, 2 new tasks
 ├─ MongoDB: Update 1 existing task + Store 2 new tasks (SP-89, SP-90)
-├─ Jira: Create 1 issue for new coding task
+├─ Jira: Skipped (removed from main flow)
 ├─ Teams: Send summary for Team Retro
 │   "📋 Daily Standup Summary - Nov 5th
 │    Sarah: New Tasks: SP-89: Process Improvement (Non-Coding)"
@@ -242,7 +242,6 @@ Example: `2025-11-05_2025-11-05T09-00-00_Daily_Stand_Up_transcript_1.json`
 - **3 MongoDB transcript documents** stored
 - **14 new tasks** created with ticket IDs SP-77 through SP-90
 - **6 existing tasks** updated
-- **10 Jira issues** created for coding tasks
 - **3 Teams notifications** sent (one per meeting)
 - **3 backup files** saved
 
@@ -266,11 +265,13 @@ TARGET_USER_ID=50a66395-f31b-4dee-a45e-ef41f3920c9b
 ```bash
 OPENAI_API_KEY=your-openai-api-key
 MONGODB_URI=mongodb+srv://...
-JIRA_URL=https://your-domain.atlassian.net/
-JIRA_EMAIL=your-email@domain.com
-JIRA_API_TOKEN=your-jira-api-token
-JIRA_PROJECT_KEY=YOUR_PROJECT_KEY
 TEAMS_WEBHOOK_URL=https://your-teams-webhook-url
+
+# Jira Configuration (Optional - removed from main flow)
+# JIRA_URL=https://your-domain.atlassian.net/
+# JIRA_EMAIL=your-email@domain.com
+# JIRA_API_TOKEN=your-jira-api-token
+# JIRA_PROJECT_KEY=YOUR_PROJECT_KEY
 ```
 
 #### Legacy Configuration (Maintained but Not Used)

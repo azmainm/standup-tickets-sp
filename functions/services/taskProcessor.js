@@ -9,7 +9,7 @@
 
 const { processTranscriptForTasks } = require("./openaiService");
 const { storeTasks, storeTranscript, updateTask } = require("./mongoService");
-const { createJiraIssuesForCodingTasks } = require("./jiraService");
+// const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow - kept for future reuse
 const { matchTasksWithDatabase } = require("./taskMatcher");
 const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("./teamsService");
 const { logger } = require("firebase-functions");
@@ -123,58 +123,18 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       };
     }
 
-    // Step 6: Create Jira issues for new coding tasks only
-    logger.info("Step 6: Creating Jira issues for new coding tasks");
-    let jiraResult = null;
-    
-    try {
-      // Only create Jira issues for new coding tasks
-      const newCodingTasksForJira = {};
-      if (matchingResult.tasksToCreate.length > 0) {
-        for (const newTask of matchingResult.tasksToCreate) {
-          if (newTask.type === "Coding") {
-            if (!newCodingTasksForJira[newTask.participantName]) {
-              newCodingTasksForJira[newTask.participantName] = { "Coding": [] };
-            }
-            newCodingTasksForJira[newTask.participantName]["Coding"].push({
-              description: newTask.description,
-              status: newTask.status
-            });
-          }
-        }
-      }
-      
-      jiraResult = await createJiraIssuesForCodingTasks(newCodingTasksForJira);
-      
-      if (jiraResult.success) {
-        logger.info("Jira issues created successfully", {
-          totalCodingTasks: jiraResult.totalCodingTasks,
-          successfulIssues: jiraResult.createdIssues.length,
-          failedIssues: jiraResult.failedIssues.length,
-        });
-      } else {
-        logger.warn("Some Jira issues failed to create", {
-          totalCodingTasks: jiraResult.totalCodingTasks,
-          successfulIssues: jiraResult.createdIssues.length,
-          failedIssues: jiraResult.failedIssues.length,
-        });
-      }
-    } catch (jiraError) {
-      logger.error("Jira issue creation failed", {
-        error: jiraError.message,
-        stack: jiraError.stack,
-      });
-      
-      // Create a failed result object
-      jiraResult = {
-        success: false,
-        error: jiraError.message,
-        totalCodingTasks: 0,
-        createdIssues: [],
-        failedIssues: [],
-        participants: [],
-      };
-    }
+    // Step 6: Jira integration removed from main flow (kept jiraService.js for future reuse)
+    logger.info("Step 6: Skipping Jira integration (removed from main flow)");
+    const jiraResult = {
+      success: true,
+      skipped: true,
+      message: "Jira integration removed from main flow",
+      totalCodingTasks: 0,
+      createdIssues: [],
+      failedIssues: [],
+      participants: [],
+      processingTime: "0s"
+    };
 
     // Step 7: Send summary to Teams webhook
     logger.info("Step 7: Sending standup summary to Teams");
@@ -248,7 +208,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
           taskMatching: true,
           taskUpdates: updateResults.length > 0,
           mongodbStorage: mongoResult?.success || false,
-          jiraIssueCreation: jiraResult?.success || false,
+          jiraIssueCreation: false, // Removed from main flow
           teamsNotification: teamsResult?.success || false,
         },
         metadata: {
@@ -266,9 +226,9 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
         ),
         newTasksCreated: matchingResult.summary.newTasks,
         existingTasksUpdated: matchingResult.summary.updatedTasks,
-        totalCodingTasks: jiraResult?.totalCodingTasks || 0,
-        jiraIssuesCreated: jiraResult?.createdIssues?.length || 0,
-        jiraIssuesFailed: jiraResult?.failedIssues?.length || 0,
+        totalCodingTasks: 0, // Jira integration removed
+        jiraIssuesCreated: 0, // Jira integration removed
+        jiraIssuesFailed: 0, // Jira integration removed
         processedAt: new Date().toISOString(),
       }
     };
@@ -282,11 +242,11 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       jiraIssuesCreated: result.summary.jiraIssuesCreated,
       jiraIssuesFailed: result.summary.jiraIssuesFailed,
       duration: `${completeDuration.toFixed(2)}s`,
-      jiraProcessingTime: result.processing.metadata.jiraProcessingTime,
+      jiraProcessingTime: "0s", // Jira integration removed
       mongoDocumentId: mongoResult?.documentId,
       transcriptDocumentId: transcriptStorageResult.documentId,
       transcriptDate: transcriptStorageResult.date,
-      jiraIntegrationSuccess: jiraResult?.success || false,
+      jiraIntegrationSkipped: true, // Jira integration removed from main flow
       teamsNotificationSuccess: teamsResult?.success || false,
       teamsNotificationSkipped: teamsResult?.skipped || false,
     });

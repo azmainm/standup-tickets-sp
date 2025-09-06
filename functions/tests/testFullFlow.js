@@ -15,7 +15,7 @@ const { fetchAllMeetingsForUser, validateAllMeetingsEnvironment } = require("../
 const { processTranscriptToTasks } = require("../services/taskProcessor");
 const { testOpenAIConnection } = require("../services/openaiService");
 const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/mongoService");
-const { testJiraConnection, getProjectInfo } = require("../services/jiraService");
+// const { testJiraConnection, getProjectInfo } = require("../services/jiraService"); // Removed from main flow
 const { getBangladeshTimeComponents } = require("../services/meetingUrlService");
 
 async function testCompleteFlow() {
@@ -31,11 +31,12 @@ async function testCompleteFlow() {
     "AZURE_AUTHORITY",
     "TARGET_USER_ID",
     "OPENAI_API_KEY",
-    "MONGODB_URI",
-    "JIRA_URL",
-    "JIRA_EMAIL",
-    "JIRA_API_TOKEN",
-    "JIRA_PROJECT_KEY"
+    "MONGODB_URI"
+    // Jira environment variables removed from main flow
+    // "JIRA_URL",
+    // "JIRA_EMAIL", 
+    // "JIRA_API_TOKEN",
+    // "JIRA_PROJECT_KEY"
   ];
   
   const missingVars = [];
@@ -98,21 +99,8 @@ async function testCompleteFlow() {
   }
   console.log("   ✓ MongoDB connection successful");
   
-  console.log("   🎫 Testing Jira connection...");
-  const jiraTest = await testJiraConnection();
-  if (!jiraTest) {
-    console.error("   ❌ Jira connection test failed");
-    process.exit(1);
-  }
-  console.log("   ✓ Jira connection successful");
-  
-  console.log("   🔍 Testing Jira project access...");
-  const projectInfo = await getProjectInfo(process.env.JIRA_PROJECT_KEY);
-  if (!projectInfo) {
-    console.error(`   ❌ Cannot access Jira project: ${process.env.JIRA_PROJECT_KEY}`);
-    process.exit(1);
-  }
-  console.log(`   ✓ Jira project access confirmed: ${projectInfo.name} (${projectInfo.key})`);
+  // Jira connection tests removed from main flow
+  console.log("   🎫 Jira integration skipped (removed from main flow)");
   
   // Get MongoDB collection stats and initialize ticket counter
   try {
@@ -260,7 +248,7 @@ async function testCompleteFlow() {
         console.log(`         - Tasks extracted: ${taskResult.summary.extractedTasks}`);
         console.log(`         - New tasks: ${taskResult.summary.newTasksCreated}`);
         console.log(`         - Updated tasks: ${taskResult.summary.existingTasksUpdated}`);
-        console.log(`         - Jira issues: ${taskResult.summary.jiraIssuesCreated}`);
+        console.log(`         - Jira integration: skipped (removed from main flow)`);
         
       } catch (transcriptError) {
         allTaskResults.push({
@@ -308,34 +296,8 @@ async function testCompleteFlow() {
         console.log(`      - Document ID: ${firstSuccessfulResult.storage.documentId}`);
         console.log(`      - Timestamp: ${firstSuccessfulResult.storage.timestamp}`);
         
-        // Show consolidated Jira integration details
-        console.log("\n   🎫 Consolidated Jira Integration:");
-        const totalJiraIssues = allTaskResults
-          .filter(r => r.success && r.taskResult.jira)
-          .reduce((sum, r) => sum + (r.taskResult.jira.createdIssues?.length || 0), 0);
-        const totalJiraFailures = allTaskResults
-          .filter(r => r.success && r.taskResult.jira)
-          .reduce((sum, r) => sum + (r.taskResult.jira.failedIssues?.length || 0), 0);
-        
-        console.log(`      - Total issues created across all transcripts: ${totalJiraIssues}`);
-        console.log(`      - Total issues failed across all transcripts: ${totalJiraFailures}`);
-        
-        // Show created issues from all transcripts
-        if (totalJiraIssues > 0) {
-          console.log("\n      📋 All Created Jira Issues:");
-          let issueIndex = 1;
-          allTaskResults
-            .filter(r => r.success && r.taskResult.jira && r.taskResult.jira.createdIssues)
-            .forEach(r => {
-              console.log(`\n         From ${r.meetingSubject}:`);
-              r.taskResult.jira.createdIssues.forEach(issue => {
-                console.log(`         ${issueIndex}. ${issue.issueKey}: "${issue.title}"`);
-                console.log(`            - Participant: ${issue.participant}`);
-                console.log(`            - URL: ${issue.issueUrl}`);
-                issueIndex++;
-              });
-            });
-        }
+        // Jira integration removed from main flow
+        console.log("\n   🎫 Jira Integration: Skipped (removed from main flow)");
       }
       
       // Display consolidated extracted tasks from all transcripts
@@ -413,13 +375,9 @@ async function testCompleteFlow() {
         .filter(r => r.success)
         .reduce((sum, r) => sum + (r.taskResult.summary.existingTasksUpdated || 0), 0);
       
-      const totalJiraCreated = allTaskResults
-        .filter(r => r.success && r.taskResult.jira)
-        .reduce((sum, r) => sum + (r.taskResult.jira.createdIssues?.length || 0), 0);
-      
-      const totalJiraFailed = allTaskResults
-        .filter(r => r.success && r.taskResult.jira)
-        .reduce((sum, r) => sum + (r.taskResult.jira.failedIssues?.length || 0), 0);
+      // Jira integration removed from main flow
+      const totalJiraCreated = 0;
+      const totalJiraFailed = 0;
       
       const totalTokens = allTaskResults
         .filter(r => r.success)
@@ -433,8 +391,7 @@ async function testCompleteFlow() {
       console.log(`   - 📋 Total tasks extracted: ${totalTasksExtracted}`);
       console.log(`   - 🆕 Total new tasks created: ${totalNewTasks}`);
       console.log(`   - 🔄 Total existing tasks updated: ${totalUpdatedTasks}`);
-      console.log(`   - 🎫 Total Jira issues created: ${totalJiraCreated}`);
-      console.log(`   - ❌ Total Jira issues failed: ${totalJiraFailed}`);
+      console.log(`   - 🎫 Jira integration: skipped (removed from main flow)`);
       console.log(`   - 🤖 Total OpenAI tokens used: ${totalTokens}`);
       console.log(`   - ⏱️  Total processing time: ${overallDuration}s`);
       console.log(`   - 📅 Target date: ${targetDateForFile}`);
@@ -493,15 +450,15 @@ async function testCompleteFlow() {
   console.log("- Multiple transcript fetching and processing");
   console.log("- Individual OpenAI processing for each transcript");
   console.log("- MongoDB storage for each transcript");
-  console.log("- Jira issue creation for all coding tasks");
+  console.log("- Jira integration removed from main flow (kept jiraService.js for future reuse)");
   console.log("- Consolidated reporting across all meetings");
   console.log("\n📋 Next steps:");
   console.log("- Check MongoDB to verify all transcripts and tasks were stored");
-  console.log("- Check Jira project for all created issues from multiple meetings");
-  console.log("- Review all transcript files in the output directory");
+  console.log("- Review all transcript files in the output directory");  
   console.log("- Test the Firebase Functions deployment with All Meetings");
   console.log("- Run: node tests/testFetchAllMeetings.js to test fetching only");
   console.log("- Test manual endpoint: POST /fetch-transcript (without meetingUrl)");
+  console.log("- If needed in future, Jira integration can be re-enabled using existing jiraService.js");
 }
 
 // Handle unhandled promise rejections
