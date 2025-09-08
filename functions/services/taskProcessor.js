@@ -14,7 +14,7 @@
 const { processTranscriptForTasks } = require("./openaiService");
 const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("./mongoService");
 // const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow - kept for future reuse
-const { matchTasksWithDatabase } = require("./taskMatcher");
+const { matchTasksWithDatabaseEnhanced, matchTasksWithDatabase } = require("./taskMatcher");
 const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("./teamsService");
 const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("./statusChangeDetectionService");
 const { validateLLMResponse } = require("../schemas/taskSchemas");
@@ -75,9 +75,26 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       });
     }
 
-    // Step 6: Enhanced match extracted tasks with existing database tasks
-    logger.info("🔗 Step 6: Enhanced matching tasks with existing database tasks");
-    const matchingResult = await matchTasksWithDatabase(openaiResult.tasks);
+    // Step 6: Enhanced match extracted tasks with existing database tasks (Vector + GPT + Sync)
+    logger.info("🔗 Step 6: Enhanced matching tasks with vector similarity and admin panel sync");
+    
+    let matchingResult;
+    try {
+      // Try enhanced matching first (vector + GPT + admin panel sync)
+      matchingResult = await matchTasksWithDatabaseEnhanced(openaiResult.tasks);
+      logger.info("✨ Enhanced vector-based task matching completed successfully", {
+        vectorMatches: matchingResult.summary?.vectorMatches || 0,
+        gptMatches: matchingResult.summary?.gptMatches || 0,
+        syncAdded: matchingResult.synchronization?.added || 0,
+        syncUpdated: matchingResult.synchronization?.updated || 0
+      });
+    } catch (error) {
+      logger.warn("Enhanced task matching failed, falling back to legacy method", {
+        error: error.message
+      });
+      // Fallback to legacy matching
+      matchingResult = await matchTasksWithDatabase(openaiResult.tasks);
+    }
     
     // Step 7: Process detected status changes first
     logger.info("🔄 Step 7: Processing detected status changes");

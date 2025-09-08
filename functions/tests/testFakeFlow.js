@@ -10,6 +10,7 @@ const fs = require("fs");
 const path = require("path");
 const { processTranscriptToTasks } = require("../services/taskProcessor");
 const { sendStandupSummaryToTeams } = require("../services/teamsService");
+const { isVectorDBAvailable, getVectorDBStats, initializeVectorDB } = require("../services/vectorService");
 const { logger } = require("firebase-functions");
 
 // Load environment variables
@@ -233,6 +234,23 @@ async function runCompleteFlowTest() {
     
     console.log("✅ Environment configuration valid");
 
+    // Step 2.5: Check Vector Database availability
+    console.log("\n🔧 Step 2.5: Checking Vector Database availability...");
+    const vectorAvailable = await isVectorDBAvailable();
+    if (vectorAvailable) {
+      console.log("✅ Vector Database (FAISS) available - enhanced similarity search enabled");
+      try {
+        await initializeVectorDB();
+        const vectorStats = await getVectorDBStats();
+        console.log(`📊 Vector DB Stats: ${vectorStats.totalEmbeddings} embeddings, index loaded: ${vectorStats.indexLoaded}`);
+      } catch (error) {
+        console.log(`⚠️ Vector DB initialization warning: ${error.message}`);
+      }
+    } else {
+      console.log("⚠️ Vector Database not available - will use GPT fallback for similarity search");
+      console.log("📦 Install faiss-node for faster similarity search: npm install faiss-node");
+    }
+
     // Step 3: Process transcript through complete flow
     console.log("\n🤖 Step 3: Processing transcript through enhanced system flow...");
     console.log("This will test all enhanced features:");
@@ -240,6 +258,8 @@ async function runCompleteFlowTest() {
     console.log("- Enhanced OpenAI prompting");
     console.log("- Status change detection");
     console.log("- Assignee detection");
+    console.log("- Vector similarity search (if available) + GPT fallback");
+    console.log("- Admin panel synchronization");
     console.log("- Task similarity matching");
     console.log("- Future plans detection");
 
