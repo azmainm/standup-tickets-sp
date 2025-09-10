@@ -7,28 +7,27 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "migrate:preview": "node scripts/migrateExistingTasksToVectorDB.js preview",
+    "migrate:vector-db": "node scripts/migrateExistingTasksToVectorDB.js migrate",
+    "test:vector-db": "node tests/testVectorDB.js"
   },
   "engines": {
-    "node": "22"
+    "node": "18"
   },
   "main": "index.js",
   "dependencies": {
-    "@azure/msal-node": "^3.7.2",
-    "axios": "^1.11.0",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.1",
-    "express": "^5.1.0",
-    "firebase-admin": "^12.6.0",
-    "firebase-functions": "^6.0.1",
-    "mongodb": "^6.3.0",
-    "openai": "^4.38.0",
-    "zod": "^3.25.76"
+    "dotenv": "^16.3.1",
+    "faiss-node": "^0.5.1",
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.4.0",
+    "mongodb": "^6.0.0",
+    "openai": "^4.20.1",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@eslint/js": "^9.34.0",
-    "eslint": "^9.34.0",
-    "firebase-functions-test": "^3.1.0"
+    "eslint": "^9.14.0",
+    "eslint-config-google": "^0.14.0"
   },
   "private": true
 }

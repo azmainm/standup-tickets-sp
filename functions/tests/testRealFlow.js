@@ -17,6 +17,7 @@ const { testOpenAIConnection } = require("../services/openaiService");
 const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/mongoService");
 // const { testJiraConnection, getProjectInfo } = require("../services/jiraService"); // Removed from main flow
 const { getBangladeshTimeComponents } = require("../services/meetingUrlService");
+const { isVectorDBAvailable, getVectorDBStats, initializeVectorDB } = require("../services/vectorService");
 
 async function testCompleteFlow() {
   console.log("=".repeat(80));
@@ -90,6 +91,22 @@ async function testCompleteFlow() {
     process.exit(1);
   }
   console.log("   ✓ OpenAI connection successful");
+  
+  console.log("   🔧 Testing Vector Database availability...");
+  const vectorAvailable = await isVectorDBAvailable();
+  if (vectorAvailable) {
+    console.log("   ✅ Vector Database (FAISS) available");
+    try {
+      await initializeVectorDB();
+      const vectorStats = await getVectorDBStats();
+      console.log(`   📊 Vector DB Stats: ${vectorStats.totalEmbeddings} embeddings, index loaded: ${vectorStats.indexLoaded}`);
+    } catch (error) {
+      console.log(`   ⚠️ Vector DB initialization warning: ${error.message}`);
+    }
+  } else {
+    console.log("   ⚠️ Vector Database not available (will use GPT fallback)");
+    console.log("   📦 Install faiss-node for faster similarity search: npm install faiss-node");
+  }
   
   console.log("   🍃 Testing MongoDB connection...");
   const mongoTest = await testMongoConnection();
