@@ -1,14 +1,14 @@
 /**
- * Complete System Flow Test with Enhanced Test Transcript
+ * Complete 3-Stage Pipeline Test with Enhanced Test Transcript
  * 
- * This test script processes the enhanced test_transcript.json through the entire
- * system flow including task extraction, matching, status changes, and Teams notification.
+ * This test script processes the test_transcript.json through the entire
+ * 3-stage pipeline including Task Finder, Creator, Updater, and Teams notification.
  * The Teams message will be marked as "THIS IS A TEST RUN".
  */
 
 const fs = require("fs");
 const path = require("path");
-const { processTranscriptToTasks } = require("../services/taskProcessor");
+const { processTranscriptToTasks, processTranscriptToTasksWithPipeline } = require("../services/taskProcessor");
 const { sendStandupSummaryToTeams } = require("../services/teamsService");
 const { isVectorDBAvailable, getVectorDBStats, initializeVectorDB } = require("../services/vectorService");
 const { logger } = require("firebase-functions");
@@ -197,18 +197,17 @@ function formatTestStandupSummary(summaryData, metadata) {
 async function runCompleteFlowTest() {
   console.log("🧪 Starting Complete System Flow Test");
   console.log("=====================================");
-  console.log("🧪 THIS IS A TEST RUN - Processing enhanced test_transcript.json");
   console.log("");
 
   const startTime = Date.now();
 
   try {
-    // Step 1: Load the enhanced test transcript
-    console.log("📁 Step 1: Loading enhanced test transcript...");
-    const transcriptPath = path.join(__dirname, "../output/test_transcript.json");
+    // Step 1: Load test transcript (changed to test_transcript.json as requested)
+    console.log("📁 Step 1: Loading test transcript...");
+    const transcriptPath = path.join(__dirname, "..", "output", "test_transcript.json");
     
     if (!fs.existsSync(transcriptPath)) {
-      throw new Error(`Test transcript not found at: ${transcriptPath}`);
+      throw new Error(`Test transcript not found at: ${transcriptPath}. Please ensure test_transcript.json exists in output/`);
     }
 
     const transcriptData = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
@@ -263,12 +262,22 @@ async function runCompleteFlowTest() {
     console.log("- Task similarity matching");
     console.log("- Future plans detection");
 
-    const processingResult = await processTranscriptToTasks(transcriptData, {
+    // Step 3: Process with 3-Stage Pipeline
+    console.log("🚀 Step 3: Processing with 3-Stage Pipeline...");
+    
+    const processingContext = {
+      isMultiTranscript: false,
+      totalTranscripts: 1,
+      transcriptIndex: 1,
+      sessionStartTime: new Date().toISOString()
+    };
+    
+    const processingResult = await processTranscriptToTasksWithPipeline(transcriptData, {
       sourceFile: "test_transcript.json",
       isTestRun: true,
       testDate: new Date().toISOString().split("T")[0],
-      testDescription: "Enhanced test transcript with all scenarios"
-    });
+      testDescription: "3-Stage Pipeline test transcript"
+    }, processingContext);
 
     if (!processingResult.success) {
       throw new Error("Transcript processing failed");
@@ -423,9 +432,9 @@ logger.warn = (...args) => {
 
 // Main execution
 if (require.main === module) {
-  console.log("🚀 Enhanced Complete System Flow Test");
-  console.log("====================================");
-  console.log("This test validates the entire enhanced system using test_transcript.json");
+  console.log("🚀 3-Stage Pipeline Complete System Flow Test");
+  console.log("==============================================");
+  console.log("This test validates the entire 3-stage pipeline system using test_transcript.json");
   console.log("🧪 Teams notification will be marked as 'THIS IS A TEST RUN'");
   console.log("");
   

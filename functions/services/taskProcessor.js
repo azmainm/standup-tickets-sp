@@ -11,7 +11,7 @@
  * 7. Handling the complete end-to-end flow with comprehensive error handling
  */
 
-const { processTranscriptForTasks } = require("./openaiService");
+const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("./openaiService");
 const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("./mongoService");
 // const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow - kept for future reuse
 const { matchTasksWithDatabaseEnhanced, matchTasksWithDatabase } = require("./taskMatcher");
@@ -538,7 +538,200 @@ function formatTasksForDisplay(tasks) {
   return formatted;
 }
 
+/**
+ * Generate summary data for Teams notification from pipeline results
+ * @param {Object} pipelineResult - Pipeline processing result
+ * @param {Object} mongoResult - MongoDB storage result
+ * @returns {Object} Summary data for Teams
+ */
+function generatePipelineSummaryData(pipelineResult, mongoResult) {
+  const participants = Object.keys(pipelineResult.tasks);
+  const newTasks = pipelineResult.metadata.newTasks;
+  const taskUpdates = pipelineResult.pipelineResults.stage3.taskUpdates.length;
+  
+  return {
+    summary: {
+      totalNewTasks: newTasks,
+      totalUpdatedTasks: taskUpdates,
+      totalParticipants: participants.length
+    },
+    participants: participants,
+    newTasks: pipelineResult.tasks,
+    updatedTasks: pipelineResult.pipelineResults.stage3.taskUpdates,
+    source: "3-stage-pipeline"
+  };
+}
+
+/**
+ * NEW: 3-Stage Pipeline - Process transcript end-to-end using Task Finder, Creator, and Updater
+ * @param {Array} transcript - Array of transcript entries
+ * @param {Object} transcriptMetadata - Metadata from transcript fetch (optional)
+ * @param {Object} processingContext - Context for multi-transcript processing
+ * @returns {Promise<Object>} Complete processing result with enhanced task data and storage info
+ */
+async function processTranscriptToTasksWithPipeline(transcript, transcriptMetadata = {}, processingContext = {}) {
+  const startTime = Date.now();
+  
+  try {
+    logger.info("Starting 3-Stage Pipeline task processing flow", {
+      transcriptEntries: transcript.length,
+      hasMetadata: Object.keys(transcriptMetadata).length > 0,
+      isMultiTranscript: Boolean(processingContext.isMultiTranscript),
+      transcriptIndex: processingContext.transcriptIndex || 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Step 1: Store the raw transcript in MongoDB
+    logger.info("📁 Step 1: Storing raw transcript in MongoDB");
+    const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
+
+    // Step 2: Get existing tasks for context (with isolation for multi-transcript)
+    logger.info("📋 Step 2: Retrieving existing tasks for context");
+    let existingTasks;
+    
+    if (processingContext.isMultiTranscript && processingContext.baselineTasksSnapshot) {
+      existingTasks = processingContext.baselineTasksSnapshot;
+      logger.info("Using baseline task snapshot for context isolation", {
+        baselineTaskCount: existingTasks.length,
+        transcriptIndex: processingContext.transcriptIndex
+      });
+    } else {
+      existingTasks = await getActiveTasks();
+    }
+    
+    logger.info("Retrieved existing tasks", {
+      count: existingTasks.length,
+      participants: [...new Set(existingTasks.map(t => t.participantName))].length,
+      contextIsolation: processingContext.isMultiTranscript ? "enabled" : "disabled"
+    });
+
+    // Step 3: 3-Stage Pipeline Processing (replaces old OpenAI processing)
+    logger.info("🚀 Step 3: 3-Stage Pipeline Processing (Task Finder → Creator → Updater)");
+    const pipelineResult = await processTranscriptForTasksWithPipeline(transcript, existingTasks, processingContext);
+    
+    if (!pipelineResult.success) {
+      throw new Error("3-Stage Pipeline processing failed");
+    }
+
+    // Step 4: Store new tasks and apply updates
+    logger.info("💾 Step 4: Storing new tasks and applying updates");
+    let mongoResult = null;
+    
+    if (Object.keys(pipelineResult.tasks).length > 0) {
+      mongoResult = await storeTasks(pipelineResult.tasks, {
+        ...pipelineResult.metadata,
+        transcriptMetadata,
+        transcriptDocumentId: transcriptStorageResult.documentId,
+        processingDuration: (Date.now() - startTime) / 1000,
+        pipelineVersion: "1.0"
+      });
+    } else {
+      mongoResult = {
+        success: true,
+        documentId: null,
+        timestamp: new Date(),
+        participantCount: 0,
+        message: "No new tasks to store from pipeline"
+      };
+    }
+
+    // Step 5: Send Teams notification
+    logger.info("📢 Step 5: Sending pipeline summary to Teams");
+    let teamsResult = null;
+    
+    try {
+      const summaryData = generatePipelineSummaryData(pipelineResult, mongoResult);
+      const standupDate = transcriptMetadata?.targetDate ? 
+        new Date(transcriptMetadata.targetDate).toLocaleDateString("en-GB") : 
+        new Date().toLocaleDateString("en-GB");
+      
+      teamsResult = await sendStandupSummaryToTeams(summaryData, {
+        standupDate,
+        processingDuration: (Date.now() - startTime) / 1000,
+        pipelineVersion: "1.0"
+      });
+    } catch (teamsError) {
+      logger.error("Teams webhook processing failed", {
+        error: teamsError.message
+      });
+      
+      teamsResult = {
+        success: false,
+        error: teamsError.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // Prepare complete result
+    const completeDuration = (Date.now() - startTime) / 1000;
+    
+    const result = {
+      success: true,
+      tasks: pipelineResult.tasks,
+      storage: mongoResult,
+      transcriptStorage: transcriptStorageResult,
+      pipelineResults: pipelineResult.pipelineResults,
+      statusChanges: {
+        detected: pipelineResult.statusChanges,
+        applied: [],
+        summary: { total: pipelineResult.statusChanges.length }
+      },
+      jira: { success: true, skipped: true, message: "Jira integration removed" },
+      teams: teamsResult,
+      processing: {
+        duration: completeDuration,
+        pipelineSteps: {
+          stage1TaskFinder: true,
+          stage2TaskCreator: true,
+          stage3TaskUpdater: true
+        }
+      },
+      summary: {
+        participantCount: Object.keys(pipelineResult.tasks).length,
+        extractedTasks: pipelineResult.metadata.totalTasks,
+        newTasksCreated: pipelineResult.metadata.newTasks,
+        existingTasksUpdated: pipelineResult.pipelineResults.stage3.taskUpdates.length,
+        statusChangesDetected: pipelineResult.statusChanges.length,
+        processedAt: new Date().toISOString(),
+        pipelineUsed: "3-stage-pipeline-v1.0",
+        qualityMetrics: {
+          averageDescriptionLength: pipelineResult.metadata.averageDescriptionLength
+        }
+      }
+    };
+
+    logger.info("3-Stage Pipeline task processing completed successfully", {
+      participantCount: result.summary.participantCount,
+      extractedTasks: result.summary.extractedTasks,
+      newTasksCreated: result.summary.newTasksCreated,
+      duration: `${completeDuration.toFixed(2)}s`,
+      averageDescriptionLength: pipelineResult.metadata.averageDescriptionLength,
+      pipelineVersion: "1.0"
+    });
+
+    return result;
+
+  } catch (error) {
+    const duration = (Date.now() - startTime) / 1000;
+    
+    logger.error("3-Stage Pipeline task processing failed", {
+      error: error.message,
+      stack: error.stack,
+      duration: `${duration.toFixed(2)}s`,
+      transcriptEntries: transcript.length,
+      processingContext
+    });
+
+    throw new Error(`3-Stage Pipeline task processing failed: ${error.message}`);
+  }
+}
+
 module.exports = {
+  // NEW: 3-Stage Pipeline Functions
+  processTranscriptToTasksWithPipeline,
+  generatePipelineSummaryData,
+  
+  // LEGACY: Original Functions (maintained for backward compatibility)
   processTranscriptToTasks,
   processTranscriptFromFile,
   validateTranscript,

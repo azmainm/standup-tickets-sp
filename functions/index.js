@@ -46,7 +46,7 @@ if (process.env.NODE_ENV === "production" && !process.env.OPENAI_API_KEY) {
 }
 
 // Import our services
-const {processTranscriptToTasks} = require("./services/taskProcessor");
+const {processTranscriptToTasks, processTranscriptToTasksWithPipeline} = require("./services/taskProcessor");
 const {getBangladeshTimeComponents} = require("./services/meetingUrlService");
 // Main service: All meetings approach
 const {fetchAllMeetingsForUser} = require("./services/allMeetingsService");
@@ -146,17 +146,36 @@ app.post("/fetch-transcript", async (req, res) => {
       let totalSuccessfulProcessing = 0;
       let totalFailedProcessing = 0;
 
+      // 🚀 NEW: Create processing context for multi-transcript 3-Stage Pipeline
+      const processingContext = {
+        isMultiTranscript: allTranscriptsResults.length > 1,
+        totalTranscripts: allTranscriptsResults.length,
+        sessionStartTime: new Date().toISOString()
+      };
+
       for (let i = 0; i < allTranscriptsResults.length; i++) {
         const transcriptData = allTranscriptsResults[i];
         
-        logger.info(`Manual fetch processing transcript ${i + 1}/${allTranscriptsResults.length}`, {
+        logger.info(`🚀 Pipeline processing transcript ${i + 1}/${allTranscriptsResults.length}`, {
           meetingSubject: transcriptData.metadata.meetingSubject,
           entries: transcriptData.metadata.entryCount,
           filename: transcriptData.metadata.filename,
+          pipelineVersion: "1.0"
         });
 
+        // Set transcript-specific context
+        const transcriptContext = {
+          ...processingContext,
+          transcriptIndex: i + 1
+        };
+
         try {
-          const taskResult = await processTranscriptToTasks(transcriptData.transcript, transcriptData.metadata);
+          const taskResult = await processTranscriptToTasksWithPipeline(
+            transcriptData.transcript, 
+            transcriptData.metadata,
+            transcriptContext
+          );
+          
           allTaskResults.push({
             transcript: transcriptData,
             tasks: taskResult,
@@ -340,17 +359,35 @@ exports.dailyTranscriptFetch = onSchedule({
       let totalSuccessfulProcessing = 0;
       let totalFailedProcessing = 0;
 
+      // 🚀 NEW: Create processing context for multi-transcript 3-Stage Pipeline
+      const processingContext = {
+        isMultiTranscript: allTranscriptsResults.length > 1,
+        totalTranscripts: allTranscriptsResults.length,
+        sessionStartTime: new Date().toISOString()
+      };
+
       for (let i = 0; i < allTranscriptsResults.length; i++) {
         const transcriptData = allTranscriptsResults[i];
         
-        logger.info(`Processing transcript ${i + 1}/${allTranscriptsResults.length}`, {
+        logger.info(`🚀 Pipeline processing transcript ${i + 1}/${allTranscriptsResults.length}`, {
           meetingSubject: transcriptData.metadata.meetingSubject,
           entries: transcriptData.metadata.entryCount,
           filename: transcriptData.metadata.filename,
+          pipelineVersion: "1.0"
         });
 
+        // Set transcript-specific context
+        const transcriptContext = {
+          ...processingContext,
+          transcriptIndex: i + 1
+        };
+
         try {
-          const taskResult = await processTranscriptToTasks(transcriptData.transcript, transcriptData.metadata);
+          const taskResult = await processTranscriptToTasksWithPipeline(
+            transcriptData.transcript, 
+            transcriptData.metadata,
+            transcriptContext
+          );
           
           logger.info(`Transcript ${i + 1} processed successfully`, {
             meetingSubject: transcriptData.metadata.meetingSubject,

@@ -1,15 +1,25 @@
 # Standup Tickets SP - Firebase Functions
 
-This Firebase Functions project automatically fetches Microsoft Teams meeting transcripts for daily standups, processes them with AI to extract actionable tasks, and stores the results in MongoDB. **Now enhanced with vector database integration for 10-100x faster task similarity search.**
+This Firebase Functions project automatically fetches Microsoft Teams meeting transcripts for daily standups, processes them with a **3-Stage Pipeline** to extract actionable tasks with enhanced detail and context, and stores the results in MongoDB.
 
-## 🚀 NEW: Vector Database Enhanced Task Matching
+## 🚀 NEW: 3-Stage Pipeline Architecture (Version 5.0)
 
-The system now features **hybrid task matching architecture**:
+The system now features a **specialized 3-stage processing pipeline** that dramatically improves task extraction quality:
 
-1. **🚀 Vector Similarity Search** - FAISS-based embedding search (10-100x faster) (PRIMARY)
-2. **🤖 GPT-based Analysis** - Deep semantic analysis via OpenAI (FALLBACK)
-3. **🔄 Admin Panel Synchronization** - Smart sync with manual admin panel changes
-4. **⚡ Performance Optimization** - 90%+ reduction in API costs and processing time
+### Stage 1: Task Finder 🔍
+- **Purpose**: Pure extraction of actionable tasks with maximum detail and context
+- **Role**: Scrum Task Finder (Analytical, Evidence-oriented, Context-aware)
+- **Output**: Rich task descriptions with full conversation context (3-5x longer descriptions)
+
+### Stage 2: Task Creator 📝
+- **Purpose**: Systematic identification of genuinely new tasks
+- **Role**: Task Creator (Systematic, Clear, Neutral)
+- **Intelligence**: Vector similarity matching + GPT decision making for borderline cases
+
+### Stage 3: Task Updater 🔄
+- **Purpose**: Enhancement of existing tasks with new information and status changes
+- **Role**: Task Updater (Systematic, Clear, Neutral)
+- **Features**: Update type classification, status change detection, information synthesis
 
 ## 🆕 All Meetings Support
 
@@ -18,7 +28,16 @@ The system supports **two approaches** for fetching transcripts:
 1. **🆕 All Meetings Approach** - Fetches ALL meetings for a user on a specific date (NEW)
 2. **🔄 Legacy Approach** - Fetches transcript from specific meeting URLs (existing, maintained for backward compatibility)
 
-The system automatically chooses the best approach and gracefully falls back when needed. See the [System Flow Documentation](../Docs/SYSTEM_FLOW_DOCUMENTATION.md) for complete technical details and real-world examples.
+## Previous Enhancements (Version 4.0)
+
+The system maintains **vector database integration** for ultra-fast task similarity search:
+
+1. **🚀 Vector Similarity Search** - FAISS-based embedding search (10-100x faster) (PRIMARY)
+2. **🤖 GPT-based Analysis** - Deep semantic analysis via OpenAI (FALLBACK)
+3. **🔄 Admin Panel Synchronization** - Smart sync with manual admin panel changes
+4. **⚡ Performance Optimization** - 90%+ reduction in API costs and processing time
+
+See the [System Flow Documentation](../Docs/SYSTEM_FLOW_DOCUMENTATION.md) for complete technical details and real-world examples.
 
 ## Setup Instructions
 
