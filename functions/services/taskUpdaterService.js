@@ -168,7 +168,7 @@ async function findAndCreateTaskUpdates(skippedTask, existingTasks, context) {
       
       if (updateDecision.shouldUpdate) {
         updates.push({
-          taskId: similarTask.metadata.ticketId,
+          taskId: similarTask.metadata.taskId,
           existingTask: similarTask.metadata,
           updateType: updateDecision.updateType,
           newInformation: updateDecision.newInformation,
@@ -386,7 +386,7 @@ async function determineTaskUpdateWithGPT(skippedTask, similarTask, context) {
     
     logger.info("GPT update decision made", {
       skippedTask: skippedTask.description.substring(0, 50),
-      existingTask: similarTask.metadata.description.substring(0, 50),
+      existingTask: similarTask.metadata.text.substring(0, 50),
       shouldUpdate: decision.shouldUpdate,
       updateType: decision.updateType,
       confidence: decision.confidence
@@ -516,10 +516,10 @@ function createTaskUpdateDecisionPrompt(skippedTask, similarTask, context) {
 - Assignee: ${skippedTask.assignee}
 
 **EXISTING TASK**:
-- Description: "${similarTask.metadata.description}"
+- Description: "${similarTask.metadata.text}"
 - Status: ${similarTask.metadata.status}
 - Current Assignee: ${similarTask.metadata.assignee}
-- Ticket ID: ${similarTask.metadata.ticketId}
+- Ticket ID: ${similarTask.metadata.taskId}
 
 **UPDATE DECISION CRITERIA**:
 
@@ -569,9 +569,9 @@ function createExplicitUpdateDecisionPrompt(foundTask, existingTask, context) {
 - Evidence: "${foundTask.evidence}"
 
 **EXISTING TASK BEING REFERENCED**:
-- Description: "${existingTask.description}"
+- Description: "${existingTask.text}"
 - Status: ${existingTask.status}
-- Ticket ID: ${existingTask.ticketId}
+- Ticket ID: ${existingTask.taskId}
 
 **EXPLICIT UPDATE ANALYSIS**:
 Since this task was explicitly mentioned, determine what new information should be added.

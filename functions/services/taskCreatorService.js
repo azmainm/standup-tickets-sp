@@ -353,7 +353,7 @@ function createTaskCreatorSystemPrompt(context) {
  */
 function createTaskCreationDecisionPrompt(foundTask, similarTasks, context) {
   const similarTasksList = similarTasks.map((task, index) => 
-    `${index + 1}. "${task.metadata.description}" (Similarity: ${(task.similarity * 100).toFixed(1)}%)`
+    `${index + 1}. "${task.metadata.text}" (Similarity: ${(task.similarity * 100).toFixed(1)}%)`
   ).join('\n');
 
   return `
