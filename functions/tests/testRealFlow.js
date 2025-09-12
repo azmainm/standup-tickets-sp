@@ -318,8 +318,8 @@ async function testCompleteFlow() {
         
         // Show OpenAI processing details
         console.log("\n   🤖 Sample OpenAI Processing:");
-        console.log(`      - Model: ${firstSuccessfulResult.processing.metadata.model}`);
-        console.log(`      - Tokens used: ${firstSuccessfulResult.processing.metadata.tokensUsed}`);
+        console.log(`      - Model: ${firstSuccessfulResult.processing.metadata?.model || firstSuccessfulResult.taskResult.pipelineResult.metadata?.model || 'N/A'}`);
+        console.log(`      - Tokens used: ${firstSuccessfulResult.processing.metadata?.tokensUsed || firstSuccessfulResult.taskResult.pipelineResult.metadata?.stage1TokensUsed || 'N/A'}`);
         
         // Show MongoDB task storage details
         console.log("\n   🍃 Sample MongoDB Task Storage:");
@@ -411,7 +411,7 @@ async function testCompleteFlow() {
       
       const totalTokens = allTaskResults
         .filter(r => r.success)
-        .reduce((sum, r) => sum + (r.taskResult.processing.metadata.tokensUsed || 0), 0);
+        .reduce((sum, r) => sum + (r.taskResult.processing?.metadata?.tokensUsed || r.taskResult.pipelineResult?.metadata?.stage1TokensUsed || 0), 0);
       
       console.log(`   - 🆕 Total meetings processed: ${allTranscriptsResults.length}`);
       console.log(`   - ✅ Successfully processed meetings: ${totalSuccessfulProcessing}`);
