@@ -12,6 +12,7 @@
  */
 
 const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("./openaiService");
+const { syncRecentTaskChanges } = require("./vectorService");
 const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("./mongoService");
 // const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow - kept for future reuse
 const { matchTasksWithDatabaseEnhanced, matchTasksWithDatabase } = require("./taskMatcher");
@@ -40,16 +41,20 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
     logger.info("📁 Step 1: Storing raw transcript in MongoDB");
     const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
 
-    // Step 2: Get existing tasks for context
-    logger.info("📋 Step 2: Retrieving existing tasks for context");
+    // Step 2: Sync vector database with recent admin panel changes
+    logger.info("🔄 Step 2: Syncing vector database with recent admin panel changes");
+    await syncRecentTaskChanges();
+    
+    // Step 3: Get existing tasks for context
+    logger.info("📋 Step 3: Retrieving existing tasks for context");
     const existingTasks = await getActiveTasks();
     logger.info("Retrieved existing tasks", {
       count: existingTasks.length,
       participants: [...new Set(existingTasks.map(t => t.participantName))].length
     });
 
-    // Step 3: Enhanced status change detection
-    logger.info("🔍 Step 3: Detecting status changes from transcript");
+    // Step 4: Enhanced status change detection
+    logger.info("🔍 Step 4: Detecting status changes from transcript");
     const detectedStatusChanges = detectStatusChangesFromTranscript(transcript);
     const statusChangeSummary = getStatusChangeSummary(detectedStatusChanges);
     
@@ -57,16 +62,16 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       logger.info("Status changes detected", statusChangeSummary);
     }
 
-    // Step 4: Enhanced process transcript with OpenAI
-    logger.info("🤖 Step 4: Processing transcript with enhanced OpenAI");
+    // Step 5: Enhanced process transcript with OpenAI
+    logger.info("🤖 Step 5: Processing transcript with enhanced OpenAI");
     const openaiResult = await processTranscriptForTasks(transcript, existingTasks);
     
     if (!openaiResult.success) {
       throw new Error("Enhanced OpenAI processing failed");
     }
 
-    // Step 5: Validate OpenAI response
-    logger.info("✅ Step 5: Validating OpenAI response structure");
+    // Step 6: Validate OpenAI response
+    logger.info("✅ Step 6: Validating OpenAI response structure");
     const validationResult = validateLLMResponse(openaiResult.tasks);
     if (!validationResult.success) {
       logger.warn("OpenAI response validation failed", {
@@ -75,8 +80,8 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
       });
     }
 
-    // Step 6: Enhanced match extracted tasks with existing database tasks (Vector + GPT + Sync)
-    logger.info("🔗 Step 6: Enhanced matching tasks with vector similarity and admin panel sync");
+    // Step 7: Enhanced match extracted tasks with existing database tasks (Vector + GPT + Sync)
+    logger.info("🔗 Step 7: Enhanced matching tasks with vector similarity and admin panel sync");
     
     let matchingResult;
     try {
@@ -100,18 +105,47 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
     logger.info("🔄 Step 7: Processing detected status changes");
     const statusChangeResults = [];
     
+    console.log("[DEBUG] Processing status changes:", {
+      detectedChanges: detectedStatusChanges.length,
+      existingTasksCount: existingTasks.length,
+      existingTaskIds: existingTasks.map(t => t.ticketId).filter(Boolean)
+    });
+    
     for (const statusChange of detectedStatusChanges) {
       try {
+        console.log("[DEBUG] Processing status change:", {
+          taskId: statusChange.taskId,
+          newStatus: statusChange.newStatus,
+          speaker: statusChange.speaker,
+          confidence: statusChange.confidence
+        });
+        
         // Find the task in database by ticket ID
         const taskToUpdate = existingTasks.find(task => 
           task.ticketId === statusChange.taskId
         );
+        
+        console.log("[DEBUG] Task lookup result:", {
+          taskId: statusChange.taskId,
+          taskFound: !!taskToUpdate,
+          taskDetails: taskToUpdate ? {
+            currentStatus: taskToUpdate.status,
+            participantName: taskToUpdate.participantName,
+            documentId: taskToUpdate.documentId
+          } : null
+        });
         
         if (taskToUpdate) {
           const updateResult = await updateTaskByTicketId(
             statusChange.taskId,
             { status: statusChange.newStatus }
           );
+          
+          console.log("[DEBUG] Status update result:", {
+            taskId: statusChange.taskId,
+            updateSuccess: updateResult.success,
+            updateResult
+          });
           
           statusChangeResults.push({
             success: updateResult.success,
@@ -129,6 +163,12 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
             speaker: statusChange.speaker
           });
         } else {
+          console.log("[DEBUG] Task not found in database:", {
+            searchedTaskId: statusChange.taskId,
+            availableTaskIds: existingTasks.map(t => t.ticketId).filter(Boolean),
+            totalExistingTasks: existingTasks.length
+          });
+          
           logger.warn("Task not found for status change", {
             taskId: statusChange.taskId,
             newStatus: statusChange.newStatus
@@ -142,6 +182,12 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
           });
         }
       } catch (error) {
+        console.log("[DEBUG] Status change error:", {
+          taskId: statusChange.taskId,
+          error: error.message,
+          stack: error.stack
+        });
+        
         logger.error("Failed to apply status change", {
           taskId: statusChange.taskId,
           error: error.message
@@ -545,21 +591,115 @@ function formatTasksForDisplay(tasks) {
  * @returns {Object} Summary data for Teams
  */
 function generatePipelineSummaryData(pipelineResult, mongoResult) {
-  const participants = Object.keys(pipelineResult.tasks);
-  const newTasks = pipelineResult.metadata.newTasks;
-  const taskUpdates = pipelineResult.pipelineResults.stage3.taskUpdates.length;
-  
-  return {
+  const summaryData = {
+    participants: {},
+    futurePlans: [],
     summary: {
-      totalNewTasks: newTasks,
-      totalUpdatedTasks: taskUpdates,
-      totalParticipants: participants.length
-    },
-    participants: participants,
-    newTasks: pipelineResult.tasks,
-    updatedTasks: pipelineResult.pipelineResults.stage3.taskUpdates,
-    source: "3-stage-pipeline"
+      totalNewTasks: 0,
+      totalUpdatedTasks: 0,
+      totalFuturePlans: 0,
+      totalParticipants: 0,
+    }
   };
+
+  console.log("[DEBUG] Pipeline summary generation:", {
+    pipelineTasksKeys: Object.keys(pipelineResult.tasks),
+    mongoAssignedIds: mongoResult?.assignedTicketIds?.length || 0,
+    taskUpdatesCount: pipelineResult.pipelineResults?.stage3?.taskUpdates?.length || 0
+  });
+
+  // Process new tasks from pipeline result
+  let ticketIdIndex = 0;
+  
+  for (const [participantName, participantTasks] of Object.entries(pipelineResult.tasks)) {
+    console.log("[DEBUG] Processing participant:", {
+      participant: participantName,
+      codingTasks: participantTasks.Coding?.length || 0,
+      nonCodingTasks: participantTasks["Non-Coding"]?.length || 0
+    });
+
+    // Handle TBD/future plans separately
+    if (participantName === "TBD") {
+      for (const taskType of ["Coding", "Non-Coding"]) {
+        if (participantTasks[taskType] && Array.isArray(participantTasks[taskType])) {
+          for (const task of participantTasks[taskType]) {
+            const ticketId = mongoResult?.assignedTicketIds?.[ticketIdIndex] || `SP-TBD-${ticketIdIndex}`;
+            ticketIdIndex++;
+            
+            summaryData.futurePlans.push({
+              ticketId,
+              title: task.title || task.description,
+              description: task.description,
+              type: taskType,
+              status: task.status || "To-do"
+            });
+            summaryData.summary.totalFuturePlans++;
+          }
+        }
+      }
+    } else {
+      // Regular participants
+      if (!summaryData.participants[participantName]) {
+        summaryData.participants[participantName] = {
+          newTasks: [],
+          updatedTasks: []
+        };
+      }
+      
+      for (const taskType of ["Coding", "Non-Coding"]) {
+        if (participantTasks[taskType] && Array.isArray(participantTasks[taskType])) {
+          for (const task of participantTasks[taskType]) {
+            const ticketId = mongoResult?.assignedTicketIds?.[ticketIdIndex] || `SP-NEW-${ticketIdIndex}`;
+            ticketIdIndex++;
+            
+            summaryData.participants[participantName].newTasks.push({
+              ticketId,
+              title: task.title || task.description,
+              description: task.description,
+              type: taskType,
+              status: task.status || "To-do"
+            });
+            summaryData.summary.totalNewTasks++;
+          }
+        }
+      }
+    }
+  }
+
+  // Add task updates from stage 3
+  const taskUpdates = pipelineResult.pipelineResults?.stage3?.taskUpdates || [];
+  for (const update of taskUpdates) {
+    const participantName = update.assignee || "Unknown";
+    
+    if (!summaryData.participants[participantName]) {
+      summaryData.participants[participantName] = {
+        newTasks: [],
+        updatedTasks: []
+      };
+    }
+    
+    summaryData.participants[participantName].updatedTasks.push({
+      ticketId: update.taskId || "Unknown",
+      title: update.title || update.description || "Task update",
+      description: update.description || "Task updated",
+      type: update.type || "Coding",
+      status: update.status || "To-do"
+    });
+    summaryData.summary.totalUpdatedTasks++;
+  }
+
+  summaryData.summary.totalParticipants = Object.keys(summaryData.participants).length;
+  summaryData.source = "3-stage-pipeline";
+
+  console.log("[DEBUG] Generated summary data:", {
+    totalNewTasks: summaryData.summary.totalNewTasks,
+    totalUpdatedTasks: summaryData.summary.totalUpdatedTasks,
+    totalFuturePlans: summaryData.summary.totalFuturePlans,
+    participantCount: summaryData.summary.totalParticipants,
+    participantNames: Object.keys(summaryData.participants)
+  });
+
+  return summaryData;
 }
 
 /**
@@ -585,8 +725,12 @@ async function processTranscriptToTasksWithPipeline(transcript, transcriptMetada
     logger.info("📁 Step 1: Storing raw transcript in MongoDB");
     const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
 
-    // Step 2: Get existing tasks for context (with isolation for multi-transcript)
-    logger.info("📋 Step 2: Retrieving existing tasks for context");
+    // Step 2: Sync vector database with recent admin panel changes  
+    logger.info("🔄 Step 2: Syncing vector database with recent admin panel changes");
+    await syncRecentTaskChanges();
+    
+    // Step 3: Get existing tasks for context (with isolation for multi-transcript)
+    logger.info("📋 Step 3: Retrieving existing tasks for context");
     let existingTasks;
     
     if (processingContext.isMultiTranscript && processingContext.baselineTasksSnapshot) {

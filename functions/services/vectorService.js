@@ -653,5 +653,105 @@ module.exports = {
   isVectorDBAvailable,
   getVectorDBStats,
   clearVectorDB,
-  createEnhancedTextForEmbedding
+  createEnhancedTextForEmbedding,
+  syncRecentTaskChanges
 };
+
+/**
+ * Sync recent task changes from admin panel to vector database
+ * Checks for tasks modified in the last 2 days and updates/adds their embeddings
+ */
+async function syncRecentTaskChanges() {
+  try {
+    logger.info("Starting vector database sync with recent admin panel changes");
+    
+    if (!await isVectorDBAvailable()) {
+      logger.warn("Vector database not available, skipping sync");
+      return { success: false, reason: "Vector DB not available" };
+    }
+
+    // Get all active tasks from database
+    const { getActiveTasks } = require("./mongoService");
+    const allTasks = await getActiveTasks();
+    
+    // Filter tasks modified in admin panel in the last 2 days
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const recentlyModified = allTasks.filter(task => {
+      if (!task.lastModifiedAp) return false;
+      const modifiedDate = new Date(task.lastModifiedAp);
+      return modifiedDate >= twoDaysAgo;
+    });
+
+    console.log("[DEBUG] Vector sync check:", {
+      totalTasks: allTasks.length,
+      recentlyModified: recentlyModified.length,
+      cutoffDate: twoDaysAgo.toISOString()
+    });
+
+    if (recentlyModified.length === 0) {
+      logger.info("No recently modified tasks found, sync complete");
+      return { success: true, synced: 0, reason: "No recent changes" };
+    }
+
+    // Initialize vector database
+    await initializeVectorDB();
+    
+    let syncedCount = 0;
+    let errorCount = 0;
+
+    for (const task of recentlyModified) {
+      try {
+        // Create text for embedding
+        const text = `${task.title || ''} ${task.description || ''}`.trim();
+        
+        if (!text || text.length < 3) {
+          console.log(`Skipping task ${task.ticketId}: No meaningful text content`);
+          continue;
+        }
+
+        // Create metadata
+        const metadata = {
+          assignee: task.participantName,
+          type: task.type,
+          status: task.status,
+          title: task.title,
+          lastModified: task.timestamp,
+          lastModifiedAp: task.lastModifiedAp,
+          isFuturePlan: task.isFuturePlan
+        };
+
+        // Add/update embedding (this will overwrite if exists)
+        const success = await addTaskEmbedding(task.ticketId, text, metadata);
+        
+        if (success) {
+          syncedCount++;
+          console.log(`[DEBUG] Synced task ${task.ticketId} to vector DB`);
+        } else {
+          errorCount++;
+          logger.warn(`Failed to sync task ${task.ticketId} to vector DB`);
+        }
+        
+      } catch (error) {
+        errorCount++;
+        logger.error(`Error syncing task ${task.ticketId}:`, error.message);
+      }
+    }
+
+    logger.info("Vector database sync completed", {
+      totalChecked: recentlyModified.length,
+      synced: syncedCount,
+      errors: errorCount
+    });
+
+    return {
+      success: true,
+      synced: syncedCount,
+      errors: errorCount,
+      totalChecked: recentlyModified.length
+    };
+
+  } catch (error) {
+    logger.error("Vector database sync failed:", error.message);
+    return { success: false, error: error.message };
+  }
+}

@@ -53,6 +53,77 @@ async function initializeMongoDB() {
 }
 
 /**
+ * Add newly created tasks to vector database for similarity search
+ * @param {Object} processedTasksData - Tasks with ticket IDs
+ * @param {Array} assignedTicketIds - Array of assigned ticket IDs
+ */
+async function addNewTasksToVectorDB(processedTasksData, assignedTicketIds) {
+  try {
+    const { addTaskEmbedding, isVectorDBAvailable } = require("./vectorService");
+    
+    if (!await isVectorDBAvailable()) {
+      logger.warn("Vector database not available, skipping new task embeddings");
+      return;
+    }
+
+    let ticketIndex = 0;
+    let addedCount = 0;
+
+    for (const [participantName, participantTasks] of Object.entries(processedTasksData)) {
+      for (const taskType of ["Coding", "Non-Coding"]) {
+        if (participantTasks[taskType] && Array.isArray(participantTasks[taskType])) {
+          for (const task of participantTasks[taskType]) {
+            try {
+              const ticketId = assignedTicketIds[ticketIndex] || `TEMP-${ticketIndex}`;
+              ticketIndex++;
+
+              // Create text for embedding
+              const text = `${task.title || ''} ${task.description || ''}`.trim();
+              
+              if (!text || text.length < 3) {
+                console.log(`[DEBUG] Skipping vector embedding for ${ticketId}: No meaningful text`);
+                continue;
+              }
+
+              // Create metadata
+              const metadata = {
+                assignee: participantName,
+                type: taskType,
+                status: task.status || "To-do",
+                title: task.title,
+                lastModified: new Date().toISOString(),
+                isFuturePlan: task.isFuturePlan || false
+              };
+
+              // Add embedding
+              const success = await addTaskEmbedding(ticketId, text, metadata);
+              
+              if (success) {
+                addedCount++;
+                console.log(`[DEBUG] Added embedding for new task ${ticketId}`);
+              } else {
+                logger.warn(`Failed to add embedding for new task ${ticketId}`);
+              }
+
+            } catch (error) {
+              logger.error(`Error adding embedding for task:`, error.message);
+            }
+          }
+        }
+      }
+    }
+
+    logger.info("New task embeddings added to vector database", {
+      totalProcessed: ticketIndex,
+      embeddingsAdded: addedCount
+    });
+
+  } catch (error) {
+    logger.error("Error adding new tasks to vector database:", error.message);
+  }
+}
+
+/**
  * Store processed tasks in MongoDB with unique ticket IDs and titles for each task
  * FIXED: Now merges with existing active tasks instead of creating separate documents
  * @param {Object} tasksData - Structured task data organized by participant
@@ -76,8 +147,28 @@ async function storeTasks(tasksData, metadata = {}) {
     const assignedTicketIds = [];
     let totalTasksWithIds = 0;
     
+    console.log("[DEBUG] MongoDB - Processing tasks for storage:", {
+      participantCount: Object.keys(tasksData).length,
+      participants: Object.keys(tasksData),
+      taskDetails: Object.entries(tasksData).map(([name, tasks]) => ({
+        participant: name,
+        codingTasks: tasks.Coding?.length || 0,
+        nonCodingTasks: tasks["Non-Coding"]?.length || 0
+      }))
+    });
+    
     for (const [participantName, participantTasks] of Object.entries(tasksData)) {
-      processedTasksData[participantName] = {
+      // Clean participant name to ensure no extra text like "(not present)"
+      const cleanParticipantName = participantName.replace(/\s*\([^)]*\)\s*/g, '').trim();
+      
+      console.log("[DEBUG] Processing participant:", {
+        original: participantName,
+        cleaned: cleanParticipantName,
+        hasCoding: participantTasks.Coding?.length || 0,
+        hasNonCoding: participantTasks["Non-Coding"]?.length || 0
+      });
+      
+      processedTasksData[cleanParticipantName] = {
         "Coding": [],
         "Non-Coding": []
       };
@@ -103,7 +194,7 @@ async function storeTasks(tasksData, metadata = {}) {
             isFuturePlan: isFuturePlan
           };
           
-          processedTasksData[participantName]["Coding"].push(taskWithId);
+          processedTasksData[cleanParticipantName]["Coding"].push(taskWithId);
           assignedTicketIds.push(ticketId);
           totalTasksWithIds++;
         }
@@ -130,7 +221,7 @@ async function storeTasks(tasksData, metadata = {}) {
             isFuturePlan: isFuturePlan
           };
           
-          processedTasksData[participantName]["Non-Coding"].push(taskWithId);
+          processedTasksData[cleanParticipantName]["Non-Coding"].push(taskWithId);
           assignedTicketIds.push(ticketId);
           totalTasksWithIds++;
         }
@@ -152,6 +243,9 @@ async function storeTasks(tasksData, metadata = {}) {
       assignedTicketIds,
       timestamp: document.timestamp,
     });
+    
+    // Add new tasks to vector database
+    await addNewTasksToVectorDB(processedTasksData, assignedTicketIds);
     
     return {
       success: true,

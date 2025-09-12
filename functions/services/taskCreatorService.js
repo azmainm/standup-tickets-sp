@@ -102,6 +102,28 @@ async function identifyNewTasks(foundTasks, existingTasks, context = {}) {
           creationReason: reason,
           stage: 2
         });
+        
+        console.log("[DEBUG] Task Creator - NEW TASK:", {
+          taskDesc: foundTask.description.substring(0, 100),
+          assignee: foundTask.assignee,
+          type: foundTask.type,
+          confidence,
+          reason,
+          isFuturePlan: foundTask.isFuturePlan
+        });
+      } else {
+        console.log("[DEBUG] Task Creator - SKIPPED:", {
+          taskDesc: foundTask.description.substring(0, 100),
+          assignee: foundTask.assignee,
+          type: foundTask.type,
+          confidence,
+          reason,
+          similarTaskCount: similarityResult.matches.length,
+          topSimilarTask: similarityResult.matches[0] ? {
+            taskId: similarityResult.matches[0].taskId,
+            similarity: similarityResult.matches[0].similarity
+          } : null
+        });
       }
       
       analysisResults.push({
@@ -190,7 +212,7 @@ async function findSimilarTasksForCreation(foundTask, existingTasks) {
       searchContext
     });
 
-    const similarTasks = await findSimilarTasks(queryText, searchContext, 5, 0.7);
+    const similarTasks = await findSimilarTasks(queryText, searchContext, 5, 0.85);
 
     // Debug: log shape of results
     try {

@@ -97,6 +97,17 @@ async function findTasksFromTranscript(transcript, context = {}) {
     // Parse the response into structured tasks
     const foundTasks = parseTaskFinderResponse(gptResponse);
     
+    // DEBUG: Log all found tasks
+    console.log("[DEBUG] Task Finder found tasks:", {
+      totalTasks: foundTasks.length,
+      tasks: foundTasks.map(task => ({
+        description: task.description.substring(0, 100),
+        assignee: task.assignee,
+        type: task.type,
+        evidence: task.evidence?.substring(0, 50)
+      }))
+    });
+    
     const totalTasks = foundTasks.length;
     const averageDescriptionLength = calculateAverageDescriptionLength(foundTasks);
     
@@ -306,7 +317,9 @@ function parseTaskFinderResponse(response) {
       };
     } else if (currentTask) {
       if (trimmed.startsWith('ASSIGNEE:')) {
-        currentTask.assignee = trimmed.replace('ASSIGNEE:', '').trim();
+        // Clean assignee name to remove any extra text like "(not present)"
+        const rawAssignee = trimmed.replace('ASSIGNEE:', '').trim();
+        currentTask.assignee = rawAssignee.replace(/\s*\([^)]*\)\s*/g, '').trim();
       } else if (trimmed.startsWith('TYPE:')) {
         const type = trimmed.replace('TYPE:', '').trim();
         currentTask.type = type.includes('Coding') ? 'Coding' : 'Non-Coding';
