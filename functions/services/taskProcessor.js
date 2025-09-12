@@ -12,7 +12,7 @@
  */
 
 const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("./openaiService");
-const { syncRecentTaskChanges } = require("./vectorService");
+const { syncVectorDatabaseWithMongoDB } = require("./vectorService");
 const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("./mongoService");
 // const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow - kept for future reuse
 const { matchTasksWithDatabaseEnhanced, matchTasksWithDatabase } = require("./taskMatcher");
@@ -25,9 +25,10 @@ const { logger } = require("firebase-functions");
  * Enhanced process a transcript end-to-end with comprehensive task processing
  * @param {Array} transcript - Array of transcript entries
  * @param {Object} transcriptMetadata - Metadata from transcript fetch (optional)
+ * @param {Object} processingOptions - Processing options including test mode
  * @returns {Promise<Object>} Complete processing result with enhanced task data and storage info
  */
-async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
+async function processTranscriptToTasks(transcript, transcriptMetadata = {}, processingOptions = {}) {
   const startTime = Date.now();
   
   try {
@@ -41,9 +42,9 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
     logger.info("📁 Step 1: Storing raw transcript in MongoDB");
     const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
 
-    // Step 2: Sync vector database with recent admin panel changes
-    logger.info("🔄 Step 2: Syncing vector database with recent admin panel changes");
-    await syncRecentTaskChanges();
+    // Step 2: Sync vector database with current MongoDB state
+    logger.info("🔄 Step 2: Syncing vector database with MongoDB");
+    await syncVectorDatabaseWithMongoDB();
     
     // Step 3: Get existing tasks for context
     logger.info("📋 Step 3: Retrieving existing tasks for context");
@@ -315,6 +316,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}) {
         standupDate,
         processingDuration: (Date.now() - startTime) / 1000,
         jiraIntegrationSuccess: jiraResult?.success || false,
+        testRun: processingOptions.testMode || false,
       });
       
       if (teamsResult.success) {
@@ -588,9 +590,11 @@ function formatTasksForDisplay(tasks) {
  * Generate summary data for Teams notification from pipeline results
  * @param {Object} pipelineResult - Pipeline processing result
  * @param {Object} mongoResult - MongoDB storage result
+ * @param {Array} statusChangeResults - Status change results
+ * @param {Array} taskUpdateResults - Task update results
  * @returns {Object} Summary data for Teams
  */
-function generatePipelineSummaryData(pipelineResult, mongoResult) {
+function generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeResults = [], taskUpdateResults = []) {
   const summaryData = {
     participants: {},
     futurePlans: [],
@@ -666,10 +670,10 @@ function generatePipelineSummaryData(pipelineResult, mongoResult) {
     }
   }
 
-  // Add task updates from stage 3
-  const taskUpdates = pipelineResult.pipelineResults?.stage3?.taskUpdates || [];
-  for (const update of taskUpdates) {
-    const participantName = update.assignee || "Unknown";
+  // Add actual status changes and task updates that were applied
+  // Only include tasks that were actually updated with explicit ticket IDs
+  for (const statusChange of statusChangeResults.filter(r => r.success)) {
+    const participantName = statusChange.speaker || "Unknown";
     
     if (!summaryData.participants[participantName]) {
       summaryData.participants[participantName] = {
@@ -679,13 +683,41 @@ function generatePipelineSummaryData(pipelineResult, mongoResult) {
     }
     
     summaryData.participants[participantName].updatedTasks.push({
-      ticketId: update.taskId || "Unknown",
-      title: update.title || update.description || "Task update",
-      description: update.description || "Task updated",
-      type: update.type || "Coding",
-      status: update.status || "To-do"
+      ticketId: statusChange.taskId,
+      title: `Task update`,
+      description: `Status changed from ${statusChange.oldStatus} to ${statusChange.newStatus}`,
+      type: "Coding",
+      status: statusChange.newStatus
     });
     summaryData.summary.totalUpdatedTasks++;
+  }
+  
+  // Add task description updates that were applied
+  for (const taskUpdate of taskUpdateResults.filter(r => r.success)) {
+    // Find the speaker from status changes or task finder results
+    const relatedStatusChange = statusChangeResults.find(sc => sc.taskId === taskUpdate.taskId);
+    const relatedTask = pipelineResult.pipelineResults?.stage1?.foundTasks?.find(t => t.ticketId === taskUpdate.taskId);
+    const participantName = relatedStatusChange?.speaker || relatedTask?.assignee || "Unknown";
+    
+    if (!summaryData.participants[participantName]) {
+      summaryData.participants[participantName] = {
+        newTasks: [],
+        updatedTasks: []
+      };
+    }
+    
+    // Check if we already have an update for this task
+    const existingUpdate = summaryData.participants[participantName].updatedTasks.find(u => u.ticketId === taskUpdate.taskId);
+    if (!existingUpdate) {
+      summaryData.participants[participantName].updatedTasks.push({
+        ticketId: taskUpdate.taskId,
+        title: `Task description update`,
+        description: `Task description updated`,
+        type: "Coding",
+        status: "To-do"
+      });
+      summaryData.summary.totalUpdatedTasks++;
+    }
   }
 
   summaryData.summary.totalParticipants = Object.keys(summaryData.participants).length;
@@ -709,7 +741,7 @@ function generatePipelineSummaryData(pipelineResult, mongoResult) {
  * @param {Object} processingContext - Context for multi-transcript processing
  * @returns {Promise<Object>} Complete processing result with enhanced task data and storage info
  */
-async function processTranscriptToTasksWithPipeline(transcript, transcriptMetadata = {}, processingContext = {}) {
+async function processTranscriptToTasksWithPipeline(transcript, transcriptMetadata = {}, processingContext = {}, processingOptions = {}) {
   const startTime = Date.now();
   
   try {
@@ -725,9 +757,9 @@ async function processTranscriptToTasksWithPipeline(transcript, transcriptMetada
     logger.info("📁 Step 1: Storing raw transcript in MongoDB");
     const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
 
-    // Step 2: Sync vector database with recent admin panel changes  
-    logger.info("🔄 Step 2: Syncing vector database with recent admin panel changes");
-    await syncRecentTaskChanges();
+    // Step 2: Sync vector database with current MongoDB state
+    logger.info("🔄 Step 2: Syncing vector database with MongoDB");
+    await syncVectorDatabaseWithMongoDB();
     
     // Step 3: Get existing tasks for context (with isolation for multi-transcript)
     logger.info("📋 Step 3: Retrieving existing tasks for context");
@@ -779,12 +811,146 @@ async function processTranscriptToTasksWithPipeline(transcript, transcriptMetada
       };
     }
 
+    // Step 4.1: Apply status changes to existing tasks
+    logger.info("🔄 Step 4.1: Applying status changes");
+    const statusChangeResults = [];
+    const statusChanges = pipelineResult.statusChanges || [];
+    
+    for (const statusChange of statusChanges) {
+      try {
+        const taskToUpdate = existingTasks.find(task => task.ticketId === statusChange.taskId);
+        
+        console.log("[DEBUG] Processing status change:", {
+          taskId: statusChange.taskId,
+          newStatus: statusChange.newStatus,
+          taskFound: !!taskToUpdate,
+          currentStatus: taskToUpdate?.status
+        });
+        
+        if (taskToUpdate) {
+          const updateResult = await updateTaskByTicketId(
+            statusChange.taskId,
+            { status: statusChange.newStatus }
+          );
+          
+          console.log("[DEBUG] Status update result:", {
+            taskId: statusChange.taskId,
+            updateSuccess: updateResult.success,
+            oldStatus: taskToUpdate.status,
+            newStatus: statusChange.newStatus
+          });
+          
+          statusChangeResults.push({
+            success: updateResult.success,
+            taskId: statusChange.taskId,
+            oldStatus: taskToUpdate.status,
+            newStatus: statusChange.newStatus,
+            confidence: statusChange.confidence,
+            speaker: statusChange.speaker
+          });
+          
+          logger.info("Status change applied", {
+            taskId: statusChange.taskId,
+            oldStatus: taskToUpdate.status,
+            newStatus: statusChange.newStatus,
+            speaker: statusChange.speaker
+          });
+        } else {
+          console.log("[DEBUG] Task not found for status change:", {
+            taskId: statusChange.taskId,
+            availableTaskIds: existingTasks.map(t => t.ticketId).filter(Boolean)
+          });
+          
+          statusChangeResults.push({
+            success: false,
+            taskId: statusChange.taskId,
+            error: "Task not found in database",
+            newStatus: statusChange.newStatus
+          });
+        }
+      } catch (error) {
+        console.log("[DEBUG] Status change error:", {
+          taskId: statusChange.taskId,
+          error: error.message
+        });
+        
+        statusChangeResults.push({
+          success: false,
+          taskId: statusChange.taskId,
+          error: error.message,
+          newStatus: statusChange.newStatus
+        });
+      }
+    }
+
+    // Step 4.2: Apply task description updates
+    logger.info("📝 Step 4.2: Applying task description updates");
+    const taskUpdateResults = [];
+    const taskUpdates = pipelineResult.pipelineResults?.stage3?.taskUpdates || [];
+    
+    for (const update of taskUpdates) {
+      try {
+        if (update.updateType && update.updateType !== "none" && update.newInformation) {
+          // Find the existing task to get current description
+          const existingTask = existingTasks.find(task => task.ticketId === update.taskId);
+          
+          // Get transcript date or use current date
+          const transcriptDate = transcriptMetadata?.targetDate ? 
+            new Date(transcriptMetadata.targetDate).toLocaleDateString("en-US") : 
+            new Date().toLocaleDateString("en-US");
+          
+          // Append new information to existing description
+          const updatedDescription = existingTask?.description ? 
+            `${existingTask.description}\n\n(${transcriptDate}) Update: ${update.newInformation}` :
+            update.newInformation;
+          
+          const updateResult = await updateTaskByTicketId(
+            update.taskId,
+            { 
+              description: updatedDescription,
+              lastModified: new Date()
+            }
+          );
+          
+          console.log("[DEBUG] Task description update result:", {
+            taskId: update.taskId,
+            updateSuccess: updateResult.success,
+            updateType: update.updateType
+          });
+          
+          taskUpdateResults.push({
+            success: updateResult.success,
+            taskId: update.taskId,
+            updateType: update.updateType,
+            confidence: update.confidence
+          });
+          
+          logger.info("Task description updated", {
+            taskId: update.taskId,
+            updateType: update.updateType,
+            confidence: update.confidence
+          });
+        }
+      } catch (error) {
+        console.log("[DEBUG] Task update error:", {
+          taskId: update.taskId,
+          error: error.message
+        });
+        
+        taskUpdateResults.push({
+          success: false,
+          taskId: update.taskId,
+          error: error.message
+        });
+      }
+    }
+
     // Step 5: Send Teams notification
     logger.info("📢 Step 5: Sending pipeline summary to Teams");
     let teamsResult = null;
     
     try {
-      const summaryData = generatePipelineSummaryData(pipelineResult, mongoResult);
+      const summaryData = generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeResults, taskUpdateResults);
       const standupDate = transcriptMetadata?.targetDate ? 
         new Date(transcriptMetadata.targetDate).toLocaleDateString("en-GB") : 
         new Date().toLocaleDateString("en-GB");
@@ -792,7 +958,8 @@ async function processTranscriptToTasksWithPipeline(transcript, transcriptMetada
       teamsResult = await sendStandupSummaryToTeams(summaryData, {
         standupDate,
         processingDuration: (Date.now() - startTime) / 1000,
-        pipelineVersion: "1.0"
+        pipelineVersion: "1.0",
+        testRun: processingOptions.testMode || false,
       });
     } catch (teamsError) {
       logger.error("Teams webhook processing failed", {
@@ -817,8 +984,11 @@ async function processTranscriptToTasksWithPipeline(transcript, transcriptMetada
       pipelineResults: pipelineResult.pipelineResults,
       statusChanges: {
         detected: pipelineResult.statusChanges,
-        applied: [],
-        summary: { total: pipelineResult.statusChanges.length }
+        applied: statusChangeResults,
+        summary: { 
+          total: pipelineResult.statusChanges.length,
+          applied: statusChangeResults.filter(r => r.success).length
+        }
       },
       jira: { success: true, skipped: true, message: "Jira integration removed" },
       teams: teamsResult,
@@ -836,6 +1006,7 @@ async function processTranscriptToTasksWithPipeline(transcript, transcriptMetada
         newTasksCreated: pipelineResult.metadata.newTasks,
         existingTasksUpdated: pipelineResult.pipelineResults.stage3.taskUpdates.length,
         statusChangesDetected: pipelineResult.statusChanges.length,
+        statusChangesApplied: statusChangeResults.filter(r => r.success).length,
         processedAt: new Date().toISOString(),
         pipelineUsed: "3-stage-pipeline-v1.0",
         qualityMetrics: {

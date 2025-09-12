@@ -654,16 +654,16 @@ module.exports = {
   getVectorDBStats,
   clearVectorDB,
   createEnhancedTextForEmbedding,
-  syncRecentTaskChanges
+  syncVectorDatabaseWithMongoDB
 };
 
 /**
- * Sync recent task changes from admin panel to vector database
- * Checks for tasks modified in the last 2 days and updates/adds their embeddings
+ * Sync vector database with current MongoDB state
+ * Updates embeddings for all active tasks - simple and reliable approach
  */
-async function syncRecentTaskChanges() {
+async function syncVectorDatabaseWithMongoDB() {
   try {
-    logger.info("Starting vector database sync with recent admin panel changes");
+    logger.info("Starting vector database sync with MongoDB");
     
     if (!await isVectorDBAvailable()) {
       logger.warn("Vector database not available, skipping sync");
@@ -673,24 +673,19 @@ async function syncRecentTaskChanges() {
     // Get all active tasks from database
     const { getActiveTasks } = require("./mongoService");
     const allTasks = await getActiveTasks();
-    
-    // Filter tasks modified in admin panel in the last 2 days
-    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-    const recentlyModified = allTasks.filter(task => {
-      if (!task.lastModifiedAp) return false;
-      const modifiedDate = new Date(task.lastModifiedAp);
-      return modifiedDate >= twoDaysAgo;
-    });
 
-    console.log("[DEBUG] Vector sync check:", {
+    console.log("[DEBUG] Vector sync - MongoDB tasks:", {
       totalTasks: allTasks.length,
-      recentlyModified: recentlyModified.length,
-      cutoffDate: twoDaysAgo.toISOString()
+      sampleTasks: allTasks.slice(0, 3).map(t => ({
+        ticketId: t.ticketId,
+        title: t.title?.substring(0, 50),
+        assignee: t.participantName
+      }))
     });
 
-    if (recentlyModified.length === 0) {
-      logger.info("No recently modified tasks found, sync complete");
-      return { success: true, synced: 0, reason: "No recent changes" };
+    if (allTasks.length === 0) {
+      logger.info("No tasks found in MongoDB, sync complete");
+      return { success: true, synced: 0, reason: "No tasks in database" };
     }
 
     // Initialize vector database
@@ -699,7 +694,7 @@ async function syncRecentTaskChanges() {
     let syncedCount = 0;
     let errorCount = 0;
 
-    for (const task of recentlyModified) {
+    for (const task of allTasks) {
       try {
         // Create text for embedding
         const text = `${task.title || ''} ${task.description || ''}`.trim();
@@ -725,7 +720,9 @@ async function syncRecentTaskChanges() {
         
         if (success) {
           syncedCount++;
-          console.log(`[DEBUG] Synced task ${task.ticketId} to vector DB`);
+          if (syncedCount <= 5) { // Only log first 5 for brevity
+            console.log(`[DEBUG] Synced task ${task.ticketId} to vector DB`);
+          }
         } else {
           errorCount++;
           logger.warn(`Failed to sync task ${task.ticketId} to vector DB`);
@@ -738,16 +735,17 @@ async function syncRecentTaskChanges() {
     }
 
     logger.info("Vector database sync completed", {
-      totalChecked: recentlyModified.length,
+      totalTasks: allTasks.length,
       synced: syncedCount,
-      errors: errorCount
+      errors: errorCount,
+      successRate: ((syncedCount / allTasks.length) * 100).toFixed(1) + '%'
     });
 
     return {
       success: true,
       synced: syncedCount,
       errors: errorCount,
-      totalChecked: recentlyModified.length
+      totalTasks: allTasks.length
     };
 
   } catch (error) {

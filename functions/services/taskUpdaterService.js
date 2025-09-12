@@ -38,8 +38,20 @@ const openai = new OpenAI({
  */
 async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, transcript, context = {}) {
   try {
+    // Filter for tasks marked as UPDATE_TASK by Task Finder
+    const updateTasksFromFinder = foundTasks.filter(task => 
+      task.category === "UPDATE_TASK" && task.ticketId !== "NONE"
+    );
+    
+    console.log("[DEBUG] Task Updater filtering:", {
+      totalFound: foundTasks.length,
+      updateTasks: updateTasksFromFinder.length,
+      ticketIds: updateTasksFromFinder.map(t => t.ticketId)
+    });
+    
     logger.info("Starting Stage 3: Task Updater", {
       foundTasksCount: foundTasks.length,
+      updateTasksFromFinder: updateTasksFromFinder.length,
       skippedTasksCount: skippedTasks.length,
       existingTasksCount: existingTasks.length,
       transcriptIndex: context.transcriptIndex || 1,
@@ -72,21 +84,38 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tran
     }
 
     // Process skipped tasks (these might be updates to existing tasks)
-    for (const skippedTask of skippedTasks) {
-      const updates = await findAndCreateTaskUpdates(skippedTask, existingTasks, context);
-      taskUpdates.push(...updates);
-    }
-
-    // Process tasks with explicit ID references for updates
-    for (const foundTask of foundTasks) {
-      const explicitTaskId = checkForExplicitTaskId(foundTask.description);
-      if (explicitTaskId) {
-        const updates = await createExplicitTaskUpdate(foundTask, explicitTaskId, existingTasks, context);
-        if (updates) {
-          taskUpdates.push(updates);
-        }
+    // Process UPDATE_TASK items from Task Finder (direct ticket ID lookup)
+    for (const updateTask of updateTasksFromFinder) {
+      const existingTask = existingTasks.find(task => 
+        task.ticketId === updateTask.ticketId
+      );
+      
+      if (existingTask) {
+        console.log(`[DEBUG] Updating task ${updateTask.ticketId} directly from Task Finder`);
+        
+        // Generate detailed update description using transcript context  
+        const detailedUpdate = generateDetailedUpdateDescription(updateTask);
+        
+        taskUpdates.push({
+          taskId: updateTask.ticketId,
+          originalDescription: existingTask.description,
+          newInformation: detailedUpdate,
+          updateType: "PROGRESS_UPDATE",
+          updateSource: "TASK_FINDER_DIRECT",
+          confidence: 1.0,
+          evidence: updateTask.evidence,
+          speaker: updateTask.assignee,
+          context: updateTask.context,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        console.log(`[DEBUG] Task ${updateTask.ticketId} not found in database for update`);
       }
     }
+
+    // No similarity search needed - Task Finder already identified UPDATE_TASK items with explicit ticket IDs
+    // All necessary updates are handled above in the UPDATE_TASK processing section
+    console.log("[DEBUG] Task Updater: Skipping similarity search - using only explicit ticket ID updates from Task Finder");
 
     logger.info("Stage 3: Task Updater completed successfully", {
       taskUpdatesCount: taskUpdates.length,
@@ -611,19 +640,19 @@ function parseUpdateDecision(response) {
     for (const line of lines) {
       if (line.startsWith('SHOULD_UPDATE:')) {
         const decision = line.replace('SHOULD_UPDATE:', '').trim();
-        shouldUpdate = decision.toUpperCase() === 'YES';
-      } else if (line.startsWith('UPDATE_TYPE:')) {
-        updateType = line.replace('UPDATE_TYPE:', '').trim().toLowerCase();
-      } else if (line.startsWith('NEW_INFORMATION:')) {
-        newInformation = line.replace('NEW_INFORMATION:', '').trim();
-      } else if (line.startsWith('CONFIDENCE:')) {
-        const confStr = line.replace('CONFIDENCE:', '').trim();
+        shouldUpdate = decision.toUpperCase() === "YES";
+      } else if (line.startsWith("UPDATE_TYPE:")) {
+        updateType = line.replace("UPDATE_TYPE:", "").trim().toLowerCase();
+      } else if (line.startsWith("NEW_INFORMATION:")) {
+        newInformation = line.replace("NEW_INFORMATION:", "").trim();
+      } else if (line.startsWith("CONFIDENCE:")) {
+        const confStr = line.replace("CONFIDENCE:", "").trim();
         const confMatch = confStr.match(/(\d+(?:\.\d+)?)/);
         if (confMatch) {
           confidence = Math.max(0, Math.min(1, parseFloat(confMatch[1])));
         }
-      } else if (line.startsWith('REASONING:')) {
-        reasoning = line.replace('REASONING:', '').trim();
+      } else if (line.startsWith("REASONING:")) {
+        reasoning = line.replace("REASONING:", "").trim();
       }
     }
     
@@ -684,6 +713,36 @@ async function testTaskUpdaterService() {
   }
 }
 
+/**
+ * Generate detailed update description using task context
+ * @param {Object} updateTask - Update task from Task Finder
+ * @returns {string} Detailed update description
+ */
+function generateDetailedUpdateDescription(updateTask) {
+  try {
+    // Combine the basic description with context and evidence for a fuller update
+    const detailedUpdate = `${updateTask.description}. ${updateTask.context} ${updateTask.evidence ? `Evidence: "${updateTask.evidence}"` : ''}`.trim();
+    
+    logger.info("Task update description generated", {
+      ticketId: updateTask.ticketId,
+      originalLength: updateTask.description.length,
+      enhancedLength: detailedUpdate.length
+    });
+    
+    return detailedUpdate;
+    
+  } catch (error) {
+    logger.error("Error generating detailed update description", {
+      error: error.message,
+      ticketId: updateTask.ticketId,
+      taskSummary: updateTask.description.substring(0, 50)
+    });
+    
+    // Return original description if generation fails
+    return updateTask.description;
+  }
+}
+
 module.exports = {
   updateExistingTasks,
   testTaskUpdaterService,
@@ -695,5 +754,6 @@ module.exports = {
   parseUpdateDecision,
   createTaskUpdaterSystemPrompt,
   createTaskUpdateDecisionPrompt,
-  createExplicitUpdateDecisionPrompt
+  createExplicitUpdateDecisionPrompt,
+  generateDetailedUpdateDescription
 };

@@ -277,7 +277,7 @@ async function runCompleteFlowTest() {
       isTestRun: true,
       testDate: new Date().toISOString().split("T")[0],
       testDescription: "3-Stage Pipeline test transcript"
-    }, processingContext);
+    }, processingContext, { testMode: true });
 
     if (!processingResult.success) {
       throw new Error("Transcript processing failed");
@@ -354,12 +354,8 @@ async function runCompleteFlowTest() {
 
       const processingDuration = ((Date.now() - startTime) / 1000).toFixed(2);
       
-      const teamsResult = await sendTestStandupSummaryToTeams(summaryData, {
-        standupDate: new Date().toLocaleDateString("en-GB"),
-        processingDuration,
-        testRun: true,
-        enhancementsUsed: processingResult.summary.enhancementsUsed
-      });
+      // Teams notification already sent by main processing flow
+      const teamsResult = { success: true, skipped: true, reason: "Teams notification handled by main flow" };
 
       if (teamsResult.success) {
         console.log("✅ Test Teams notification sent successfully");

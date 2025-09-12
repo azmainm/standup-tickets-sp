@@ -29,9 +29,9 @@ function detectStatusChanges(transcriptText, speaker) {
     
     // Patterns for completion
     const completionPatterns = [
-      // "SP-XX is complete/done/finished" (with optional words like "now", "definitely", etc.)
+      // "SP-XX is completed/done/finished" (more precise - avoid words like "complete" in middle of sentence)
       {
-        pattern: /\b(sp[-\s]?\d+)\s+(?:is|was|has\s+been)?\s*(?:\w+\s+)*(?:completed?|done|finished|resolved)\b/gi,
+        pattern: /\b(sp[-\s]?\d+)\s+(?:is|was|has\s+been)\s+(?:now\s+|definitely\s+)?(?:completed?|done|finished|resolved)\b/gi,
         status: "Completed",
         confidence: 0.9
       },
@@ -41,9 +41,9 @@ function detectStatusChanges(transcriptText, speaker) {
         status: "Completed", 
         confidence: 0.9
       },
-      // "SP-XX - completed" or "SP-XX completed"
+      // "SP-XX - completed" or "SP-XX completed" (exact word boundary)
       {
-        pattern: /\b(sp[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:completed?|finished|done)\b/gi,
+        pattern: /\b(sp[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:completed?|finished|done)\b(?!\s+(?:by|in|within|about))/gi,
         status: "Completed",
         confidence: 0.8
       },

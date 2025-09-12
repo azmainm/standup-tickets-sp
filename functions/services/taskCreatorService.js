@@ -34,10 +34,24 @@ const openai = new OpenAI({
  * @param {Object} context - Processing context
  * @returns {Promise<Object>} New tasks to be created
  */
-async function identifyNewTasks(foundTasks, existingTasks, context = {}) {
+async function identifyNewTasks(foundTasks, existingTasks, transcript, context = {}) {
   try {
+    // Filter to only process tasks marked as NEW_TASK by the Task Finder
+    const newTasksToCreate = foundTasks.filter(task => 
+      task.category === 'NEW_TASK' || 
+      (!task.category && task.ticketId === 'NONE') // Fallback for older format
+    );
+    
+    console.log(`[DEBUG] Task Creator filtering:`, {
+      totalFound: foundTasks.length,
+      newTasksToCreate: newTasksToCreate.length,
+      updateTasks: foundTasks.filter(t => t.category === 'UPDATE_TASK').length,
+      filtered: foundTasks.length - newTasksToCreate.length
+    });
+    
     logger.info("Starting Stage 2: Task Creator", {
       foundTasksCount: foundTasks.length,
+      newTasksToProcess: newTasksToCreate.length,
       existingTasksCount: existingTasks.length,
       transcriptIndex: context.transcriptIndex || 1,
       isMultiTranscript: Boolean(context.isMultiTranscript),
@@ -47,11 +61,11 @@ async function identifyNewTasks(foundTasks, existingTasks, context = {}) {
     const newTasks = [];
     const analysisResults = [];
 
-    // Process each found task to determine if it's new
-    for (let i = 0; i < foundTasks.length; i++) {
-      const foundTask = foundTasks[i];
+    // Process each new task (Task Finder already classified them)
+    for (let i = 0; i < newTasksToCreate.length; i++) {
+      const foundTask = newTasksToCreate[i];
       
-      logger.info(`Analyzing task ${i + 1}/${foundTasks.length}`, {
+      logger.info(`Analyzing task ${i + 1}/${newTasksToCreate.length}`, {
         taskDesc: foundTask.description.substring(0, 100),
         assignee: foundTask.assignee,
         type: foundTask.type
@@ -75,29 +89,18 @@ async function identifyNewTasks(foundTasks, existingTasks, context = {}) {
         continue;
       }
 
-      // Use vector similarity to find potential matches
-      const similarityResult = await findSimilarTasksForCreation(foundTask, existingTasks);
-      
-      // If high similarity found, use GPT for final decision
+      // Task Finder already classified this as NEW_TASK, so create it
       let isNewTask = true;
       let confidence = 1.0;
-      let reason = "No similar tasks found";
-      
-      if (similarityResult.matches.length > 0) {
-        const gptDecision = await makeCreationDecisionWithGPT(
-          foundTask, 
-          similarityResult.matches, 
-          context
-        );
-        
-        isNewTask = gptDecision.shouldCreate;
-        confidence = gptDecision.confidence;
-        reason = gptDecision.reasoning;
-      }
+      let reason = "Task Finder classified as NEW_TASK";
       
       if (isNewTask) {
+        // Generate detailed description using transcript context
+        const detailedDescription = await generateDetailedTaskDescription(foundTask, transcript);
+        
         newTasks.push({
           ...foundTask,
+          description: detailedDescription,
           creationConfidence: confidence,
           creationReason: reason,
           stage: 2
@@ -118,11 +121,8 @@ async function identifyNewTasks(foundTasks, existingTasks, context = {}) {
           type: foundTask.type,
           confidence,
           reason,
-          similarTaskCount: similarityResult.matches.length,
-          topSimilarTask: similarityResult.matches[0] ? {
-            taskId: similarityResult.matches[0].taskId,
-            similarity: similarityResult.matches[0].similarity
-          } : null
+          category: foundTask.category,
+          ticketId: foundTask.ticketId
         });
       }
       
@@ -131,7 +131,7 @@ async function identifyNewTasks(foundTasks, existingTasks, context = {}) {
         decision: isNewTask ? 'CREATE_NEW' : 'SKIP_EXISTING',
         reason,
         confidence,
-        similarMatches: similarityResult.matches.length
+        similarMatches: 0 // No similarity matching since Task Finder classified
       });
     }
 
@@ -509,6 +509,39 @@ async function testTaskCreatorService() {
   }
 }
 
+/**
+ * Generate detailed task description using full transcript context
+ * @param {Object} foundTask - Basic task from Task Finder
+ * @param {Array} transcript - Full transcript for context
+ * @returns {Promise<string>} Detailed task description
+ */
+async function generateDetailedTaskDescription(foundTask, transcript) {
+  try {
+    // Format transcript for context
+    const transcriptText = transcript.map(entry => entry.text.replace(/<[^>]*>/g, "")).join("\n");
+    
+    // Use the evidence and context to generate a comprehensive description
+    const description = `${foundTask.description}. Based on the discussion, ${foundTask.context} ${foundTask.evidence ? `Evidence from transcript: "${foundTask.evidence}"` : ''}`.trim();
+    
+    logger.info("Task description generated", {
+      originalLength: foundTask.description.length,
+      enhancedLength: description.length,
+      assignee: foundTask.assignee
+    });
+    
+    return description;
+    
+  } catch (error) {
+    logger.error("Error generating detailed task description", {
+      error: error.message,
+      taskSummary: foundTask.description.substring(0, 50)
+    });
+    
+    // Return original description if generation fails
+    return foundTask.description;
+  }
+}
+
 module.exports = {
   identifyNewTasks,
   testTaskCreatorService,
@@ -517,5 +550,6 @@ module.exports = {
   checkForExplicitTaskId,
   parseCreationDecision,
   createTaskCreatorSystemPrompt,
-  createTaskCreationDecisionPrompt
+  createTaskCreationDecisionPrompt,
+  generateDetailedTaskDescription
 };

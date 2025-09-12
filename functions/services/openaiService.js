@@ -60,7 +60,7 @@ async function processTranscriptForTasksWithPipeline(transcript, existingTasks =
 
     // STAGE 2: TASK CREATOR - Identify which tasks are genuinely new
     logger.info("📝 Stage 2: Task Creator - Identifying new tasks");
-    const taskCreatorResult = await identifyNewTasks(foundTasks, existingTasks, processingContext);
+    const taskCreatorResult = await identifyNewTasks(foundTasks, existingTasks, transcript, processingContext);
     
     if (!taskCreatorResult.success) {
       throw new Error("Stage 2 (Task Creator) failed");
@@ -1113,7 +1113,7 @@ function convertPipelineResultsToLegacyFormat(newTasks, taskUpdates) {
       status: "To-do",
       estimatedTime: 0,
       timeTaken: 0,
-      isFuturePlan: task.assignee === "TBD",
+      isFuturePlan: task.isFuturePlan || false,
       taskType: "NEW TASK",
       source: "pipeline_stage_1_2"
     });

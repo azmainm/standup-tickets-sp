@@ -203,13 +203,24 @@ function createTaskFindingPrompt(transcriptText, context) {
 - Include background context, technical details, and requirements
 - Connect scattered information that relates to the same work item
 - Preserve conversation flow and reasoning
+- For NEW_TASK: Capture complete requirements, context, and any technical details mentioned
+- For UPDATE_TASK: Extract the full update context, what specifically is being changed/added
 
-**3. WORK ITEM IDENTIFICATION PATTERNS**:
+**3. WORK ITEM CLASSIFICATION (CRITICAL)**:
+
+**NEW TASK PATTERNS** (no ticket number mentioned):
 - Direct assignments: "I need to...", "John should...", "[Name] will..."
 - Problem statements: "We need to fix...", "There's an issue with..."
 - Future work: "We should implement...", "Next we need to..."
-- Status updates: "I completed...", "Working on...", "Started..."
-- Task refinements: "Actually, that task should include..."
+- New initiatives: "Let's create...", "We should build..."
+
+**TASK UPDATE PATTERNS** (ticket number explicitly mentioned):
+- Status updates: "SP-XXX is completed", "SP-XXX is in progress"
+- Progress reports: "I'm working on SP-XXX and...", "SP-XXX needs..."
+- Task modifications: "For SP-XXX, we should also add..."
+- Specific ticket references: Any mention of "SP-" followed by numbers
+
+**CLASSIFICATION RULE**: If a ticket number (SP-XXX) is mentioned, it's an UPDATE. If no ticket number is mentioned, it's a NEW TASK.
 
 **4. CONTEXT PRESERVATION**:
 - Include WHO mentioned the task
@@ -217,7 +228,22 @@ function createTaskFindingPrompt(transcriptText, context) {
 - Note any dependencies or requirements discussed
 - Preserve timeline information ("by Friday", "next week")
 
-**5. ASSIGNEE DETECTION**:
+**5. FUTURE PLAN DETECTION**:
+Look for these patterns that indicate future plans:
+- "future plan" / "as a future plan" / "future initiative"
+- "we should consider" / "we should definitely consider"
+- "for the future" / "something for later" / "down the line"
+- "future enhancement" / "future consideration" / "on our roadmap"
+- "eventually we'll" / "in the future we should" / "planned for future"
+
+When found:
+- Extract the COMPLETE description of what the future plan entails
+- Use conversation context to understand the full scope
+- Assign to "TBD" participant
+- Mark as NEW_TASK category
+- Include [IS_FUTURE_PLAN: true] in CONTEXT field
+
+**6. ASSIGNEE DETECTION**:
 - "for me" / "my task" / "I will" = assign to speaker
 - "for [Name]" / "[Name] will" / "[Name] should" = assign to that person
 - "task for [Name] who isn't here" = assign to that person (not TBD)
@@ -226,13 +252,17 @@ function createTaskFindingPrompt(transcriptText, context) {
 **OUTPUT FORMAT**:
 For each task found, provide:
 \`\`\`
-TASK: [Detailed task description with full context]
+TASK: [BRIEF task summary - just the core action, detailed description will be generated later using full transcript context]
 ASSIGNEE: [Person assigned or TBD]
 TYPE: [Coding/Non-Coding]
+CATEGORY: [NEW_TASK or UPDATE_TASK]
+TICKET_ID: [SP-XXX if mentioned for updates, or "NONE" for new tasks]
 EVIDENCE: [Specific quote from transcript]
-CONTEXT: [Surrounding conversation context]
+CONTEXT: [Brief context and WHY this task is needed. Include [IS_FUTURE_PLAN: true] if this is a future plan]
 URGENCY: [Any timeline mentioned]
 \`\`\`
+
+**CRITICAL**: Properly classify each item as NEW_TASK or UPDATE_TASK based on whether a ticket number is mentioned.
 
 **MEETING TRANSCRIPT**:
 ${transcriptText}
@@ -291,14 +321,14 @@ function formatTranscriptForTaskFinding(transcript) {
  */
 function parseTaskFinderResponse(response) {
   const tasks = [];
-  const lines = response.split('\n');
+  const lines = response.split("\n");
   
   let currentTask = null;
   
   for (const line of lines) {
     const trimmed = line.trim();
     
-    if (trimmed.startsWith('TASK:')) {
+    if (trimmed.startsWith("TASK:")) {
       // Save previous task if exists
       if (currentTask && currentTask.description) {
         tasks.push(currentTask);
@@ -306,13 +336,16 @@ function parseTaskFinderResponse(response) {
       
       // Start new task
       currentTask = {
-        description: trimmed.replace('TASK:', '').trim(),
-        assignee: 'Unknown',
-        type: 'Non-Coding',
-        evidence: '',
-        context: '',
-        urgency: '',
-        source: 'task_finder',
+        description: trimmed.replace("TASK:", "").trim(),
+        assignee: "Unknown",
+        type: "Non-Coding",
+        category: "NEW_TASK", // Default to new task
+        ticketId: "NONE", // Default to no ticket
+        evidence: "",
+        context: "",
+        urgency: "",
+        isFuturePlan: false, // Default to not a future plan
+        source: "task_finder",
         stage: 1
       };
     } else if (currentTask) {
@@ -323,10 +356,21 @@ function parseTaskFinderResponse(response) {
       } else if (trimmed.startsWith('TYPE:')) {
         const type = trimmed.replace('TYPE:', '').trim();
         currentTask.type = type.includes('Coding') ? 'Coding' : 'Non-Coding';
+      } else if (trimmed.startsWith('CATEGORY:')) {
+        const category = trimmed.replace('CATEGORY:', '').trim();
+        currentTask.category = category.includes('UPDATE_TASK') ? 'UPDATE_TASK' : 'NEW_TASK';
+      } else if (trimmed.startsWith('TICKET_ID:')) {
+        const ticketId = trimmed.replace('TICKET_ID:', '').trim();
+        currentTask.ticketId = ticketId === 'NONE' ? 'NONE' : ticketId;
       } else if (trimmed.startsWith('EVIDENCE:')) {
         currentTask.evidence = trimmed.replace('EVIDENCE:', '').trim();
       } else if (trimmed.startsWith('CONTEXT:')) {
         currentTask.context = trimmed.replace('CONTEXT:', '').trim();
+        // Check for future plan indicator in context
+        if (currentTask.context.includes('[IS_FUTURE_PLAN: true]')) {
+          currentTask.isFuturePlan = true;
+          currentTask.assignee = 'TBD'; // Force assignee to TBD for future plans
+        }
       } else if (trimmed.startsWith('URGENCY:')) {
         currentTask.urgency = trimmed.replace('URGENCY:', '').trim();
       }
