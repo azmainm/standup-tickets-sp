@@ -653,5 +653,103 @@ module.exports = {
   isVectorDBAvailable,
   getVectorDBStats,
   clearVectorDB,
-  createEnhancedTextForEmbedding
+  createEnhancedTextForEmbedding,
+  syncVectorDatabaseWithMongoDB
 };
+
+/**
+ * Sync vector database with current MongoDB state
+ * Updates embeddings for all active tasks - simple and reliable approach
+ */
+async function syncVectorDatabaseWithMongoDB() {
+  try {
+    logger.info("Starting vector database sync with MongoDB");
+    
+    if (!await isVectorDBAvailable()) {
+      logger.warn("Vector database not available, skipping sync");
+      return { success: false, reason: "Vector DB not available" };
+    }
+
+    // Get all active tasks from database
+    const { getActiveTasks } = require("./mongoService");
+    const allTasks = await getActiveTasks();
+
+    console.log("[DEBUG] Vector sync - MongoDB tasks:", {
+      totalTasks: allTasks.length,
+      sampleTasks: allTasks.slice(0, 3).map(t => ({
+        ticketId: t.ticketId,
+        title: t.title?.substring(0, 50),
+        assignee: t.participantName
+      }))
+    });
+
+    if (allTasks.length === 0) {
+      logger.info("No tasks found in MongoDB, sync complete");
+      return { success: true, synced: 0, reason: "No tasks in database" };
+    }
+
+    // Initialize vector database
+    await initializeVectorDB();
+    
+    let syncedCount = 0;
+    let errorCount = 0;
+
+    for (const task of allTasks) {
+      try {
+        // Create text for embedding
+        const text = `${task.title || ''} ${task.description || ''}`.trim();
+        
+        if (!text || text.length < 3) {
+          console.log(`Skipping task ${task.ticketId}: No meaningful text content`);
+          continue;
+        }
+
+        // Create metadata
+        const metadata = {
+          assignee: task.participantName,
+          type: task.type,
+          status: task.status,
+          title: task.title,
+          lastModified: task.timestamp,
+          lastModifiedAp: task.lastModifiedAp,
+          isFuturePlan: task.isFuturePlan
+        };
+
+        // Add/update embedding (this will overwrite if exists)
+        const success = await addTaskEmbedding(task.ticketId, text, metadata);
+        
+        if (success) {
+          syncedCount++;
+          if (syncedCount <= 5) { // Only log first 5 for brevity
+            console.log(`[DEBUG] Synced task ${task.ticketId} to vector DB`);
+          }
+        } else {
+          errorCount++;
+          logger.warn(`Failed to sync task ${task.ticketId} to vector DB`);
+        }
+        
+      } catch (error) {
+        errorCount++;
+        logger.error(`Error syncing task ${task.ticketId}:`, error.message);
+      }
+    }
+
+    logger.info("Vector database sync completed", {
+      totalTasks: allTasks.length,
+      synced: syncedCount,
+      errors: errorCount,
+      successRate: ((syncedCount / allTasks.length) * 100).toFixed(1) + '%'
+    });
+
+    return {
+      success: true,
+      synced: syncedCount,
+      errors: errorCount,
+      totalTasks: allTasks.length
+    };
+
+  } catch (error) {
+    logger.error("Vector database sync failed:", error.message);
+    return { success: false, error: error.message };
+  }
+}

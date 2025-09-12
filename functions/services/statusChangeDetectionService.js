@@ -19,11 +19,19 @@ function detectStatusChanges(transcriptText, speaker) {
     const statusChanges = [];
     const lowerText = transcriptText.toLowerCase();
     
+    // DEBUG: Log the text being analyzed
+    console.log("[DEBUG] Status detection analyzing:", {
+      speaker,
+      text: transcriptText.substring(0, 200),
+      containsSP99: transcriptText.includes('SP-99'),
+      containsCompleted: transcriptText.toLowerCase().includes('completed')
+    });
+    
     // Patterns for completion
     const completionPatterns = [
-      // "SP-XX is complete/done/finished"
+      // "SP-XX is completed/done/finished" (more precise - avoid words like "complete" in middle of sentence)
       {
-        pattern: /\b(sp[-\s]?\d+)\s+(?:is|was|has\s+been)?\s*(?:completed?|done|finished|resolved)\b/gi,
+        pattern: /\b(sp[-\s]?\d+)\s+(?:is|was|has\s+been)\s+(?:now\s+|definitely\s+)?(?:completed?|done|finished|resolved)\b/gi,
         status: "Completed",
         confidence: 0.9
       },
@@ -33,9 +41,9 @@ function detectStatusChanges(transcriptText, speaker) {
         status: "Completed", 
         confidence: 0.9
       },
-      // "SP-XX - completed" or "SP-XX completed"
+      // "SP-XX - completed" or "SP-XX completed" (exact word boundary)
       {
-        pattern: /\b(sp[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:completed?|finished|done)\b/gi,
+        pattern: /\b(sp[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:completed?|finished|done)\b(?!\s+(?:by|in|within|about))/gi,
         status: "Completed",
         confidence: 0.8
       },
@@ -80,9 +88,26 @@ function detectStatusChanges(transcriptText, speaker) {
       let match;
       patternInfo.pattern.lastIndex = 0; // Reset regex
       
+      // DEBUG: Log pattern testing for SP-99
+      if (transcriptText.includes('SP-99') && transcriptText.toLowerCase().includes('completed')) {
+        console.log("[DEBUG] Testing completion pattern:", {
+          pattern: patternInfo.pattern.toString(),
+          speaker,
+          text: transcriptText.substring(0, 200)
+        });
+      }
+      
       while ((match = patternInfo.pattern.exec(transcriptText)) !== null) {
         const taskId = normalizeTaskId(match[1]);
         if (taskId) {
+          console.log("[DEBUG] Status change detected:", {
+            taskId,
+            status: patternInfo.status,
+            speaker,
+            evidence: match[0],
+            patternUsed: patternInfo.pattern.toString()
+          });
+          
           statusChanges.push({
             taskId,
             newStatus: patternInfo.status,
@@ -179,6 +204,18 @@ function detectStatusChangesFromTranscript(transcriptEntries) {
       allStatusChanges.push(...statusChanges);
     }
   }
+
+  // DEBUG: Log all detected status changes
+  console.log("[DEBUG] Status Change Detection Results:", {
+    totalChanges: allStatusChanges.length,
+    changes: allStatusChanges.map(change => ({
+      taskId: change.taskId,
+      newStatus: change.newStatus,
+      speaker: change.speaker,
+      confidence: change.confidence,
+      evidence: change.evidence?.substring(0, 100)
+    }))
+  });
 
   return allStatusChanges;
 }

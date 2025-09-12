@@ -15,6 +15,9 @@ const {logger} = require("firebase-functions");
 const { validateLLMResponse, sanitizeLLMResponse } = require("../schemas/taskSchemas");
 const { detectStatusChangesFromTranscript } = require("./statusChangeDetectionService");
 const { detectAssignee, extractParticipantsFromDatabase } = require("./assigneeDetectionService");
+const { findTasksFromTranscript } = require("./taskFinderService");
+const { identifyNewTasks } = require("./taskCreatorService");
+const { updateExistingTasks } = require("./taskUpdaterService");
 
 // Load environment variables
 require("dotenv").config();
@@ -25,7 +28,135 @@ const openai = new OpenAI({
 });
 
 /**
- * Enhanced process transcript and extract tasks for each participant
+ * NEW: 3-Stage Pipeline - Process transcript using Task Finder, Creator, and Updater
+ * @param {Array} transcript - Array of transcript entries with speaker, startTime, endTime, text
+ * @param {Array} existingTasks - Array of existing tasks for context (optional)
+ * @param {Object} processingContext - Context for multi-transcript processing
+ * @returns {Promise<Object>} Structured task data organized by participant with validation
+ */
+async function processTranscriptForTasksWithPipeline(transcript, existingTasks = [], processingContext = {}) {
+  try {
+    logger.info("Starting 3-Stage Pipeline Processing", {
+      entryCount: transcript.length,
+      existingTasksCount: existingTasks.length,
+      isMultiTranscript: Boolean(processingContext.isMultiTranscript),
+      transcriptIndex: processingContext.transcriptIndex || 1,
+      timestamp: new Date().toISOString(),
+    });
+
+    // STAGE 1: TASK FINDER - Extract all actionable tasks with detailed descriptions
+    logger.info("🔍 Stage 1: Task Finder - Extracting actionable tasks");
+    const taskFinderResult = await findTasksFromTranscript(transcript, processingContext);
+    
+    if (!taskFinderResult.success) {
+      throw new Error("Stage 1 (Task Finder) failed");
+    }
+    
+    const foundTasks = taskFinderResult.foundTasks;
+    logger.info("Stage 1 completed", {
+      tasksFound: foundTasks.length,
+      averageDescriptionLength: taskFinderResult.metadata.averageDescriptionLength
+    });
+
+    // STAGE 2: TASK CREATOR - Identify which tasks are genuinely new
+    logger.info("📝 Stage 2: Task Creator - Identifying new tasks");
+    const taskCreatorResult = await identifyNewTasks(foundTasks, existingTasks, transcript, processingContext);
+    
+    if (!taskCreatorResult.success) {
+      throw new Error("Stage 2 (Task Creator) failed");
+    }
+    
+    const newTasks = taskCreatorResult.newTasks;
+    const skippedTasks = foundTasks.filter(task => 
+      !newTasks.some(newTask => newTask.description === task.description)
+    );
+    
+    logger.info("Stage 2 completed", {
+      newTasksToCreate: newTasks.length,
+      skippedTasks: skippedTasks.length
+    });
+
+    // STAGE 3: TASK UPDATER - Update existing tasks with new information
+    logger.info("🔄 Stage 3: Task Updater - Updating existing tasks");
+    const taskUpdaterResult = await updateExistingTasks(
+      foundTasks, 
+      skippedTasks, 
+      existingTasks, 
+      transcript, 
+      processingContext
+    );
+    
+    if (!taskUpdaterResult.success) {
+      throw new Error("Stage 3 (Task Updater) failed");
+    }
+    
+    logger.info("Stage 3 completed", {
+      taskUpdates: taskUpdaterResult.taskUpdates.length,
+      statusChanges: taskUpdaterResult.statusChanges.length
+    });
+
+    // Convert pipeline results to legacy format for backward compatibility
+    const structuredTasks = convertPipelineResultsToLegacyFormat(
+      newTasks, 
+      taskUpdaterResult.taskUpdates
+    );
+
+    // Calculate pipeline statistics
+    const totalTasks = Object.values(structuredTasks).reduce((total, participant) => 
+      total + (participant.Coding?.length || 0) + (participant["Non-Coding"]?.length || 0), 0
+    );
+
+    const averageDescriptionLength = calculatePipelineAverageDescriptionLength(newTasks);
+    
+    logger.info("3-Stage Pipeline completed successfully", {
+      participantCount: Object.keys(structuredTasks).length,
+      totalTasks,
+      newTasks: newTasks.length,
+      taskUpdates: taskUpdaterResult.taskUpdates.length,
+      statusChanges: taskUpdaterResult.statusChanges.length,
+      averageDescriptionLength,
+      transcriptIndex: processingContext.transcriptIndex || 1,
+      qualityImprovement: averageDescriptionLength > 150 ? "high" : averageDescriptionLength > 100 ? "medium" : "low"
+    });
+
+    return {
+      success: true,
+      tasks: structuredTasks,
+      statusChanges: taskUpdaterResult.statusChanges,
+      pipelineResults: {
+        stage1: taskFinderResult,
+        stage2: taskCreatorResult,
+        stage3: taskUpdaterResult
+      },
+      metadata: {
+        model: "3-stage-pipeline",
+        stage1TokensUsed: taskFinderResult.metadata.tokensUsed,
+        processedAt: new Date().toISOString(),
+        participantCount: Object.keys(structuredTasks).length,
+        totalTasks,
+        newTasks: newTasks.length,
+        taskUpdates: taskUpdaterResult.taskUpdates.length,
+        statusChanges: taskUpdaterResult.statusChanges.length,
+        averageDescriptionLength,
+        enhancementsApplied: true,
+        pipelineVersion: "1.0"
+      }
+    };
+
+  } catch (error) {
+    logger.error("3-Stage Pipeline processing failed", {
+      error: error.message,
+      stack: error.stack,
+      transcriptEntries: transcript.length,
+      processingContext
+    });
+    
+    throw new Error(`3-Stage Pipeline processing failed: ${error.message}`);
+  }
+}
+
+/**
+ * LEGACY: Enhanced process transcript and extract tasks for each participant
  * @param {Array} transcript - Array of transcript entries with speaker, startTime, endTime, text
  * @param {Array} existingTasks - Array of existing tasks for context (optional)
  * @returns {Promise<Object>} Structured task data organized by participant with validation
@@ -178,7 +309,7 @@ function formatTranscriptForGPT(transcript) {
 }
 
 /**
- * Create the prompt for GPT to extract tasks with better context awareness
+ * LEGACY: Create the prompt for GPT to extract tasks with better context awareness
  * @param {string} transcriptText - Formatted transcript text
  * @param {Array} existingTasks - Existing tasks for context
  * @param {Array} statusChanges - Pre-detected status changes
@@ -959,7 +1090,57 @@ async function enhanceTasksWithAssigneeDetection(structuredTasks, availableParti
   return enhancedTasks;
 }
 
+/**
+ * Convert pipeline results to legacy format for backward compatibility
+ * @param {Array} newTasks - New tasks from pipeline
+ * @param {Array} taskUpdates - Task updates from pipeline
+ * @returns {Object} Legacy format structured tasks
+ */
+function convertPipelineResultsToLegacyFormat(newTasks, taskUpdates) {
+  const structuredTasks = {};
+  
+  // Add new tasks
+  for (const task of newTasks) {
+    if (!structuredTasks[task.assignee]) {
+      structuredTasks[task.assignee] = {
+        "Coding": [],
+        "Non-Coding": []
+      };
+    }
+    
+    structuredTasks[task.assignee][task.type].push({
+      description: task.description,
+      status: "To-do",
+      estimatedTime: 0,
+      timeTaken: 0,
+      isFuturePlan: task.isFuturePlan || false,
+      taskType: "NEW TASK",
+      source: "pipeline_stage_1_2"
+    });
+  }
+  
+  return structuredTasks;
+}
+
+/**
+ * Calculate average description length for pipeline results
+ * @param {Array} newTasks - New tasks from pipeline
+ * @returns {number} Average description length
+ */
+function calculatePipelineAverageDescriptionLength(newTasks) {
+  if (newTasks.length === 0) return 0;
+  
+  const totalLength = newTasks.reduce((sum, task) => sum + (task.description?.length || 0), 0);
+  return Math.round(totalLength / newTasks.length);
+}
+
 module.exports = {
+  // NEW: 3-Stage Pipeline Functions
+  processTranscriptForTasksWithPipeline,
+  convertPipelineResultsToLegacyFormat,
+  calculatePipelineAverageDescriptionLength,
+  
+  // LEGACY: Original Functions (maintained for backward compatibility)
   processTranscriptForTasks,
   testOpenAIConnection,
   formatTranscriptForGPT,

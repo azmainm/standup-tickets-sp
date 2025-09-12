@@ -3,16 +3,16 @@
  * 
  * This test file runs the complete flow:
  * 1. Fetch ALL meeting transcripts for a user using All Meetings approach
- * 2. Process each transcript with OpenAI to extract tasks
- * 3. Store in MongoDB and create Jira issues
+ * 2. Process each transcript with 3-Stage Pipeline (Task Finder → Creator → Updater)
+ * 3. Store in MongoDB with enhanced task descriptions
  * 
- * Usage: node tests/testFullFlow.js
+ * Usage: node tests/testRealFlow.js
  */
 
 require("dotenv").config();
 
 const { fetchAllMeetingsForUser, validateAllMeetingsEnvironment } = require("../services/allMeetingsService");
-const { processTranscriptToTasks } = require("../services/taskProcessor");
+const { processTranscriptToTasks, processTranscriptToTasksWithPipeline } = require("../services/taskProcessor");
 const { testOpenAIConnection } = require("../services/openaiService");
 const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/mongoService");
 // const { testJiraConnection, getProjectInfo } = require("../services/jiraService"); // Removed from main flow
@@ -21,7 +21,7 @@ const { isVectorDBAvailable, getVectorDBStats, initializeVectorDB } = require(".
 
 async function testCompleteFlow() {
   console.log("=".repeat(80));
-  console.log("🆕 TESTING COMPLETE TASK PROCESSING FLOW - ALL MEETINGS APPROACH");
+  console.log("🚀 TESTING 3-STAGE PIPELINE FLOW - ALL MEETINGS APPROACH");
   console.log("=".repeat(80));
   
   // Check environment variables for All Meetings approach
@@ -220,8 +220,8 @@ async function testCompleteFlow() {
     }];
   }
   
-  // Step 2: Process ALL transcripts with complete flow (OpenAI + MongoDB + Jira)
-  console.log("\n4. 🆕 Processing ALL transcripts with complete flow...");
+  // Step 2: Process ALL transcripts with 3-Stage Pipeline
+  console.log("\n4. 🚀 Processing ALL transcripts with 3-Stage Pipeline...");
   console.log(`   🔄 Starting processing for ${allTranscriptsResults.length} transcript(s)...`);
   
   try {
@@ -230,18 +230,33 @@ async function testCompleteFlow() {
     let totalSuccessfulProcessing = 0;
     let totalFailedProcessing = 0;
     
+    // Create processing context for multi-transcript processing
+    const processingContext = {
+      isMultiTranscript: allTranscriptsResults.length > 1,
+      totalTranscripts: allTranscriptsResults.length,
+      sessionStartTime: new Date().toISOString()
+    };
+    
     for (let i = 0; i < allTranscriptsResults.length; i++) {
       const transcriptData = allTranscriptsResults[i];
       
-      console.log(`\n   📋 Processing transcript ${i + 1}/${allTranscriptsResults.length}: ${transcriptData.metadata.meetingSubject}`);
+      console.log(`\n   🚀 Pipeline processing transcript ${i + 1}/${allTranscriptsResults.length}: ${transcriptData.metadata.meetingSubject}`);
       console.log(`      - Entries: ${transcriptData.metadata.entryCount}`);
+      console.log(`      - Pipeline Version: 1.0`);
       
       try {
         const startTime = Date.now();
         
-        const taskResult = await processTranscriptToTasks(
+        // Set transcript-specific context
+        const transcriptContext = {
+          ...processingContext,
+          transcriptIndex: i + 1
+        };
+        
+        const taskResult = await processTranscriptToTasksWithPipeline(
           transcriptData.transcript, 
-          transcriptData.metadata
+          transcriptData.metadata,
+          transcriptContext
         );
         
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -261,6 +276,8 @@ async function testCompleteFlow() {
         console.log(`         - Tasks extracted: ${taskResult.summary.extractedTasks}`);
         console.log(`         - New tasks: ${taskResult.summary.newTasksCreated}`);
         console.log(`         - Updated tasks: ${taskResult.summary.existingTasksUpdated}`);
+        console.log(`         - Average description length: ${taskResult.summary.qualityMetrics?.averageDescriptionLength || 'N/A'}`);
+        console.log(`         - Pipeline version: ${taskResult.summary.pipelineUsed || '3-stage-pipeline-v1.0'}`);
         console.log(`         - Jira integration: skipped (removed from main flow)`);
         
       } catch (transcriptError) {
@@ -301,8 +318,8 @@ async function testCompleteFlow() {
         
         // Show OpenAI processing details
         console.log("\n   🤖 Sample OpenAI Processing:");
-        console.log(`      - Model: ${firstSuccessfulResult.processing.metadata.model}`);
-        console.log(`      - Tokens used: ${firstSuccessfulResult.processing.metadata.tokensUsed}`);
+        console.log(`      - Model: ${firstSuccessfulResult.processing.metadata?.model || firstSuccessfulResult.taskResult.pipelineResult.metadata?.model || 'N/A'}`);
+        console.log(`      - Tokens used: ${firstSuccessfulResult.processing.metadata?.tokensUsed || firstSuccessfulResult.taskResult.pipelineResult.metadata?.stage1TokensUsed || 'N/A'}`);
         
         // Show MongoDB task storage details
         console.log("\n   🍃 Sample MongoDB Task Storage:");
@@ -394,7 +411,7 @@ async function testCompleteFlow() {
       
       const totalTokens = allTaskResults
         .filter(r => r.success)
-        .reduce((sum, r) => sum + (r.taskResult.processing.metadata.tokensUsed || 0), 0);
+        .reduce((sum, r) => sum + (r.taskResult.processing?.metadata?.tokensUsed || r.taskResult.pipelineResult?.metadata?.stage1TokensUsed || 0), 0);
       
       console.log(`   - 🆕 Total meetings processed: ${allTranscriptsResults.length}`);
       console.log(`   - ✅ Successfully processed meetings: ${totalSuccessfulProcessing}`);

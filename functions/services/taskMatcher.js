@@ -240,7 +240,7 @@ async function findMatchingTaskWithVector(newTask, existingTasks) {
     };
     
     // Search for similar tasks using vector similarity
-    const similarTasks = await findSimilarTasks(queryText, context, 10, 0.75);
+    const similarTasks = await findSimilarTasks(queryText, context, 10, 0.85);
     
     if (similarTasks.length === 0) {
       return null;
@@ -270,10 +270,10 @@ async function findMatchingTaskWithVector(newTask, existingTasks) {
     // Find the actual task object in existingTasks
     const matchingTask = existingTasks.find(task => 
       task.ticketId === bestCandidate.taskId ||
-      task.ticketId === bestCandidate.metadata.ticketId
+      task.ticketId === bestCandidate.metadata.taskId
     );
     
-    if (matchingTask && bestCandidate.similarity >= 0.75) {
+    if (matchingTask && bestCandidate.similarity >= 0.85) {
       return {
         ...matchingTask,
         vectorSimilarity: bestCandidate.similarity,

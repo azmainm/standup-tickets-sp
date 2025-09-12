@@ -50,7 +50,7 @@ async function sendStandupSummaryToTeams(summaryData, metadata = {}) {
       "summary": "Daily Standup Summary",
       "sections": [
         {
-          "activityTitle": "📋 Daily Standup Summary",
+          "activityTitle": metadata.testRun ? "🧪 THIS IS A TEST RUN - Daily Standup Summary" : "📋 Daily Standup Summary",
           "activitySubtitle": `Standup Date: ${metadata.standupDate || new Date().toLocaleDateString("en-GB")}`,
           "text": formattedMessage,
           "markdown": true
@@ -122,6 +122,11 @@ async function sendStandupSummaryToTeams(summaryData, metadata = {}) {
 function formatStandupSummary(summaryData, metadata = {}) {
   let message = "";
 
+  // Add test run indicator for test flows
+  if (metadata.testRun) {
+    message += "🧪 **THIS IS A TEST RUN** 🧪\n\n";
+  }
+
   const participants = summaryData.participants || {};
   const futurePlans = summaryData.futurePlans || [];
   
@@ -153,7 +158,6 @@ function formatStandupSummary(summaryData, metadata = {}) {
             const title = task.title || task.description;
             message += `${index + 1}. ${ticketId}: ${title} (${taskType})\n`;
           });
-          message += "\n";
         }
         
         // Updated Tasks section
@@ -165,8 +169,8 @@ function formatStandupSummary(summaryData, metadata = {}) {
             const title = task.title || task.description;
             message += `${index + 1}. ${ticketId}: ${title} (${taskType})\n`;
           });
-          message += "\n";
         }
+        message += "\n";
       }
     }
   }
