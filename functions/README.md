@@ -14,12 +14,12 @@ The system now features a **specialized 3-stage processing pipeline** that drama
 ### Stage 2: Task Creator 📝
 - **Purpose**: Systematic identification of genuinely new tasks
 - **Role**: Task Creator (Systematic, Clear, Neutral)
-- **Intelligence**: Vector similarity matching + GPT decision making for borderline cases
+- **Intelligence**: Direct trust of Task Finder classifications - no similarity search for decisions
 
 ### Stage 3: Task Updater 🔄
 - **Purpose**: Enhancement of existing tasks with new information and status changes
 - **Role**: Task Updater (Systematic, Clear, Neutral)
-- **Features**: Update type classification, status change detection, information synthesis
+- **Features**: Explicit ticket ID updates only, status change detection, no similarity search
 
 ## 🆕 All Meetings Support
 
@@ -30,12 +30,12 @@ The system supports **two approaches** for fetching transcripts:
 
 ## Previous Enhancements (Version 4.0)
 
-The system maintains **vector database integration** for ultra-fast task similarity search:
+The system maintains **vector database integration** for future chatbot functionality:
 
-1. **🚀 Vector Similarity Search** - FAISS-based embedding search (10-100x faster) (PRIMARY)
-2. **🤖 GPT-based Analysis** - Deep semantic analysis via OpenAI (FALLBACK)
-3. **🔄 Admin Panel Synchronization** - Smart sync with manual admin panel changes
-4. **⚡ Performance Optimization** - 90%+ reduction in API costs and processing time
+1. **🚀 Vector Database Storage** - FAISS-based embedding storage for new tasks
+2. **🔄 Admin Panel Synchronization** - Smart sync with manual admin panel changes  
+3. **⚡ Performance Ready** - Embeddings stored for future discovery features
+4. **📊 Analytics Ready** - Task similarity data available for future chatbot use
 
 See the [System Flow Documentation](../Docs/SYSTEM_FLOW_DOCUMENTATION.md) for complete technical details and real-world examples.
 
@@ -555,19 +555,16 @@ functions/
 
 For EACH transcript:
 5. **Raw Transcript Storage**: Store complete transcript in MongoDB 'transcripts' collection
-6. **AI Processing**: Send transcript to OpenAI GPT-4o-mini to extract tasks with enhanced prompting for:
-   - Time estimates and actual time spent
-   - Task status updates (To-do, In-progress, Completed)
-   - Task type identification (NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE)
-7. **Task Matching**: Compare extracted tasks with existing database tasks
-   - Retrieve all active tasks (To-do/In-progress) from database
-   - Use similarity matching to identify task updates vs new tasks
-   - Determine which tasks to create vs update
-8. **Task Updates**: Update existing tasks in database with new information
-   - Add progress updates and new information to task descriptions
-   - Update status changes (started, completed, etc.)
-   - Update time tracking (estimated time, time spent)
-9. **New Task Storage**: Store only new tasks in MongoDB 'sptasks' collection with unique SP-XX IDs
+6. **AI Processing**: Send transcript through 3-Stage Pipeline:
+   - **Stage 1**: Task Finder extracts all actionable tasks with detailed context
+   - **Stage 2**: Task Creator identifies genuinely new tasks (trusts Task Finder classifications)
+   - **Stage 3**: Task Updater processes explicit ticket ID references and status changes
+7. **Database Context**: Retrieve active tasks for comparison and updates
+8. **Task Updates**: Apply updates for explicit ticket ID references
+   - Append new information to existing task descriptions with date stamps
+   - Apply status changes detected from transcript patterns
+   - Only update tasks explicitly mentioned by ticket ID
+9. **New Task Storage**: Store new tasks in MongoDB 'sptasks' collection with unique SP-XX IDs
 11. **📢 Teams Notification**: Send summary to Teams channel for THIS transcript (if webhook configured)
     - Generate summary of new and updated tasks from this specific meeting
     - Format with participant breakdown and ticket IDs

@@ -309,7 +309,7 @@ function formatTranscriptForGPT(transcript) {
 }
 
 /**
- * Create the prompt for GPT to extract tasks with better context awareness
+ * LEGACY: Create the prompt for GPT to extract tasks with better context awareness
  * @param {string} transcriptText - Formatted transcript text
  * @param {Array} existingTasks - Existing tasks for context
  * @param {Array} statusChanges - Pre-detected status changes

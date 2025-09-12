@@ -150,348 +150,6 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tran
   }
 }
 
-/**
- * Find and create updates for tasks that were skipped in Stage 2
- * @param {Object} skippedTask - Task that wasn't created
- * @param {Array} existingTasks - Current active tasks
- * @param {Object} context - Processing context
- * @returns {Promise<Array>} Array of task updates
- */
-async function findAndCreateTaskUpdates(skippedTask, existingTasks, context) {
-  try {
-    // Debug: log skipped task fully
-    logger.info("Stage 3: Processing skipped task for potential updates", {
-      skippedTaskFull: skippedTask
-    });
-    console.log("[Updater] Processing skipped task", { skippedTaskFull: skippedTask });
-
-    // Find the most similar existing task
-    const similarTasks = await findSimilarTasksForUpdate(skippedTask, existingTasks);
-    
-    if (similarTasks.length === 0) {
-      return [];
-    }
-
-    // Debug: log first few matches fully
-    try {
-      const sampleFull = (similarTasks || []).slice(0, 3).map((m, idx) => ({
-        index: idx,
-        similarity: m.similarity,
-        metadata: m.metadata
-      }));
-      logger.info("Stage 3: Similar tasks (full sample)", { sampleFull });
-      console.log("[Updater] Similar tasks (full sample)", { sampleFull });
-    } catch (e) {
-      logger.warn("Stage 3: Failed to log similar tasks (full sample)", { error: e.message });
-    }
-
-    const updates = [];
-    
-    // For each similar task, determine what updates should be made
-    for (const similarTask of similarTasks.slice(0, 3)) { // Limit to top 3 matches
-      const updateDecision = await determineTaskUpdateWithGPT(
-        skippedTask, 
-        similarTask, 
-        context
-      );
-      
-      if (updateDecision.shouldUpdate) {
-        updates.push({
-          taskId: similarTask.metadata.taskId,
-          existingTask: similarTask.metadata,
-          updateType: updateDecision.updateType,
-          newInformation: updateDecision.newInformation,
-          confidence: updateDecision.confidence,
-          reasoning: updateDecision.reasoning,
-          source: skippedTask,
-          stage: 3
-        });
-      }
-    }
-    
-    return updates;
-
-  } catch (error) {
-    logger.error("Error finding task updates", {
-      error: error.message,
-      skippedTask: skippedTask.description.substring(0, 50)
-    });
-    return [];
-  }
-}
-
-/**
- * Create update for task with explicit ID reference
- * @param {Object} foundTask - Task with explicit ID reference
- * @param {string} taskId - Referenced task ID
- * @param {Array} existingTasks - Current active tasks
- * @param {Object} context - Processing context
- * @returns {Promise<Object|null>} Task update or null
- */
-async function createExplicitTaskUpdate(foundTask, taskId, existingTasks, context) {
-  try {
-    const existingTask = existingTasks.find(task => 
-      task.ticketId === taskId
-    );
-    
-    if (!existingTask) {
-      logger.warn("Explicit task ID referenced but not found", {
-        taskId,
-        foundTask: foundTask.description.substring(0, 50)
-      });
-      return null;
-    }
-
-    // Determine what kind of update this is
-    const updateDecision = await determineExplicitUpdateWithGPT(
-      foundTask, 
-      existingTask, 
-      context
-    );
-    
-    if (updateDecision.shouldUpdate) {
-      return {
-        taskId: taskId,
-        existingTask: existingTask,
-        updateType: updateDecision.updateType,
-        newInformation: updateDecision.newInformation,
-        confidence: updateDecision.confidence,
-        reasoning: updateDecision.reasoning,
-        source: foundTask,
-        stage: 3,
-        isExplicitReference: true
-      };
-    }
-    
-    return null;
-
-  } catch (error) {
-    logger.error("Error creating explicit task update", {
-      error: error.message,
-      taskId,
-      foundTask: foundTask.description.substring(0, 50)
-    });
-    return null;
-  }
-}
-
-/**
- * Find similar tasks for update consideration using vector database
- * @param {Object} skippedTask - Task that wasn't created
- * @param {Array} existingTasks - Current active tasks
- * @returns {Promise<Array>} Similar tasks
- */
-async function findSimilarTasksForUpdate(skippedTask, existingTasks) {
-  try {
-    const vectorAvailable = await isVectorDBAvailable();
-    
-    if (!vectorAvailable) {
-      return [];
-    }
-
-    // Search for similar tasks
-    const queryText = skippedTask.description;
-    const searchContext = {
-      assignee: skippedTask.assignee,
-      type: skippedTask.type
-    };
-
-    // Debug: input to vector search
-    logger.info("Stage 3: Vector search input (update)", {
-      queryPreview: queryText.substring(0, 300),
-      searchContext
-    });
-    console.log("[Updater] Vector search input", {
-      queryPreview: queryText.substring(0, 300),
-      searchContext
-    });
-
-    const similarTasks = await findSimilarTasks(queryText, searchContext, 5, 0.6);
-    
-    // Filter to tasks from the same assignee (original behavior)
-    const relevantMatches = (similarTasks || []).filter(similar => 
-      similar.metadata.assignee === skippedTask.assignee
-    );
-
-    // Detailed logs for raw and filtered
-    try {
-      logger.info("Stage 3: Vector raw results (count only)", {
-        rawCount: Array.isArray(similarTasks) ? similarTasks.length : 0
-      });
-      console.log("[Updater] Vector raw results (count)", {
-        rawCount: Array.isArray(similarTasks) ? similarTasks.length : 0
-      });
-      const rawSample = (similarTasks || []).slice(0, 5).map((m, idx) => ({
-        index: idx,
-        keys: m ? Object.keys(m) : [],
-        hasMetadata: Boolean(m && m.metadata),
-        metadataKeys: m && m.metadata ? Object.keys(m.metadata) : [],
-        similarity: m && typeof m.similarity === 'number' ? m.similarity : null
-      }));
-      logger.info("Stage 3: Vector raw sample (first 5)", { rawSample });
-      console.log("[Updater] Vector raw sample (first 5)", { rawSample });
-      const filteredSample = (relevantMatches || []).slice(0, 5).map((m, idx) => ({
-        index: idx,
-        similarity: m.similarity,
-        metadata: m.metadata
-      }));
-      logger.info("Stage 3: Vector filtered sample (first 5)", { filteredSample });
-      console.log("[Updater] Vector filtered sample (first 5)", { filteredSample });
-    } catch (e) {
-      logger.warn("Stage 3: Failed to log vector samples", { error: e.message });
-    }
-
-    return relevantMatches;
-
-  } catch (error) {
-    logger.error("Error finding similar tasks for update", {
-      error: error.message,
-      skippedTask: skippedTask.description.substring(0, 50)
-    });
-    return [];
-  }
-}
-
-/**
- * Use GPT to determine what updates should be made to an existing task
- * @param {Object} skippedTask - Task that wasn't created
- * @param {Object} similarTask - Similar existing task
- * @param {Object} context - Processing context
- * @returns {Promise<Object>} Update decision
- */
-async function determineTaskUpdateWithGPT(skippedTask, similarTask, context) {
-  try {
-    // Extremely detailed logs before using fields
-    logger.info("Stage 3: Update decision inputs", {
-      skippedTaskFull: skippedTask,
-      similarTaskFull: similarTask,
-      similarTaskMetadata: similarTask ? similarTask.metadata : undefined
-    });
-    console.log("[Updater] Update decision inputs", {
-      skippedTaskFull: skippedTask,
-      similarTaskFull: similarTask,
-      similarTaskMetadata: similarTask ? similarTask.metadata : undefined
-    });
-
-    const prompt = createTaskUpdateDecisionPrompt(skippedTask, similarTask, context);
-
-    logger.info("Stage 3: GPT update decision prompt", {
-      promptChars: prompt.length,
-      promptPreview: prompt.substring(0, 1000)
-    });
-    console.log("[Updater] GPT prompt", {
-      promptChars: prompt.length,
-      promptPreview: prompt.substring(0, 1000)
-    });
-    
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: createTaskUpdaterSystemPrompt(context)
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.1,
-      max_tokens: 600,
-    });
-
-    const gptResponse = response.choices[0].message.content;
-
-    logger.info("Stage 3: GPT update decision raw response", {
-      responseChars: gptResponse ? gptResponse.length : 0,
-      responsePreview: gptResponse ? gptResponse.substring(0, 1000) : undefined
-    });
-    console.log("[Updater] GPT response", {
-      responseChars: gptResponse ? gptResponse.length : 0,
-      responsePreview: gptResponse ? gptResponse.substring(0, 1000) : undefined
-    });
-
-    const decision = parseUpdateDecision(gptResponse);
-    
-    logger.info("GPT update decision made", {
-      skippedTask: skippedTask.description.substring(0, 50),
-      existingTask: similarTask.metadata.text.substring(0, 50),
-      shouldUpdate: decision.shouldUpdate,
-      updateType: decision.updateType,
-      confidence: decision.confidence
-    });
-
-    return decision;
-
-  } catch (error) {
-    logger.error("Error in GPT update decision", {
-      error: error.message,
-      skippedTask: skippedTask.description.substring(0, 50),
-      similarTaskDump: similarTask
-    });
-    console.log("[Updater] Error in GPT update decision", {
-      error: error.message,
-      skippedTask: skippedTask.description.substring(0, 50),
-      similarTaskDump: similarTask
-    });
-    
-    return {
-      shouldUpdate: false,
-      updateType: "none",
-      newInformation: "",
-      confidence: 0.0,
-      reasoning: "GPT decision failed"
-    };
-  }
-}
-
-/**
- * Use GPT to determine updates for explicit task references
- * @param {Object} foundTask - Task with explicit reference
- * @param {Object} existingTask - Referenced existing task
- * @param {Object} context - Processing context
- * @returns {Promise<Object>} Update decision
- */
-async function determineExplicitUpdateWithGPT(foundTask, existingTask, context) {
-  try {
-    const prompt = createExplicitUpdateDecisionPrompt(foundTask, existingTask, context);
-    
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: createTaskUpdaterSystemPrompt(context)
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.1,
-      max_tokens: 600,
-    });
-
-    const gptResponse = response.choices[0].message.content;
-    const decision = parseUpdateDecision(gptResponse);
-    
-    return decision;
-
-  } catch (error) {
-    logger.error("Error in explicit GPT update decision", {
-      error: error.message,
-      foundTask: foundTask.description.substring(0, 50)
-    });
-    
-    return {
-      shouldUpdate: false,
-      updateType: "none",
-      newInformation: "",
-      confidence: 0.0,
-      reasoning: "GPT decision failed"
-    };
-  }
-}
 
 /**
  * Create system prompt for Task Updater role
@@ -695,25 +353,6 @@ function checkForExplicitTaskId(description) {
 }
 
 /**
- * Test Task Updater service
- * @returns {Promise<boolean>} True if service is working
- */
-async function testTaskUpdaterService() {
-  try {
-    const foundTasks = [];
-    const skippedTasks = [];
-    const existingTasks = [];
-    const transcript = [];
-    
-    const result = await updateExistingTasks(foundTasks, skippedTasks, existingTasks, transcript);
-    return result.success;
-  } catch (error) {
-    logger.error("Task Updater service test failed", { error: error.message });
-    return false;
-  }
-}
-
-/**
  * Generate detailed update description using task context
  * @param {Object} updateTask - Update task from Task Finder
  * @returns {string} Detailed update description
@@ -742,6 +381,377 @@ function generateDetailedUpdateDescription(updateTask) {
     return updateTask.description;
   }
 }
+
+/**
+ * LEGACY: Find and create updates for tasks that were skipped in Stage 2
+ * NOTE: This function is no longer used in the current pipeline after removing similarity search
+ * @param {Object} skippedTask - Task that wasn't created
+ * @param {Array} existingTasks - Current active tasks
+ * @param {Object} context - Processing context
+ * @returns {Promise<Array>} Array of task updates
+ */
+async function findAndCreateTaskUpdates(skippedTask, existingTasks, context) {
+  try {
+    // Debug: log skipped task fully
+    logger.info("Stage 3: Processing skipped task for potential updates", {
+      skippedTaskFull: skippedTask
+    });
+    console.log("[Updater] Processing skipped task", { skippedTaskFull: skippedTask });
+
+    // Find the most similar existing task
+    const similarTasks = await findSimilarTasksForUpdate(skippedTask, existingTasks);
+    
+    if (similarTasks.length === 0) {
+      return [];
+    }
+
+    // Debug: log first few matches fully
+    try {
+      const sampleFull = (similarTasks || []).slice(0, 3).map((m, idx) => ({
+        index: idx,
+        similarity: m.similarity,
+        metadata: m.metadata
+      }));
+      logger.info("Stage 3: Similar tasks (full sample)", { sampleFull });
+      console.log("[Updater] Similar tasks (full sample)", { sampleFull });
+    } catch (e) {
+      logger.warn("Stage 3: Failed to log similar tasks (full sample)", { error: e.message });
+    }
+
+    const updates = [];
+    
+    // For each similar task, determine what updates should be made
+    for (const similarTask of similarTasks.slice(0, 3)) { // Limit to top 3 matches
+      const updateDecision = await determineTaskUpdateWithGPT(
+        skippedTask, 
+        similarTask, 
+        context
+      );
+      
+      if (updateDecision.shouldUpdate) {
+        updates.push({
+          taskId: similarTask.metadata.taskId,
+          existingTask: similarTask.metadata,
+          updateType: updateDecision.updateType,
+          newInformation: updateDecision.newInformation,
+          confidence: updateDecision.confidence,
+          reasoning: updateDecision.reasoning,
+          source: skippedTask,
+          stage: 3
+        });
+      }
+    }
+    
+    return updates;
+
+  } catch (error) {
+    logger.error("Error finding task updates", {
+      error: error.message,
+      skippedTask: skippedTask.description.substring(0, 50)
+    });
+    return [];
+  }
+}
+
+/**
+ * LEGACY: Create update for task with explicit ID reference
+ * NOTE: This function is no longer used after removing separate GPT enhancement calls
+ * @param {Object} foundTask - Task with explicit ID reference
+ * @param {string} taskId - Referenced task ID
+ * @param {Array} existingTasks - Current active tasks
+ * @param {Object} context - Processing context
+ * @returns {Promise<Object|null>} Task update or null
+ */
+async function createExplicitTaskUpdate(foundTask, taskId, existingTasks, context) {
+  try {
+    const existingTask = existingTasks.find(task => 
+      task.ticketId === taskId
+    );
+    
+    if (!existingTask) {
+      logger.warn("Explicit task ID referenced but not found", {
+        taskId,
+        foundTask: foundTask.description.substring(0, 50)
+      });
+      return null;
+    }
+
+    // Determine what kind of update this is
+    const updateDecision = await determineExplicitUpdateWithGPT(
+      foundTask, 
+      existingTask, 
+      context
+    );
+    
+    if (updateDecision.shouldUpdate) {
+      return {
+        taskId: taskId,
+        existingTask: existingTask,
+        updateType: updateDecision.updateType,
+        newInformation: updateDecision.newInformation,
+        confidence: updateDecision.confidence,
+        reasoning: updateDecision.reasoning,
+        source: foundTask,
+        stage: 3,
+        isExplicitReference: true
+      };
+    }
+    
+    return null;
+
+  } catch (error) {
+    logger.error("Error creating explicit task update", {
+      error: error.message,
+      taskId,
+      foundTask: foundTask.description.substring(0, 50)
+    });
+    return null;
+  }
+}
+
+/**
+ * LEGACY: Find similar tasks for update consideration using vector database
+ * NOTE: This function is no longer used after removing similarity search from pipeline
+ * @param {Object} skippedTask - Task that wasn't created
+ * @param {Array} existingTasks - Current active tasks
+ * @returns {Promise<Array>} Similar tasks
+ */
+async function findSimilarTasksForUpdate(skippedTask, existingTasks) {
+  try {
+    const vectorAvailable = await isVectorDBAvailable();
+    
+    if (!vectorAvailable) {
+      return [];
+    }
+
+    // Search for similar tasks
+    const queryText = skippedTask.description;
+    const searchContext = {
+      assignee: skippedTask.assignee,
+      type: skippedTask.type
+    };
+
+    // Debug: input to vector search
+    logger.info("Stage 3: Vector search input (update)", {
+      queryPreview: queryText.substring(0, 300),
+      searchContext
+    });
+    console.log("[Updater] Vector search input", {
+      queryPreview: queryText.substring(0, 300),
+      searchContext
+    });
+
+    const similarTasks = await findSimilarTasks(queryText, searchContext, 5, 0.6);
+    
+    // Filter to tasks from the same assignee (original behavior)
+    const relevantMatches = (similarTasks || []).filter(similar => 
+      similar.metadata.assignee === skippedTask.assignee
+    );
+
+    // Detailed logs for raw and filtered
+    try {
+      logger.info("Stage 3: Vector raw results (count only)", {
+        rawCount: Array.isArray(similarTasks) ? similarTasks.length : 0
+      });
+      console.log("[Updater] Vector raw results (count)", {
+        rawCount: Array.isArray(similarTasks) ? similarTasks.length : 0
+      });
+      const rawSample = (similarTasks || []).slice(0, 5).map((m, idx) => ({
+        index: idx,
+        keys: m ? Object.keys(m) : [],
+        hasMetadata: Boolean(m && m.metadata),
+        metadataKeys: m && m.metadata ? Object.keys(m.metadata) : [],
+        similarity: m && typeof m.similarity === 'number' ? m.similarity : null
+      }));
+      logger.info("Stage 3: Vector raw sample (first 5)", { rawSample });
+      console.log("[Updater] Vector raw sample (first 5)", { rawSample });
+      const filteredSample = (relevantMatches || []).slice(0, 5).map((m, idx) => ({
+        index: idx,
+        similarity: m.similarity,
+        metadata: m.metadata
+      }));
+      logger.info("Stage 3: Vector filtered sample (first 5)", { filteredSample });
+      console.log("[Updater] Vector filtered sample (first 5)", { filteredSample });
+    } catch (e) {
+      logger.warn("Stage 3: Failed to log vector samples", { error: e.message });
+    }
+
+    return relevantMatches;
+
+  } catch (error) {
+    logger.error("Error finding similar tasks for update", {
+      error: error.message,
+      skippedTask: skippedTask.description.substring(0, 50)
+    });
+    return [];
+  }
+}
+
+/**
+ * LEGACY: Use GPT to determine what updates should be made to an existing task
+ * NOTE: This function is no longer used after removing similarity search from pipeline
+ * @param {Object} skippedTask - Task that wasn't created
+ * @param {Object} similarTask - Similar existing task
+ * @param {Object} context - Processing context
+ * @returns {Promise<Object>} Update decision
+ */
+async function determineTaskUpdateWithGPT(skippedTask, similarTask, context) {
+  try {
+    // Extremely detailed logs before using fields
+    logger.info("Stage 3: Update decision inputs", {
+      skippedTaskFull: skippedTask,
+      similarTaskFull: similarTask,
+      similarTaskMetadata: similarTask ? similarTask.metadata : undefined
+    });
+    console.log("[Updater] Update decision inputs", {
+      skippedTaskFull: skippedTask,
+      similarTaskFull: similarTask,
+      similarTaskMetadata: similarTask ? similarTask.metadata : undefined
+    });
+
+    const prompt = createTaskUpdateDecisionPrompt(skippedTask, similarTask, context);
+
+    logger.info("Stage 3: GPT update decision prompt", {
+      promptChars: prompt.length,
+      promptPreview: prompt.substring(0, 1000)
+    });
+    console.log("[Updater] GPT prompt", {
+      promptChars: prompt.length,
+      promptPreview: prompt.substring(0, 1000)
+    });
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: createTaskUpdaterSystemPrompt(context)
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 600,
+    });
+
+    const gptResponse = response.choices[0].message.content;
+
+    logger.info("Stage 3: GPT update decision raw response", {
+      responseChars: gptResponse ? gptResponse.length : 0,
+      responsePreview: gptResponse ? gptResponse.substring(0, 1000) : undefined
+    });
+    console.log("[Updater] GPT response", {
+      responseChars: gptResponse ? gptResponse.length : 0,
+      responsePreview: gptResponse ? gptResponse.substring(0, 1000) : undefined
+    });
+
+    const decision = parseUpdateDecision(gptResponse);
+    
+    logger.info("GPT update decision made", {
+      skippedTask: skippedTask.description.substring(0, 50),
+      existingTask: similarTask.metadata.text.substring(0, 50),
+      shouldUpdate: decision.shouldUpdate,
+      updateType: decision.updateType,
+      confidence: decision.confidence
+    });
+
+    return decision;
+
+  } catch (error) {
+    logger.error("Error in GPT update decision", {
+      error: error.message,
+      skippedTask: skippedTask.description.substring(0, 50),
+      similarTaskDump: similarTask
+    });
+    console.log("[Updater] Error in GPT update decision", {
+      error: error.message,
+      skippedTask: skippedTask.description.substring(0, 50),
+      similarTaskDump: similarTask
+    });
+    
+    return {
+      shouldUpdate: false,
+      updateType: "none",
+      newInformation: "",
+      confidence: 0.0,
+      reasoning: "GPT decision failed"
+    };
+  }
+}
+
+/**
+ * LEGACY: Use GPT to determine updates for explicit task references
+ * NOTE: This function is no longer used after removing separate GPT enhancement calls
+ * @param {Object} foundTask - Task with explicit reference
+ * @param {Object} existingTask - Referenced existing task
+ * @param {Object} context - Processing context
+ * @returns {Promise<Object>} Update decision
+ */
+async function determineExplicitUpdateWithGPT(foundTask, existingTask, context) {
+  try {
+    const prompt = createExplicitUpdateDecisionPrompt(foundTask, existingTask, context);
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: createTaskUpdaterSystemPrompt(context)
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 600,
+    });
+
+    const gptResponse = response.choices[0].message.content;
+    const decision = parseUpdateDecision(gptResponse);
+    
+    return decision;
+
+  } catch (error) {
+    logger.error("Error in explicit GPT update decision", {
+      error: error.message,
+      foundTask: foundTask.description.substring(0, 50)
+    });
+    
+    return {
+      shouldUpdate: false,
+      updateType: "none",
+      newInformation: "",
+      confidence: 0.0,
+      reasoning: "GPT decision failed"
+    };
+  }
+}
+
+
+/**
+ * LEGACY: Test Task Updater service
+ * NOTE: This function is no longer used - tests should be run using dedicated test files
+ * @returns {Promise<boolean>} True if service is working
+ */
+async function testTaskUpdaterService() {
+  try {
+    const foundTasks = [];
+    const skippedTasks = [];
+    const existingTasks = [];
+    const transcript = [];
+    
+    const result = await updateExistingTasks(foundTasks, skippedTasks, existingTasks, transcript);
+    return result.success;
+  } catch (error) {
+    logger.error("Task Updater service test failed", { error: error.message });
+    return false;
+  }
+}
+
+
 
 module.exports = {
   updateExistingTasks,

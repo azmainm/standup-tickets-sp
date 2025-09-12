@@ -20,22 +20,22 @@ The system now features a **specialized 3-stage processing pipeline** that deliv
 - **Accuracy**: Separate specialized prompts for each function
 - **Reliability**: Isolated responsibilities prevent competing objectives
 - **Context**: Full conversation context preserved in task descriptions
-- **Intelligence**: Vector-based similarity matching for precise task identification
+- **Intelligence**: Direct classification trust - no similarity search for decisions
 
 ### Previous Enhancements (Version 4.0)
 
-The system maintains **vector database integration** for ultra-fast task similarity search:
+The system maintains **vector database integration** for future chatbot functionality:
 
-1. **🚀 Vector Similarity Search** - FAISS-based embedding search (<1ms, 90% cost reduction) (PRIMARY)
-2. **🤖 GPT-based Analysis** - Deep semantic analysis via OpenAI (FALLBACK)
-3. **🔄 Admin Panel Synchronization** - Smart sync with manual admin panel changes
-4. **⚡ Performance Optimization** - Ultra-fast processing with intelligent fallbacks
+1. **🚀 Vector Database Storage** - FAISS-based embedding storage for new tasks
+2. **🔄 Admin Panel Synchronization** - Smart sync with manual admin panel changes
+3. **📊 Future Discovery Features** - Task similarity data available for chatbot queries
+4. **⚡ Performance Ready** - Embeddings pre-generated for instant future use
 
-**Performance Benefits:**
-- **Speed**: Task matching in 1-3 seconds (was 15-30 seconds)
-- **Cost**: 90% reduction in OpenAI API usage for matching
-- **Reliability**: 100% uptime with graceful fallbacks
-- **Accuracy**: 73-75% similarity matching precision
+**Current Benefits:**
+- **Data Preservation**: All task embeddings stored for future use
+- **Admin Sync**: Manual changes synchronized with vector database
+- **Future Ready**: Infrastructure in place for discovery features
+- **Zero Impact**: Vector operations don't affect pipeline decisions
 
 ## System Architecture
 
@@ -157,9 +157,9 @@ Each transcript undergoes a specialized 3-stage processing pipeline that replace
 - **Domain**: Scrum
 
 **Process**:
-1. **Vector Similarity Search**: Compare found tasks against existing tasks using embeddings
-2. **Explicit ID Detection**: Check for task ID references (SP-XX format)
-3. **GPT Decision Making**: For borderline cases, use specialized prompts for creation decisions
+1. **Direct Classification Trust**: Trust Task Finder's NEW_TASK classifications
+2. **Explicit ID Detection**: Check for task ID references (SP-XX format)  
+3. **Description Enhancement**: Generate detailed descriptions using context and evidence
 4. **Context Isolation**: Multi-transcript processing with baseline snapshots
 
 **Output**: Filtered list of genuinely new tasks to create
@@ -174,10 +174,10 @@ Each transcript undergoes a specialized 3-stage processing pipeline that replace
 - **Domain**: Scrum
 
 **Process**:
-1. **Update Identification**: Analyze skipped tasks and explicit references for update opportunities
-2. **Update Type Classification**: Description enhancement, scope clarification, progress updates, etc.
-3. **Status Change Detection**: Identify task status transitions (To-do → In-Progress → Done)
-4. **Information Synthesis**: Merge new information with existing task descriptions
+1. **Explicit Reference Processing**: Process only tasks with explicit ticket IDs from Task Finder
+2. **Status Change Detection**: Identify task status transitions using regex patterns
+3. **Description Enhancement**: Combine description, context, and evidence without additional GPT calls
+4. **Direct Updates**: Apply updates immediately without similarity search decisions
 
 **Output**: Task updates and status changes to apply
 
@@ -188,9 +188,9 @@ Each transcript undergoes a specialized 3-stage processing pipeline that replace
 │   Task Finder   │───▶│  Task Creator   │───▶│  Task Updater   │
 │                 │    │                 │    │                 │
 │ Extract all     │    │ Identify new    │    │ Update existing │
-│ actionable      │    │ tasks using     │    │ tasks with new  │
-│ tasks with      │    │ vector          │    │ information     │
-│ maximum detail  │    │ similarity      │    │ and status      │
+│ actionable      │    │ tasks by        │    │ tasks with      │
+│ tasks with      │    │ trusting Task   │    │ explicit ticket │
+│ maximum detail  │    │ Finder labels   │    │ ID references   │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
         │                       │                       │
         ▼                       ▼                       ▼
