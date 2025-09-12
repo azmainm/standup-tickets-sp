@@ -521,7 +521,9 @@ async function generateDetailedTaskDescription(foundTask, transcript) {
     const transcriptText = transcript.map(entry => entry.text.replace(/<[^>]*>/g, "")).join("\n");
     
     // Use the evidence and context to generate a comprehensive description
-    const description = `${foundTask.description}. Based on the discussion, ${foundTask.context} ${foundTask.evidence ? `Evidence from transcript: "${foundTask.evidence}"` : ''}`.trim();
+    // Remove [IS_FUTURE_PLAN: true] markers from context
+    const cleanContext = foundTask.context.replace(/\[IS_FUTURE_PLAN:\s*true\]/gi, '').trim();
+    const description = `${foundTask.description}. Based on the discussion, ${cleanContext} ${foundTask.evidence ? `Evidence from transcript: "${foundTask.evidence}"` : ''}`.trim();
     
     logger.info("Task description generated", {
       originalLength: foundTask.description.length,
