@@ -13,11 +13,6 @@
 
 const OpenAI = require("openai");
 const { logger } = require("firebase-functions");
-const {
-  findSimilarTasks,
-  isVectorDBAvailable,
-  addTaskEmbedding
-} = require("./vectorService");
 
 // Load environment variables
 require("dotenv").config();

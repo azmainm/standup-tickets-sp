@@ -19,7 +19,7 @@ The system now features a **specialized 3-stage processing pipeline** that drama
 ### Stage 3: Task Updater 🔄
 - **Purpose**: Enhancement of existing tasks with new information and status changes
 - **Role**: Task Updater (Systematic, Clear, Neutral)
-- **Features**: Explicit ticket ID updates only, status change detection, no similarity search
+- **Features**: Explicit ticket ID updates only (e.g., "SP-123"), status change detection
 
 ## 🆕 All Meetings Support
 
@@ -28,14 +28,15 @@ The system supports **two approaches** for fetching transcripts:
 1. **🆕 All Meetings Approach** - Fetches ALL meetings for a user on a specific date (NEW)
 2. **🔄 Legacy Approach** - Fetches transcript from specific meeting URLs (existing, maintained for backward compatibility)
 
-## Previous Enhancements (Version 4.0)
+## Latest Enhancement (Version 7.0) - Simplified Task Processing
 
-The system maintains **vector database integration** for future chatbot functionality:
+The system now uses **simplified task processing** without complex similarity search:
 
-1. **🚀 Vector Database Storage** - FAISS-based embedding storage for new tasks
-2. **🔄 Admin Panel Synchronization** - Smart sync with manual admin panel changes  
-3. **⚡ Performance Ready** - Embeddings stored for future discovery features
-4. **📊 Analytics Ready** - Task similarity data available for future chatbot use
+1. **🎯 Simple & Fast** - Explicit ticket ID matching only (e.g., "SP-123")
+2. **⚡ MongoDB Embeddings** - Stored for future features (not used for matching)
+3. **🔍 3-Stage Pipeline** - Task Finder → Task Creator → Task Updater
+4. **📊 Reliable Processing** - No complex similarity algorithms, just straightforward task handling
+5. **🔄 Admin Panel Integration** - Automatic embedding generation for future use
 
 See the [System Flow Documentation](../Docs/SYSTEM_FLOW_DOCUMENTATION.md) for complete technical details and real-world examples.
 
@@ -186,35 +187,38 @@ Please check Admin Panel to see the new and updated tasks.
 cd functions
 npm install
 
-# ✨ OPTIONAL: Install FAISS for vector database (ultra-fast similarity search)
-npm install faiss-node
-# Note: System works without FAISS but falls back to slower GPT-based similarity
+# ✨ MongoDB Embeddings are now built-in (no additional dependencies needed)
+# FAISS is still installed for backward compatibility but not actively used
 ```
 
-### 4.5. ✨ NEW: Migrate Existing Tasks to Vector Database
+### 4.5. 🚀 NEW: MongoDB Embeddings Setup (Version 7.0)
 
-**IMPORTANT**: If you have existing tasks in your database, you need to run this one-time migration to populate the vector database:
+**Optional**: Generate MongoDB embeddings for future features (not used for task matching):
 
 ```bash
 cd functions
 
 # Preview what will be migrated
-npm run migrate:preview
+npm run migrate:preview-mongo
 
-# Run the actual migration (generates embeddings for all existing tasks)
-npm run migrate:vector-db
+# Run the migration (generates MongoDB embeddings for all existing tasks)
+npm run migrate:to-mongo
+
+# Optional: Clean up old FAISS files (no longer needed)
+npm run cleanup:old-vector-db
 ```
 
 **What this does:**
-- Fetches all existing tasks from MongoDB
-- Generates vector embeddings using OpenAI
-- Stores embeddings in FAISS vector database
-- Enables ultra-fast similarity search for existing tasks
+- Generates MongoDB embeddings for all tasks (stored for future features)
+- Updates embeddings when tasks change via admin panel
+- Removes old FAISS vector database files
+- Enables embedding generation for new tasks
 
-**When to run:**
-- ✅ **First time setup**: After installing the enhanced system
-- ✅ **Major data import**: After importing tasks from another system  
-- ❌ **Regular use**: Not needed for day-to-day operations (new tasks auto-generate embeddings)
+**Benefits:**
+- ✅ **Simple processing**: No complex similarity search
+- ✅ **Fast performance**: Explicit ID matching only
+- ✅ **Future-ready**: Embeddings available for future features
+- ✅ **Admin panel integration**: Automatic embedding generation
 
 ### 4. Test the Setup
 

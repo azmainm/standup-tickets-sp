@@ -7,35 +7,35 @@ The Standup Tickets SP system has been completely re-architected with a **3-Stag
 1. **🆕 All Meetings Approach** - Fetches all meetings for a user on a specific date (PRIMARY)
 2. **🔄 Legacy Approach** - Fetches transcript from specific meeting URLs (FALLBACK/BACKWARD COMPATIBLE)
 
-### ✨ NEW: 3-Stage Pipeline Architecture (Version 5.0)
+### ✨ NEW: 3-Stage Pipeline Architecture (Version 7.0)
 
-The system now features a **specialized 3-stage processing pipeline** that delivers **significantly enhanced task descriptions and accuracy**:
+The system now features a **simplified 3-stage processing pipeline** that delivers reliable task processing:
 
 1. **🔍 Stage 1: Task Finder** - Pure extraction of actionable tasks with maximum detail and context
-2. **📝 Stage 2: Task Creator** - Systematic identification of genuinely new tasks using vector similarity
-3. **🔄 Stage 3: Task Updater** - Enhancement of existing tasks with new information and context
+2. **📝 Stage 2: Task Creator** - Systematic identification of genuinely new tasks (no similarity search)
+3. **🔄 Stage 3: Task Updater** - Enhancement of existing tasks via explicit ticket ID references only
 
 **Key Benefits:**
 - **Quality**: 3-5x longer task descriptions with full context
 - **Accuracy**: Separate specialized prompts for each function
 - **Reliability**: Isolated responsibilities prevent competing objectives
-- **Context**: Full conversation context preserved in task descriptions
-- **Intelligence**: Direct classification trust - no similarity search for decisions
+- **Simplicity**: No complex similarity search algorithms
+- **Speed**: Fast explicit ID matching only (e.g., "SP-123")
 
-### Previous Enhancements (Version 4.0)
+### MongoDB Embeddings (Version 7.0)
 
-The system maintains **vector database integration** for future chatbot functionality:
+The system maintains **MongoDB embeddings** for future functionality:
 
-1. **🚀 Vector Database Storage** - FAISS-based embedding storage for new tasks
-2. **🔄 Admin Panel Synchronization** - Smart sync with manual admin panel changes
-3. **📊 Future Discovery Features** - Task similarity data available for chatbot queries
-4. **⚡ Performance Ready** - Embeddings pre-generated for instant future use
+1. **🚀 MongoDB Storage** - Embeddings stored directly in task documents
+2. **🔄 Admin Panel Integration** - Automatic embedding generation for manual task changes
+3. **📊 Future Ready** - Embeddings available for future features
+4. **⚡ Real-time Updates** - Embeddings updated when tasks change
 
 **Current Benefits:**
-- **Data Preservation**: All task embeddings stored for future use
-- **Admin Sync**: Manual changes synchronized with vector database
-- **Future Ready**: Infrastructure in place for discovery features
-- **Zero Impact**: Vector operations don't affect pipeline decisions
+- **Simple Processing**: No complex similarity algorithms in the pipeline
+- **Future Ready**: Infrastructure in place for future features
+- **Zero Impact**: Embedding operations don't affect task processing decisions
+- **Fast Performance**: Explicit ID matching only
 
 ## System Architecture
 

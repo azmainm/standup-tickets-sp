@@ -53,21 +53,30 @@ async function initializeMongoDB() {
 }
 
 /**
- * Add newly created tasks to vector database for similarity search
+ * Get the MongoDB database instance
+ * @returns {Object} MongoDB database instance
+ */
+function getDatabase() {
+  if (!db) {
+    throw new Error("MongoDB not initialized. Call initializeMongoDB() first.");
+  }
+  return db;
+}
+
+/**
+ * Add newly created tasks to MongoDB embeddings for similarity search
  * @param {Object} processedTasksData - Tasks with ticket IDs
  * @param {Array} assignedTicketIds - Array of assigned ticket IDs
  */
-async function addNewTasksToVectorDB(processedTasksData, assignedTicketIds) {
+async function addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketIds) {
   try {
-    const { addTaskEmbedding, isVectorDBAvailable } = require("./vectorService");
-    
-    if (!await isVectorDBAvailable()) {
-      logger.warn("Vector database not available, skipping new task embeddings");
-      return;
-    }
+    const { addOrUpdateTaskEmbedding } = require("./mongoEmbeddingService");
 
     let ticketIndex = 0;
     let addedCount = 0;
+    let skippedCount = 0;
+
+    console.log("[DEBUG] Starting MongoDB embedding generation for new tasks");
 
     for (const [participantName, participantTasks] of Object.entries(processedTasksData)) {
       for (const taskType of ["Coding", "Non-Coding"]) {
@@ -81,46 +90,73 @@ async function addNewTasksToVectorDB(processedTasksData, assignedTicketIds) {
               const text = `${task.title || ''} ${task.description || ''}`.trim();
               
               if (!text || text.length < 3) {
-                console.log(`[DEBUG] Skipping vector embedding for ${ticketId}: No meaningful text`);
+                console.log(`[DEBUG] Skipping embedding for ${ticketId}: No meaningful text`);
+                skippedCount++;
                 continue;
               }
 
-              // Create metadata
-              const metadata = {
+              // Create task data for embedding
+              const taskData = {
+                title: task.title,
+                description: task.description,
                 assignee: participantName,
+                participantName: participantName,
                 type: taskType,
                 status: task.status || "To-do",
-                title: task.title,
-                lastModified: new Date().toISOString(),
                 isFuturePlan: task.isFuturePlan || false
               };
 
-              // Add embedding
-              const success = await addTaskEmbedding(ticketId, text, metadata);
+              // Add embedding to MongoDB
+              const success = await addOrUpdateTaskEmbedding(ticketId, taskData);
               
               if (success) {
                 addedCount++;
-                console.log(`[DEBUG] Added embedding for new task ${ticketId}`);
+                console.log(`[DEBUG] Generated MongoDB embedding for new task ${ticketId}`);
               } else {
-                logger.warn(`Failed to add embedding for new task ${ticketId}`);
+                logger.warn(`Failed to generate MongoDB embedding for new task ${ticketId}`);
               }
 
             } catch (error) {
-              logger.error(`Error adding embedding for task:`, error.message);
+              logger.error(`Error generating MongoDB embedding for task:`, error.message);
             }
           }
         }
       }
     }
 
-    logger.info("New task embeddings added to vector database", {
+    logger.info("New task embeddings added to MongoDB", {
       totalProcessed: ticketIndex,
-      embeddingsAdded: addedCount
+      embeddingsAdded: addedCount,
+      skippedTasks: skippedCount
     });
 
+    return {
+      totalProcessed: ticketIndex,
+      embeddingsAdded: addedCount,
+      skippedTasks: skippedCount
+    };
+
   } catch (error) {
-    logger.error("Error adding new tasks to vector database:", error.message);
+    logger.error("Error adding new tasks to MongoDB embeddings:", error.message);
+    // Don't throw error - embedding failure shouldn't break task storage
+    return {
+      totalProcessed: 0,
+      embeddingsAdded: 0,
+      skippedTasks: 0,
+      error: error.message
+    };
   }
+}
+
+/**
+ * DEPRECATED: Add newly created tasks to vector database for similarity search
+ * This function is kept for backward compatibility but will be phased out
+ * @param {Object} processedTasksData - Tasks with ticket IDs
+ * @param {Array} assignedTicketIds - Array of assigned ticket IDs
+ */
+async function addNewTasksToVectorDB(processedTasksData, assignedTicketIds) {
+  logger.warn("addNewTasksToVectorDB is deprecated. Using MongoDB embeddings instead.");
+  return await addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketIds);
 }
 
 /**
@@ -244,8 +280,8 @@ async function storeTasks(tasksData, metadata = {}) {
       timestamp: document.timestamp,
     });
     
-    // Add new tasks to vector database
-    await addNewTasksToVectorDB(processedTasksData, assignedTicketIds);
+    // Add new tasks to MongoDB embeddings (replacing old vector DB approach)
+    await addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketIds);
     
     return {
       success: true,
@@ -612,6 +648,32 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 { $set: updateObj }
               );
               
+              // Update embedding if content changed
+              if (result.modifiedCount > 0 && (updateData.description || updateData.title || updateData.status)) {
+                try {
+                  const { addOrUpdateTaskEmbedding } = require("./mongoEmbeddingService");
+                  
+                  // Get updated task data for embedding
+                  const updatedTaskData = {
+                    title: updateData.title || task.title,
+                    description: updateData.description || task.description,
+                    assignee: participantName,
+                    participantName: participantName,
+                    type: 'Coding',
+                    status: updateData.status || task.status
+                  };
+                  
+                  await addOrUpdateTaskEmbedding(ticketId, updatedTaskData);
+                  console.log(`[DEBUG] Updated embedding for task ${ticketId} after update`);
+                } catch (embeddingError) {
+                  logger.warn("Failed to update embedding after task update", {
+                    ticketId,
+                    error: embeddingError.message
+                  });
+                  // Don't fail the update if embedding fails
+                }
+              }
+              
               logger.info("Task updated by ticketId", {
                 ticketId,
                 documentId: doc._id,
@@ -658,6 +720,32 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 { _id: doc._id },
                 { $set: updateObj }
               );
+              
+              // Update embedding if content changed
+              if (result.modifiedCount > 0 && (updateData.description || updateData.title || updateData.status)) {
+                try {
+                  const { addOrUpdateTaskEmbedding } = require("./mongoEmbeddingService");
+                  
+                  // Get updated task data for embedding
+                  const updatedTaskData = {
+                    title: updateData.title || task.title,
+                    description: updateData.description || task.description,
+                    assignee: participantName,
+                    participantName: participantName,
+                    type: 'Non-Coding',
+                    status: updateData.status || task.status
+                  };
+                  
+                  await addOrUpdateTaskEmbedding(ticketId, updatedTaskData);
+                  console.log(`[DEBUG] Updated embedding for task ${ticketId} after update`);
+                } catch (embeddingError) {
+                  logger.warn("Failed to update embedding after task update", {
+                    ticketId,
+                    error: embeddingError.message
+                  });
+                  // Don't fail the update if embedding fails
+                }
+              }
               
               logger.info("Task updated by ticketId", {
                 ticketId,
@@ -984,6 +1072,7 @@ async function closeMongoDB() {
 
 module.exports = {
   initializeMongoDB,
+  getDatabase,
   storeTasks,
   storeTranscript,
   getTasks,
