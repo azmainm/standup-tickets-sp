@@ -17,7 +17,7 @@ const { testOpenAIConnection } = require("../services/openaiService");
 const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/mongoService");
 // const { testJiraConnection, getProjectInfo } = require("../services/jiraService"); // Removed from main flow
 const { getBangladeshTimeComponents } = require("../services/meetingUrlService");
-const { isVectorDBAvailable, getVectorDBStats, initializeVectorDB } = require("../services/vectorService");
+// Vector service removed - system now uses MongoDB embeddings only
 
 async function testCompleteFlow() {
   console.log("=".repeat(80));

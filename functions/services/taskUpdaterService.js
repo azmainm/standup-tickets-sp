@@ -13,10 +13,6 @@
 
 const OpenAI = require("openai");
 const { logger } = require("firebase-functions");
-const {
-  findSimilarTasks,
-  isVectorDBAvailable
-} = require("./vectorService");
 const { detectStatusChangesFromTranscript } = require("./statusChangeDetectionService");
 
 // Load environment variables
