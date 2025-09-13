@@ -10,7 +10,12 @@
     "logs": "firebase functions:log",
     "migrate:preview": "node scripts/migrateExistingTasksToVectorDB.js preview",
     "migrate:vector-db": "node scripts/migrateExistingTasksToVectorDB.js migrate",
-    "test:vector-db": "node tests/testVectorDB.js"
+    "migrate:to-mongo": "node scripts/migrateToMongoEmbeddings.js",
+    "migrate:preview-mongo": "node scripts/migrateToMongoEmbeddings.js preview",
+    "cleanup:old-vector-db": "node scripts/migrateToMongoEmbeddings.js cleanup",
+    "test:vector-db": "node tests/testVectorDB.js",
+    "test:fake-flow": "node tests/testFakeFlow.js",
+    "test:real-flow": "node tests/testRealFlow.js"
   },
   "engines": {
     "node": "18"

@@ -12,10 +12,9 @@
  */
 
 const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("./openaiService");
-const { syncVectorDatabaseWithMongoDB } = require("./vectorService");
 const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("./mongoService");
-// const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow - kept for future reuse
-const { matchTasksWithDatabaseEnhanced, matchTasksWithDatabase } = require("./taskMatcher");
+// const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow
+const { matchTasksWithDatabase } = require("./taskMatcher");
 const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("./teamsService");
 const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("./statusChangeDetectionService");
 const { validateLLMResponse } = require("../schemas/taskSchemas");
@@ -42,9 +41,9 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
     logger.info("📁 Step 1: Storing raw transcript in MongoDB");
     const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
 
-    // Step 2: Sync vector database with current MongoDB state
-    logger.info("🔄 Step 2: Syncing vector database with MongoDB");
-    await syncVectorDatabaseWithMongoDB();
+    // Step 2: REMOVED - No longer need to sync vector database
+    // MongoDB embeddings are automatically updated when tasks change
+    logger.info("⚡ Step 2: Skipping vector sync (using MongoDB embeddings)");
     
     // Step 3: Get existing tasks for context
     logger.info("📋 Step 3: Retrieving existing tasks for context");
@@ -81,29 +80,18 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
       });
     }
 
-    // Step 7: Enhanced match extracted tasks with existing database tasks (Vector + GPT + Sync)
-    logger.info("🔗 Step 7: Enhanced matching tasks with vector similarity and admin panel sync");
+    // Step 7: Simple task matching (explicit ticket ID only)
+    logger.info("🔗 Step 7: Simple task matching (explicit ticket ID only)");
     
-    let matchingResult;
-    try {
-      // Try enhanced matching first (vector + GPT + admin panel sync)
-      matchingResult = await matchTasksWithDatabaseEnhanced(openaiResult.tasks);
-      logger.info("✨ Enhanced vector-based task matching completed successfully", {
-        vectorMatches: matchingResult.summary?.vectorMatches || 0,
-        gptMatches: matchingResult.summary?.gptMatches || 0,
-        syncAdded: matchingResult.synchronization?.added || 0,
-        syncUpdated: matchingResult.synchronization?.updated || 0
-      });
-    } catch (error) {
-      logger.warn("Enhanced task matching failed, falling back to legacy method", {
-        error: error.message
-      });
-      // Fallback to legacy matching
-      matchingResult = await matchTasksWithDatabase(openaiResult.tasks);
-    }
+    const matchingResult = await matchTasksWithDatabase(openaiResult.tasks);
+    logger.info("✅ Simple task matching completed successfully", {
+      explicitIdMatches: matchingResult.summary?.explicitIdMatches || 0,
+      newTasks: matchingResult.summary?.newTasks || 0,
+      updatedTasks: matchingResult.summary?.updatedTasks || 0
+    });
     
-    // Step 7: Process detected status changes first
-    logger.info("🔄 Step 7: Processing detected status changes");
+    // Step 8: Process detected status changes first
+    logger.info("🔄 Step 8: Processing detected status changes");
     const statusChangeResults = [];
     
     console.log("[DEBUG] Processing status changes:", {
@@ -684,7 +672,7 @@ function generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeRe
     
     summaryData.participants[participantName].updatedTasks.push({
       ticketId: statusChange.taskId,
-      title: `Task update`,
+      title: "Task update",
       description: `Status changed from ${statusChange.oldStatus} to ${statusChange.newStatus}`,
       type: "Coding",
       status: statusChange.newStatus
@@ -707,12 +695,14 @@ function generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeRe
     }
     
     // Check if we already have an update for this task
-    const existingUpdate = summaryData.participants[participantName].updatedTasks.find(u => u.ticketId === taskUpdate.taskId);
+    const existingUpdate = summaryData.participants[participantName].updatedTasks.find(
+      u => u.ticketId === taskUpdate.taskId
+    );
     if (!existingUpdate) {
       summaryData.participants[participantName].updatedTasks.push({
         ticketId: taskUpdate.taskId,
-        title: `Task description update`,
-        description: `Task description updated`,
+        title: "Task description update",
+        description: "Task description updated",
         type: "Coding",
         status: "To-do"
       });
@@ -741,7 +731,12 @@ function generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeRe
  * @param {Object} processingContext - Context for multi-transcript processing
  * @returns {Promise<Object>} Complete processing result with enhanced task data and storage info
  */
-async function processTranscriptToTasksWithPipeline(transcript, transcriptMetadata = {}, processingContext = {}, processingOptions = {}) {
+async function processTranscriptToTasksWithPipeline(
+  transcript, 
+  transcriptMetadata = {}, 
+  processingContext = {}, 
+  processingOptions = {}
+) {
   const startTime = Date.now();
   
   try {
@@ -757,9 +752,9 @@ async function processTranscriptToTasksWithPipeline(transcript, transcriptMetada
     logger.info("📁 Step 1: Storing raw transcript in MongoDB");
     const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
 
-    // Step 2: Sync vector database with current MongoDB state
-    logger.info("🔄 Step 2: Syncing vector database with MongoDB");
-    await syncVectorDatabaseWithMongoDB();
+    // Step 2: REMOVED - No longer need to sync vector database
+    // MongoDB embeddings are automatically updated when tasks change
+    logger.info("⚡ Step 2: Skipping vector sync (using MongoDB embeddings)");
     
     // Step 3: Get existing tasks for context (with isolation for multi-transcript)
     logger.info("📋 Step 3: Retrieving existing tasks for context");
@@ -950,7 +945,9 @@ async function processTranscriptToTasksWithPipeline(transcript, transcriptMetada
     let teamsResult = null;
     
     try {
-      const summaryData = generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeResults, taskUpdateResults);
+      const summaryData = generatePipelineSummaryData(
+        pipelineResult, mongoResult, statusChangeResults, taskUpdateResults
+      );
       const standupDate = transcriptMetadata?.targetDate ? 
         new Date(transcriptMetadata.targetDate).toLocaleDateString("en-GB") : 
         new Date().toLocaleDateString("en-GB");

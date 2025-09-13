@@ -46,16 +46,12 @@ This document traces the exact function call sequence from start to finish in th
 
 #### Sequential Function Flow:
 
-### Step 1: Storage & Sync
+### Step 1: Storage & Context
 1. **`storeTranscript()`** - Store raw transcript in MongoDB
    - **File**: `functions/services/mongoService.js`
    - **Purpose**: Archive complete transcript data
 
-2. **`syncVectorDatabaseWithMongoDB()`** - Sync vector DB with admin changes
-   - **File**: `functions/services/vectorService.js`
-   - **Purpose**: Update embeddings for manually edited tasks
-
-3. **`getActiveTasks()`** - Retrieve existing tasks for context
+2. **`getActiveTasks()`** - Retrieve existing tasks for context
    - **File**: `functions/services/mongoService.js`
    - **Purpose**: Get current database state for comparison
 
@@ -76,18 +72,18 @@ This document traces the exact function call sequence from start to finish in th
    - **File**: `functions/services/taskCreatorService.js`
    - **Purpose**: Filter for new tasks and generate detailed descriptions
    - **Process**: 
-     - Trust Task Finder's NEW_TASK classifications
+     - Trust Task Finder's NEW_TASK classifications (no similarity search)
      - **`generateDetailedTaskDescription()`** - Enhance descriptions using context
    - **Returns**: Filtered new tasks with detailed descriptions
 
 #### Stage 3: Task Updater
-7. **`updateExistingTasks()`** - Process task updates and status changes
+7. **`updateExistingTasks()`** - Process explicit task updates and status changes
    - **File**: `functions/services/taskUpdaterService.js`
-   - **Purpose**: Handle task updates and status changes
+   - **Purpose**: Handle explicit ticket ID updates and status changes (e.g., "SP-123")
    - **Sub-functions**:
      - **`detectStatusChangesFromTranscript()`** - Find status changes
      - **`generateDetailedUpdateDescription()`** - Create update descriptions
-   - **Returns**: Task updates and status changes
+   - **Returns**: Task updates and status changes for explicitly mentioned tickets only
 
 ### Step 3: Database Operations
 8. **`storeTasks()`** - Store new tasks in MongoDB
@@ -95,7 +91,7 @@ This document traces the exact function call sequence from start to finish in th
    - **Purpose**: Save new tasks with unique ticket IDs
    - **Sub-functions**:
      - **`getNextTicketId()`** - Generate SP-XXX ticket IDs
-     - **`addTaskToVectorDatabase()`** - Create embeddings for new tasks
+     - **`addOrUpdateTaskEmbedding()`** - Create embeddings for future use
 
 9. **Status Change Application** - Apply detected status changes
    - **`updateTaskByTicketId()`** - Update task status in database
