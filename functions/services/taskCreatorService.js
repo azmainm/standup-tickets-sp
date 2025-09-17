@@ -93,13 +93,15 @@ async function identifyNewTasks(foundTasks, existingTasks, transcript, context =
         // Generate detailed description using transcript context
         const detailedDescription = await generateDetailedTaskDescription(foundTask, transcript);
         
-        newTasks.push({
+        const newTask = {
           ...foundTask,
           description: detailedDescription,
           creationConfidence: confidence,
           creationReason: reason,
           stage: 2
-        });
+        };
+        
+        newTasks.push(newTask);
         
         console.log("[DEBUG] Task Creator - NEW TASK:", {
           taskDesc: foundTask.description.substring(0, 100),
@@ -362,6 +364,14 @@ async function generateDetailedTaskDescription(foundTask, transcript) {
  * @param {Array} existingTasks - Current active tasks
  * @returns {Promise<Object>} Similarity search results
  */
+/**
+ * Stub function for legacy vector DB availability check
+ * @returns {Promise<boolean>} Always returns false since FAISS vector DB was removed
+ */
+async function isVectorDBAvailable() {
+  return false;
+}
+
 async function findSimilarTasksForCreation(foundTask, existingTasks) {
   try {
     const vectorAvailable = await isVectorDBAvailable();
@@ -457,7 +467,7 @@ async function makeCreationDecisionWithGPT(foundTask, similarTasks, context) {
     const prompt = createTaskCreationDecisionPrompt(foundTask, similarTasks, context);
     
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       messages: [
         {
           role: "system",
@@ -469,7 +479,9 @@ async function makeCreationDecisionWithGPT(foundTask, similarTasks, context) {
         }
       ],
       temperature: 0.1, // Low temperature for consistent decisions
-      max_tokens: 500,
+      max_output_tokens: 1000, // Updated for gpt-5-nano
+      reasoning: { effort: 'medium' },
+      verbosity: "medium",
     });
 
     logger.info("Stage 2: GPT creation decision prompt", {
@@ -546,6 +558,85 @@ async function testTaskCreatorService() {
   }
 }
 
+/**
+ * Generate embeddings for newly created tasks
+ * @param {Array} newTasks - Array of new tasks with ticket IDs
+ * @returns {Promise<Object>} Result summary
+ */
+async function generateEmbeddingsForNewTasks(newTasks) {
+  try {
+    const { addTaskEmbedding } = require("./embeddingService");
+    
+    let generated = 0;
+    let skipped = 0;
+    let errors = 0;
+    
+    logger.info("Starting embedding generation for new tasks", {
+      taskCount: newTasks.length
+    });
+    
+    for (const task of newTasks) {
+      try {
+        if (!task.ticketId || task.ticketId === 'NONE') {
+          skipped++;
+          continue;
+        }
+        
+        const embeddingResult = await addTaskEmbedding({
+          ticketId: task.ticketId,
+          title: task.title || task.description.substring(0, 50),
+          description: task.description,
+          participantName: task.assignee,
+          type: task.type,
+          status: task.status || 'To-do',
+          isFuturePlan: task.isFuturePlan || false,
+          estimatedTime: task.estimatedTime || 0,
+          timeTaken: task.timeTaken || 0
+        });
+        
+        if (embeddingResult.success) {
+          generated++;
+          logger.info("Embedding generated for new task", {
+            taskId: task.ticketId,
+            chunksStored: embeddingResult.chunksStored
+          });
+        } else {
+          skipped++;
+        }
+        
+      } catch (error) {
+        errors++;
+        logger.error("Error generating embedding for new task", {
+          taskId: task.ticketId,
+          error: error.message
+        });
+      }
+    }
+    
+    logger.info("Embedding generation completed", {
+      total: newTasks.length,
+      generated,
+      skipped,
+      errors
+    });
+    
+    return {
+      success: true,
+      total: newTasks.length,
+      generated,
+      skipped,
+      errors
+    };
+    
+  } catch (error) {
+    logger.error("Error in embedding generation for new tasks", {
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
+}
+
 module.exports = {
   identifyNewTasks,
   testTaskCreatorService,
@@ -555,5 +646,6 @@ module.exports = {
   parseCreationDecision,
   createTaskCreatorSystemPrompt,
   createTaskCreationDecisionPrompt,
-  generateDetailedTaskDescription
+  generateDetailedTaskDescription,
+  generateEmbeddingsForNewTasks
 };

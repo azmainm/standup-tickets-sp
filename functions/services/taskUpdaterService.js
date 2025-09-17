@@ -92,7 +92,7 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tran
         // Generate detailed update description using transcript context  
         const detailedUpdate = generateDetailedUpdateDescription(updateTask);
         
-        taskUpdates.push({
+        const taskUpdate = {
           taskId: updateTask.ticketId,
           originalDescription: existingTask.description,
           newInformation: detailedUpdate,
@@ -102,8 +102,17 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tran
           evidence: updateTask.evidence,
           speaker: updateTask.assignee,
           context: updateTask.context,
-          timestamp: new Date().toISOString()
-        });
+          timestamp: new Date().toISOString(),
+          updatedTaskData: {
+            ...existingTask,
+            description: `${existingTask.description}\n\nUpdate: ${detailedUpdate}`,
+            participantName: existingTask.participantName,
+            type: existingTask.type || 'Non-Coding',
+            status: existingTask.status || 'To-do'
+          }
+        };
+        
+        taskUpdates.push(taskUpdate);
       } else {
         console.log(`[DEBUG] Task ${updateTask.ticketId} not found in database for update`);
       }
@@ -512,6 +521,14 @@ async function createExplicitTaskUpdate(foundTask, taskId, existingTasks, contex
  * @param {Array} existingTasks - Current active tasks
  * @returns {Promise<Array>} Similar tasks
  */
+/**
+ * Stub function for legacy vector DB availability check
+ * @returns {Promise<boolean>} Always returns false since FAISS vector DB was removed
+ */
+async function isVectorDBAvailable() {
+  return false;
+}
+
 async function findSimilarTasksForUpdate(skippedTask, existingTasks) {
   try {
     const vectorAvailable = await isVectorDBAvailable();
@@ -617,7 +634,7 @@ async function determineTaskUpdateWithGPT(skippedTask, similarTask, context) {
     });
     
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       messages: [
         {
           role: "system",
@@ -629,7 +646,9 @@ async function determineTaskUpdateWithGPT(skippedTask, similarTask, context) {
         }
       ],
       temperature: 0.1,
-      max_tokens: 600,
+      max_output_tokens: 1000, // Updated for gpt-5-nano
+      reasoning: { effort: 'medium' },
+      verbosity: "medium",
     });
 
     const gptResponse = response.choices[0].message.content;
@@ -690,7 +709,7 @@ async function determineExplicitUpdateWithGPT(foundTask, existingTask, context) 
     const prompt = createExplicitUpdateDecisionPrompt(foundTask, existingTask, context);
     
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       messages: [
         {
           role: "system",
@@ -702,7 +721,9 @@ async function determineExplicitUpdateWithGPT(foundTask, existingTask, context) 
         }
       ],
       temperature: 0.1,
-      max_tokens: 600,
+      max_output_tokens: 1000, // Updated for gpt-5-nano
+      reasoning: { effort: 'medium' },
+      verbosity: "medium",
     });
 
     const gptResponse = response.choices[0].message.content;
@@ -749,6 +770,86 @@ async function testTaskUpdaterService() {
 
 
 
+/**
+ * Update embeddings for modified tasks
+ * @param {Array} taskUpdates - Array of task updates
+ * @returns {Promise<Object>} Result summary
+ */
+async function updateEmbeddingsForModifiedTasks(taskUpdates) {
+  try {
+    const { updateTaskEmbedding } = require("./embeddingService");
+    
+    let updated = 0;
+    let skipped = 0;
+    let errors = 0;
+    
+    logger.info("Starting embedding updates for modified tasks", {
+      taskCount: taskUpdates.length
+    });
+    
+    for (const taskUpdate of taskUpdates) {
+      try {
+        if (!taskUpdate.taskId || !taskUpdate.updatedTaskData) {
+          skipped++;
+          continue;
+        }
+        
+        const embeddingResult = await updateTaskEmbedding(taskUpdate.taskId, {
+          ticketId: taskUpdate.taskId,
+          title: taskUpdate.updatedTaskData.title || taskUpdate.updatedTaskData.description.substring(0, 50),
+          description: taskUpdate.updatedTaskData.description,
+          participantName: taskUpdate.updatedTaskData.participantName,
+          type: taskUpdate.updatedTaskData.type,
+          status: taskUpdate.updatedTaskData.status,
+          isFuturePlan: taskUpdate.updatedTaskData.isFuturePlan || false,
+          estimatedTime: taskUpdate.updatedTaskData.estimatedTime || 0,
+          timeTaken: taskUpdate.updatedTaskData.timeTaken || 0
+        });
+        
+        if (embeddingResult.success) {
+          updated++;
+          logger.info("Embedding updated for modified task", {
+            taskId: taskUpdate.taskId,
+            updateType: taskUpdate.updateType,
+            chunksStored: embeddingResult.chunksStored
+          });
+        } else {
+          skipped++;
+        }
+        
+      } catch (error) {
+        errors++;
+        logger.error("Error updating embedding for modified task", {
+          taskId: taskUpdate.taskId,
+          error: error.message
+        });
+      }
+    }
+    
+    logger.info("Embedding updates completed", {
+      total: taskUpdates.length,
+      updated,
+      skipped,
+      errors
+    });
+    
+    return {
+      success: true,
+      total: taskUpdates.length,
+      updated,
+      skipped,
+      errors
+    };
+    
+  } catch (error) {
+    logger.error("Error in embedding updates for modified tasks", {
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
+}
+
 module.exports = {
   updateExistingTasks,
   testTaskUpdaterService,
@@ -761,5 +862,6 @@ module.exports = {
   createTaskUpdaterSystemPrompt,
   createTaskUpdateDecisionPrompt,
   createExplicitUpdateDecisionPrompt,
-  generateDetailedUpdateDescription
+  generateDetailedUpdateDescription,
+  updateEmbeddingsForModifiedTasks
 };

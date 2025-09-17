@@ -64,11 +64,85 @@ function getDatabase() {
 }
 
 /**
- * Add newly created tasks to MongoDB embeddings for similarity search
+ * Add newly created tasks to modern MongoDB Atlas Vector Search embeddings
  * @param {Object} processedTasksData - Tasks with ticket IDs
  * @param {Array} assignedTicketIds - Array of assigned ticket IDs
  */
-async function addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketIds) {
+async function addNewTasksToModernEmbeddings(processedTasksData, assignedTicketIds) {
+  try {
+    const { addTaskEmbedding } = require("./embeddingService");
+    
+    let ticketIndex = 0;
+    let addedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    console.log("[DEBUG] Starting modern embedding generation for new tasks");
+
+    for (const [participantName, participantTasks] of Object.entries(processedTasksData)) {
+      for (const taskType of ["Coding", "Non-Coding"]) {
+        if (participantTasks[taskType] && Array.isArray(participantTasks[taskType])) {
+          for (const task of participantTasks[taskType]) {
+            try {
+              const ticketId = assignedTicketIds[ticketIndex] || `TEMP-${ticketIndex}`;
+              ticketIndex++;
+
+              const embeddingResult = await addTaskEmbedding({
+                ticketId: ticketId,
+                title: task.title || task.description?.substring(0, 50) || "",
+                description: task.description || "",
+                participantName: participantName,
+                type: taskType,
+                status: task.status || "To-do",
+                isFuturePlan: Boolean(task.isFuturePlan),
+                estimatedTime: task.estimatedTime || 0,
+                timeTaken: task.timeTaken || 0
+              });
+
+              if (embeddingResult.success) {
+                addedCount++;
+                console.log(`[DEBUG] Modern embedding created for ${ticketId}: ${embeddingResult.chunksStored} chunks`);
+              } else {
+                skippedCount++;
+                console.log(`[DEBUG] Skipping embedding for ${ticketId}: ${embeddingResult.reason}`);
+              }
+
+            } catch (error) {
+              errorCount++;
+              console.log(`[DEBUG] Error creating embedding for task: ${error.message}`);
+            }
+          }
+        }
+      }
+    }
+
+    console.log("[DEBUG] Modern embedding generation completed", {
+      total: ticketIndex,
+      added: addedCount,
+      skipped: skippedCount,
+      errors: errorCount
+    });
+
+    return {
+      success: true,
+      total: ticketIndex,
+      added: addedCount,
+      skipped: skippedCount,
+      errors: errorCount
+    };
+
+  } catch (error) {
+    console.log("[DEBUG] Error in modern embedding generation:", error.message);
+    throw error;
+  }
+}
+
+/**
+ * LEGACY: Add newly created tasks to old MongoDB embeddings for similarity search
+ * @param {Object} processedTasksData - Tasks with ticket IDs
+ * @param {Array} assignedTicketIds - Array of assigned ticket IDs
+ */
+async function _addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketIds) {
   try {
     const { addOrUpdateTaskEmbedding } = require("./mongoEmbeddingService");
 
@@ -87,7 +161,7 @@ async function addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketId
               ticketIndex++;
 
               // Create text for embedding
-              const text = `${task.title || ''} ${task.description || ''}`.trim();
+              const text = `${task.title || ""} ${task.description || ""}`.trim();
               
               if (!text || text.length < 3) {
                 console.log(`[DEBUG] Skipping embedding for ${ticketId}: No meaningful text`);
@@ -148,16 +222,6 @@ async function addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketId
   }
 }
 
-/**
- * DEPRECATED: Add newly created tasks to vector database for similarity search
- * This function is kept for backward compatibility but will be phased out
- * @param {Object} processedTasksData - Tasks with ticket IDs
- * @param {Array} assignedTicketIds - Array of assigned ticket IDs
- */
-async function addNewTasksToVectorDB(processedTasksData, assignedTicketIds) {
-  logger.warn("addNewTasksToVectorDB is deprecated. Using MongoDB embeddings instead.");
-  return await addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketIds);
-}
 
 /**
  * Store processed tasks in MongoDB with unique ticket IDs and titles for each task
@@ -166,7 +230,7 @@ async function addNewTasksToVectorDB(processedTasksData, assignedTicketIds) {
  * @param {Object} metadata - Additional metadata about the processing
  * @returns {Promise<Object>} MongoDB insert result with document ID and ticket IDs
  */
-async function storeTasks(tasksData, metadata = {}) {
+async function storeTasks(tasksData, _metadata = {}) {
   try {
     await initializeMongoDB();
     
@@ -195,7 +259,7 @@ async function storeTasks(tasksData, metadata = {}) {
     
     for (const [participantName, participantTasks] of Object.entries(tasksData)) {
       // Clean participant name to ensure no extra text like "(not present)"
-      const cleanParticipantName = participantName.replace(/\s*\([^)]*\)\s*/g, '').trim();
+      const cleanParticipantName = participantName.replace(/\s*\([^)]*\)\s*/g, "").trim();
       
       console.log("[DEBUG] Processing participant:", {
         original: participantName,
@@ -280,8 +344,8 @@ async function storeTasks(tasksData, metadata = {}) {
       timestamp: document.timestamp,
     });
     
-    // Add new tasks to MongoDB embeddings (replacing old vector DB approach)
-    await addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketIds);
+    // Add new tasks to modern MongoDB Atlas Vector Search embeddings
+    await addNewTasksToModernEmbeddings(processedTasksData, assignedTicketIds);
     
     return {
       success: true,
@@ -618,10 +682,10 @@ async function updateTaskByTicketId(ticketId, updateData) {
     for (const doc of documents) {
       // Search through all participants
       for (const participantName of Object.keys(doc)) {
-        if (participantName === '_id' || participantName === 'timestamp') continue;
+        if (participantName === "_id" || participantName === "timestamp") continue;
         
         const participantData = doc[participantName];
-        if (!participantData || typeof participantData !== 'object') continue;
+        if (!participantData || typeof participantData !== "object") continue;
         
         // Search Coding tasks
         if (participantData.Coding && Array.isArray(participantData.Coding)) {
@@ -659,7 +723,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                     description: updateData.description || task.description,
                     assignee: participantName,
                     participantName: participantName,
-                    type: 'Coding',
+                    type: "Coding",
                     status: updateData.status || task.status
                   };
                   
@@ -678,7 +742,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 ticketId,
                 documentId: doc._id,
                 participantName,
-                taskType: 'Coding',
+                taskType: "Coding",
                 taskIndex: i,
                 updateData,
                 result: result.modifiedCount > 0 ? 'success' : 'no_changes'
@@ -688,7 +752,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 success: result.modifiedCount > 0,
                 documentId: doc._id,
                 participantName,
-                taskType: 'Coding',
+                taskType: "Coding",
                 taskIndex: i,
                 modifiedCount: result.modifiedCount
               };
@@ -697,9 +761,9 @@ async function updateTaskByTicketId(ticketId, updateData) {
         }
         
         // Search Non-Coding tasks
-        if (participantData['Non-Coding'] && Array.isArray(participantData['Non-Coding'])) {
-          for (let i = 0; i < participantData['Non-Coding'].length; i++) {
-            const task = participantData['Non-Coding'][i];
+        if (participantData["Non-Coding"] && Array.isArray(participantData["Non-Coding"])) {
+          for (let i = 0; i < participantData["Non-Coding"].length; i++) {
+            const task = participantData["Non-Coding"][i];
             if (task && task.ticketId === ticketId) {
               // Found the task! Update it
               const updateObj = {};
@@ -732,7 +796,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                     description: updateData.description || task.description,
                     assignee: participantName,
                     participantName: participantName,
-                    type: 'Non-Coding',
+                    type: "Non-Coding",
                     status: updateData.status || task.status
                   };
                   
@@ -751,7 +815,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 ticketId,
                 documentId: doc._id,
                 participantName,
-                taskType: 'Non-Coding',
+                taskType: "Non-Coding",
                 taskIndex: i,
                 updateData,
                 result: result.modifiedCount > 0 ? 'success' : 'no_changes'
@@ -761,7 +825,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 success: result.modifiedCount > 0,
                 documentId: doc._id,
                 participantName,
-                taskType: 'Non-Coding',
+                taskType: "Non-Coding",
                 taskIndex: i,
                 modifiedCount: result.modifiedCount
               };
@@ -836,6 +900,30 @@ async function updateTask(documentId, taskPath, updateData) {
       matchedCount: result.matchedCount,
       modifiedCount: result.modifiedCount,
     });
+    
+    // Update embedding if task was successfully updated and has ticket ID
+    if (result.modifiedCount > 0 && updateData.ticketId) {
+      try {
+        const { updateTaskEmbedding } = require("./embeddingService");
+        
+        await updateTaskEmbedding(updateData.ticketId, {
+          ticketId: updateData.ticketId,
+          title: updateData.title || updateData.description?.substring(0, 50) || "",
+          description: updateData.description || "",
+          participantName: updateData.participantName || "Unknown",
+          type: updateData.type || "Non-Coding",
+          status: updateData.status || "To-do",
+          isFuturePlan: Boolean(updateData.isFuturePlan),
+          estimatedTime: updateData.estimatedTime || 0,
+          timeTaken: updateData.timeTaken || 0
+        });
+        
+        console.log(`[DEBUG] Updated embedding for task ${updateData.ticketId}`);
+      } catch (embeddingError) {
+        console.log(`[DEBUG] Error updating embedding for ${updateData.ticketId}: ${embeddingError.message}`);
+        // Don't fail the main update if embedding update fails
+      }
+    }
     
     return {
       success: result.modifiedCount > 0,

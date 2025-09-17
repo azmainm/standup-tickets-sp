@@ -56,7 +56,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
     
     // Call OpenAI with maximum token allocation for detailed descriptions
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       messages: [
         {
           role: "system",
@@ -68,7 +68,9 @@ async function findTasksFromTranscript(transcript, context = {}) {
         }
       ],
       temperature: 0.3, // Slightly higher for better context extraction
-      max_tokens: 4000, // Maximum tokens for detailed descriptions
+      max_output_tokens: 1000, // Updated for gpt-5-nano
+      reasoning: { effort: 'medium' },
+      verbosity: "medium",
     });
 
     const gptResponse = response.choices[0].message.content;
@@ -208,19 +210,34 @@ function createTaskFindingPrompt(transcriptText, context) {
 
 **3. WORK ITEM CLASSIFICATION (CRITICAL)**:
 
-**NEW TASK PATTERNS** (no ticket number mentioned):
-- Direct assignments: "I need to...", "John should...", "[Name] will..."
-- Problem statements: "We need to fix...", "There's an issue with..."
-- Future work: "We should implement...", "Next we need to..."
-- New initiatives: "Let's create...", "We should build..."
+**NEW TASK PATTERNS** (STRICT - EXPLICIT CREATION INTENT REQUIRED):
+- EXPLICIT task creation: "create a new task", "new task for [assignee]", "add this as a new task"
+- EXPLICIT assignment: "this will be a new task for me/[assignee]", "make this a new task for [person]"
+- EXPLICIT work assignment: "[description] and this will be a new task", "create a task for [person] to [action]"
+- FUTURE PLAN assignments: "[description] as a future plan/initiative"
+
+**CRITICAL RULE**: A task should ONLY be created if the participant EXPLICITLY mentions:
+- "new task" / "create a task" / "add a task" / "make a task"
+- OR explicitly assigns work with "this will be a task for [person]"
+- OR mentions it as a "future plan" / "future initiative"
+
+**DO NOT CREATE TASKS FOR**:
+- General statements: "I need to...", "John should...", "[Name] will..."
+- Problem mentions: "We need to fix...", "There's an issue with..."
+- Casual suggestions: "We should implement...", "Maybe we could..."
+- General discussions about work without explicit task creation intent
 
 **TASK UPDATE PATTERNS** (ticket number explicitly mentioned):
 - Status updates: "SP-XXX is completed", "SP-XXX is in progress"
 - Progress reports: "I'm working on SP-XXX and...", "SP-XXX needs..."
 - Task modifications: "For SP-XXX, we should also add..."
+- Task discussions: "talking about SP-XXX", "regarding SP-XXX", "for SP-XXX"
 - Specific ticket references: Any mention of "SP-" followed by numbers
 
-**CLASSIFICATION RULE**: If a ticket number (SP-XXX) is mentioned, it's an UPDATE. If no ticket number is mentioned, it's a NEW TASK.
+**CLASSIFICATION RULE**: 
+- If a ticket number (SP-XXX) is mentioned, it's an UPDATE to existing task
+- If EXPLICIT task creation language is used (without SP-XXX), it's a NEW TASK
+- If neither condition is met, DO NOT create any task entry
 
 **4. CONTEXT PRESERVATION**:
 - Include WHO mentioned the task
@@ -412,11 +429,11 @@ async function testTaskFinderService() {
     const testTranscript = [
       {
         speaker: "00:00:01.000",
-        text: "<v John>I need to fix the authentication bug in the login system.</v>"
+        text: "<v John>I need to create a new task to fix the authentication bug in the login system.</v>"
       },
       {
         speaker: "00:00:05.000", 
-        text: "<v Jane>That sounds good. I'll work on the dashboard updates.</v>"
+        text: "<v Jane>That sounds good. I'll also add a new task for the dashboard updates.</v>"
       }
     ];
     

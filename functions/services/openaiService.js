@@ -183,7 +183,7 @@ async function processTranscriptForTasks(transcript, existingTasks = []) {
     
     // Call OpenAI GPT API with enhanced settings
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", 
+      model: "gpt-5-nano", 
       messages: [
         {
           role: "system",
@@ -195,7 +195,9 @@ async function processTranscriptForTasks(transcript, existingTasks = []) {
         }
       ],
       temperature: 0.2, // Lower temperature for more consistent results
-      max_tokens: 3000, // Increased for more detailed responses
+      max_output_tokens: 1000, // Updated for gpt-5-nano
+      reasoning: { effort: 'medium' },
+      verbosity: "medium",
     });
 
     const gptResponse = response.choices[0].message.content;
@@ -243,7 +245,7 @@ async function processTranscriptForTasks(transcript, existingTasks = []) {
       statusChanges,
       validationResult,
       metadata: {
-        model: "gpt-4o-mini",
+        model: "gpt-5-nano",
         tokensUsed: response.usage.total_tokens,
         processedAt: new Date().toISOString(),
         participantCount: Object.keys(enhancedTasks).length,
@@ -894,7 +896,7 @@ async function generateTaskTitle(description) {
     }
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       messages: [
         {
           role: "system",
@@ -906,7 +908,9 @@ async function generateTaskTitle(description) {
         }
       ],
       temperature: 0.3,
-      max_tokens: 20,
+      max_output_tokens: 20, // Updated for gpt-5-nano
+      reasoning: { effort: 'medium' },
+      verbosity: "medium",
     });
 
     let title = response.choices[0].message.content.trim();
@@ -1015,14 +1019,16 @@ async function generateTaskTitlesInBatch(tasks) {
 async function testOpenAIConnection() {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       messages: [
         {
           role: "user",
           content: "Hello, please respond with \"Connection successful\""
         }
       ],
-      max_tokens: 10,
+      max_output_tokens: 10, // Updated for gpt-5-nano
+      reasoning: { effort: 'medium' },
+      verbosity: "medium",
     });
     
     return response.choices[0].message.content.includes("successful");

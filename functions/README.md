@@ -28,15 +28,16 @@ The system supports **two approaches** for fetching transcripts:
 1. **🆕 All Meetings Approach** - Fetches ALL meetings for a user on a specific date (NEW)
 2. **🔄 Legacy Approach** - Fetches transcript from specific meeting URLs (existing, maintained for backward compatibility)
 
-## Latest Enhancement (Version 7.0) - Simplified Task Processing
+## Latest Enhancement (Version 8.0) - Modern MongoDB Atlas Vector Search
 
-The system now uses **simplified task processing** without complex similarity search:
+The system now uses **modern MongoDB Atlas Vector Search** with strict task creation rules:
 
-1. **🎯 Simple & Fast** - Explicit ticket ID matching only (e.g., "SP-123")
-2. **⚡ MongoDB Embeddings** - Stored for future features (not used for matching)
-3. **🔍 3-Stage Pipeline** - Task Finder → Task Creator → Task Updater
-4. **📊 Reliable Processing** - No complex similarity algorithms, just straightforward task handling
-5. **🔄 Admin Panel Integration** - Automatic embedding generation for future use
+1. **🎯 Strict Task Creation** - Tasks only created when explicitly requested by participants
+2. **⚡ Atlas Vector Search** - Modern embedding approach using `text-embedding-3-small`
+3. **🔍 Enhanced 3-Stage Pipeline** - Improved Task Finder → Task Creator → Task Updater with `gpt-5-nano`
+4. **📊 Modern Embeddings** - Stored in dedicated `task_embeddings` collection for Atlas Vector Search
+5. **🔄 Admin Panel Integration** - Full integration with modern embedding generation
+6. **🚀 Migration Complete** - Seamless migration from old embedding approach to modern Atlas Vector Search
 
 See the [System Flow Documentation](../Docs/SYSTEM_FLOW_DOCUMENTATION.md) for complete technical details and real-world examples.
 
@@ -68,8 +69,8 @@ FIREBASE_PROJECT_ID=
 # MongoDB Configuration
 MONGODB_URI=
 
-# OpenAI Configuration
-OPENAI_API_KEY=
+# OpenAI Configuration (Required for embedding generation)
+OPENAI_API_KEY=sk-your-openai-api-key-here
 
 # Jira Configuration (Optional - removed from main flow)
 # JIRA_URL=https://your-domain.atlassian.net/
@@ -187,38 +188,44 @@ Please check Admin Panel to see the new and updated tasks.
 cd functions
 npm install
 
-# ✨ MongoDB Embeddings are now built-in (no additional dependencies needed)
+# 🚀 NEW: Install LangChain dependencies for Atlas Vector Search
+npm install @langchain/openai @langchain/mongodb langchain
+
+# ✨ MongoDB Atlas Vector Search dependencies now included
 # FAISS is still installed for backward compatibility but not actively used
 ```
 
-### 4.5. 🚀 NEW: MongoDB Embeddings Setup (Version 7.0)
+### 4.5. 🚀 NEW: MongoDB Atlas Vector Search Setup (Version 8.0)
 
-**Optional**: Generate MongoDB embeddings for future features (not used for task matching):
+**Required**: Migrate to modern MongoDB Atlas Vector Search approach:
 
 ```bash
 cd functions
 
-# Preview what will be migrated
-npm run migrate:preview-mongo
+# Step 1: Remove old embeddings from tasks
+node scripts/removeEmbeddingsFromTasks.js
 
-# Run the migration (generates MongoDB embeddings for all existing tasks)
-npm run migrate:to-mongo
+# Step 2: Generate new embeddings in Atlas Vector Search format
+node scripts/generateTaskEmbeddings.js
 
-# Optional: Clean up old FAISS files (no longer needed)
-npm run cleanup:old-vector-db
+# Optional: Test the new flows
+node tests/testRealFlow.js
+node tests/testFakeFlow.js
 ```
 
 **What this does:**
-- Generates MongoDB embeddings for all tasks (stored for future features)
-- Updates embeddings when tasks change via admin panel
-- Removes old FAISS vector database files
-- Enables embedding generation for new tasks
+- Removes old embeddings from task documents (frees up space)
+- Generates new embeddings using `text-embedding-3-small` model
+- Stores embeddings in dedicated `task_embeddings` collection
+- Uses MongoDB Atlas Vector Search for similarity queries
+- Enables modern embedding generation for all task operations
 
 **Benefits:**
-- ✅ **Simple processing**: No complex similarity search
-- ✅ **Fast performance**: Explicit ID matching only
-- ✅ **Future-ready**: Embeddings available for future features
-- ✅ **Admin panel integration**: Automatic embedding generation
+- ✅ **Modern approach**: Uses latest OpenAI embedding model
+- ✅ **Better performance**: Dedicated collection for vector operations
+- ✅ **Atlas Vector Search**: Leverages MongoDB's native vector search capabilities
+- ✅ **Consistent approach**: Same method as transcript-chat system
+- ✅ **Admin panel integration**: Full embedding support for manual operations
 
 ### 4. Test the Setup
 
@@ -506,14 +513,22 @@ functions/
 ├── services/
 │   ├── getTranscript.js        # Microsoft Graph API service (legacy approach)
 │   ├── allMeetingsService.js   # 🆕 NEW: All meetings fetching service
-│   ├── openaiService.js        # OpenAI GPT processing service
-│   ├── mongoService.js         # MongoDB storage service
+│   ├── openaiService.js        # OpenAI GPT processing service (🚀 Now using gpt-5-nano)
+│   ├── mongoService.js         # MongoDB storage service (🚀 Atlas Vector Search integrated)
+│   ├── embeddingService.js     # 🚀 NEW: Modern Atlas Vector Search service
+│   ├── taskFinderService.js    # 🚀 NEW: Enhanced Task Finder (Stage 1)
+│   ├── taskCreatorService.js   # 🚀 NEW: Enhanced Task Creator (Stage 2)
+│   ├── taskUpdaterService.js   # 🚀 NEW: Enhanced Task Updater (Stage 3)
 │   ├── jiraService.js          # Jira API integration service
 │   ├── teamsService.js         # Microsoft Teams webhook integration
-│   ├── taskProcessor.js        # Task processing orchestration
+│   ├── taskProcessor.js        # Task processing orchestration (🚀 3-Stage Pipeline)
 │   ├── taskMatcher.js          # Task matching and similarity detection
 │   ├── meetingUrlService.js    # Meeting URL selection service
-│   └── teamsService.js         # Teams webhook integration
+│   └── mongoEmbeddingService.js # Legacy embedding service (deprecated)
+├── scripts/
+│   ├── removeEmbeddingsFromTasks.js    # 🚀 NEW: Remove old embeddings from tasks
+│   ├── generateTaskEmbeddings.js       # 🚀 NEW: Generate Atlas Vector Search embeddings
+│   └── migrateToMongoEmbeddings.js     # Legacy migration script (deprecated)
 ├── config/
 │   └── participantMapping.js   # Participant name to email mapping
 ├── tests/
@@ -559,10 +574,10 @@ functions/
 
 For EACH transcript:
 5. **Raw Transcript Storage**: Store complete transcript in MongoDB 'transcripts' collection
-6. **AI Processing**: Send transcript through 3-Stage Pipeline:
-   - **Stage 1**: Task Finder extracts all actionable tasks with detailed context
-   - **Stage 2**: Task Creator identifies genuinely new tasks (trusts Task Finder classifications)
-   - **Stage 3**: Task Updater processes explicit ticket ID references and status changes
+6. **AI Processing**: Send transcript through Enhanced 3-Stage Pipeline with `gpt-5-nano`:
+   - **Stage 1**: Task Finder extracts actionable tasks with strict creation rules - only when participants explicitly request task creation
+   - **Stage 2**: Task Creator creates new tasks + generates Atlas Vector Search embeddings using `text-embedding-3-small`
+   - **Stage 3**: Task Updater processes explicit ticket ID references and status changes + updates embeddings
 7. **Database Context**: Retrieve active tasks for comparison and updates
 8. **Task Updates**: Apply updates for explicit ticket ID references
    - Append new information to existing task descriptions with date stamps
@@ -587,6 +602,7 @@ For EACH transcript:
 ### MongoDB Data Structure
 
 #### Tasks Collection ('sptasks')
+**Note**: As of Version 8.0, embeddings are no longer stored directly in task documents. They are now stored in a dedicated `task_embeddings` collection for Atlas Vector Search.
 Each document in the 'sptasks' collection follows this structure with **unique ticket IDs**:
 ```json
 {
@@ -666,6 +682,43 @@ Each document in the 'sptasks' collection follows this structure with **unique t
   }
 }
 ```
+
+#### Task Embeddings Collection ('task_embeddings') - NEW in Version 8.0
+Each document in the 'task_embeddings' collection stores embeddings for MongoDB Atlas Vector Search:
+```json
+{
+  "_id": "ObjectId(...)",
+  "taskId": "SP-1",
+  "participantName": "Azmain Morshed",
+  "type": "task_content",
+  "status": "To-do",
+  "chunkIndex": 0,
+  "totalChunks": 1,
+  "content": "Integrate Teams for task forwarding\n\nIntegrate Teams for task forwarding...",
+  "embedding": [0.123, -0.456, 0.789, ...], // 1536-dimensional vector
+  "contentHash": "373db3156619bde83c94b364f221cf4d97d2a31d0f29134f1fe8d7b4362ff415",
+  "metadata": {
+    "title": "Integrate Teams for task forwarding",
+    "type": "Coding",
+    "isFuturePlan": false,
+    "source": "task_creator"
+  },
+  "createdAt": "2025-09-17T08:25:33.456Z",
+  "updatedAt": "2025-09-17T08:25:33.456Z"
+}
+```
+
+**Embedding Fields Explanation:**
+- `taskId`: Links to the task in sptasks collection (e.g., SP-1, SP-2)
+- `participantName`: Task assignee name
+- `type`: Always "task_content" for task-related embeddings
+- `status`: Current task status
+- `chunkIndex/totalChunks`: For large task descriptions split into chunks
+- `content`: The actual text content that was embedded
+- `embedding`: 1536-dimensional vector using `text-embedding-3-small`
+- `contentHash`: SHA-256 hash for change detection
+- `metadata`: Additional task information for filtering
+- `source`: Origin of embedding (task_creator, task_updater, admin_panel)
 
 #### Transcripts Collection ('transcripts')
 Each document in the 'transcripts' collection stores the raw transcript data:

@@ -17,7 +17,37 @@ const { testOpenAIConnection } = require("../services/openaiService");
 const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/mongoService");
 // const { testJiraConnection, getProjectInfo } = require("../services/jiraService"); // Removed from main flow
 const { getBangladeshTimeComponents } = require("../services/meetingUrlService");
+const { getEmbeddingStatistics } = require("../services/mongoEmbeddingService");
 // Vector service removed - system now uses MongoDB embeddings only
+
+/**
+ * Stub function for legacy vector DB availability check
+ * @returns {Promise<boolean>} Always returns false since FAISS vector DB was removed
+ */
+async function isVectorDBAvailable() {
+  return false;
+}
+
+/**
+ * Stub function for legacy vector DB initialization
+ * @returns {Promise<void>} No-op since FAISS vector DB was removed
+ */
+async function initializeVectorDB() {
+  // No-op: FAISS vector DB was removed and replaced with MongoDB embeddings
+  return;
+}
+
+/**
+ * Stub function for legacy vector DB stats
+ * @returns {Promise<Object>} Empty stats since FAISS vector DB was removed
+ */
+async function getVectorDBStats() {
+  return {
+    totalEmbeddings: 0,
+    indexLoaded: false,
+    message: "FAISS vector DB removed - using MongoDB embeddings instead"
+  };
+}
 
 async function testCompleteFlow() {
   console.log("=".repeat(80));
@@ -92,20 +122,18 @@ async function testCompleteFlow() {
   }
   console.log("   ✓ OpenAI connection successful");
   
-  console.log("   🔧 Testing Vector Database availability...");
-  const vectorAvailable = await isVectorDBAvailable();
-  if (vectorAvailable) {
-    console.log("   ✅ Vector Database (FAISS) available");
-    try {
-      await initializeVectorDB();
-      const vectorStats = await getVectorDBStats();
-      console.log(`   📊 Vector DB Stats: ${vectorStats.totalEmbeddings} embeddings, index loaded: ${vectorStats.indexLoaded}`);
-    } catch (error) {
-      console.log(`   ⚠️ Vector DB initialization warning: ${error.message}`);
+  console.log("   🔧 Testing MongoDB Embeddings availability...");
+  try {
+    const embeddingStats = await getEmbeddingStatistics();
+    console.log("   ✅ MongoDB Embeddings available");
+    console.log(`   📊 Embedding Stats: ${embeddingStats.tasksWithEmbeddings}/${embeddingStats.totalTasks} tasks have embeddings`);
+    console.log(`   📊 Coverage: ${embeddingStats.embeddingCoverage}`);
+    if (Object.keys(embeddingStats.embeddingModels).length > 0) {
+      console.log(`   📊 Models used: ${Object.keys(embeddingStats.embeddingModels).join(", ")}`);
     }
-  } else {
-    console.log("   ⚠️ Vector Database not available (will use GPT fallback)");
-    console.log("   📦 Install faiss-node for faster similarity search: npm install faiss-node");
+  } catch (error) {
+    console.log(`   ⚠️ MongoDB Embeddings warning: ${error.message}`);
+    console.log("   📝 MongoDB embeddings enabled - stored for future use (no similarity search)");
   }
   
   console.log("   🍃 Testing MongoDB connection...");
@@ -318,8 +346,8 @@ async function testCompleteFlow() {
         
         // Show OpenAI processing details
         console.log("\n   🤖 Sample OpenAI Processing:");
-        console.log(`      - Model: ${firstSuccessfulResult.processing.metadata?.model || firstSuccessfulResult.taskResult.pipelineResult.metadata?.model || 'N/A'}`);
-        console.log(`      - Tokens used: ${firstSuccessfulResult.processing.metadata?.tokensUsed || firstSuccessfulResult.taskResult.pipelineResult.metadata?.stage1TokensUsed || 'N/A'}`);
+        console.log(`      - Model: ${firstSuccessfulResult.taskResult.processing?.metadata?.model || 'N/A'}`);
+        console.log(`      - Tokens used: ${firstSuccessfulResult.taskResult.processing?.metadata?.tokensUsed || 'N/A'}`);
         
         // Show MongoDB task storage details
         console.log("\n   🍃 Sample MongoDB Task Storage:");
@@ -411,7 +439,7 @@ async function testCompleteFlow() {
       
       const totalTokens = allTaskResults
         .filter(r => r.success)
-        .reduce((sum, r) => sum + (r.taskResult.processing?.metadata?.tokensUsed || r.taskResult.pipelineResult?.metadata?.stage1TokensUsed || 0), 0);
+        .reduce((sum, r) => sum + (r.taskResult.processing?.metadata?.tokensUsed || 0), 0);
       
       console.log(`   - 🆕 Total meetings processed: ${allTranscriptsResults.length}`);
       console.log(`   - ✅ Successfully processed meetings: ${totalSuccessfulProcessing}`);
