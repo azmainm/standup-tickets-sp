@@ -11,17 +11,21 @@
  * - Domain: Scrum
  */
 
-const OpenAI = require("openai");
+const { ChatOpenAI } = require("@langchain/openai");
 const { logger } = require("firebase-functions");
 const { detectStatusChangesFromTranscript } = require("./statusChangeDetectionService");
 
 // Load environment variables
 require("dotenv").config();
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Initialize OpenAI client using LangChain (same as transcript-chat)
+const llm = new ChatOpenAI({
+  modelName: 'gpt-5-nano',
+  max_output_tokens: 1000,
+  reasoning: { effort: 'medium' },
+  verbosity: "medium",
 });
+
 
 /**
  * Stage 3: Update existing tasks with new information
@@ -633,25 +637,15 @@ async function determineTaskUpdateWithGPT(skippedTask, similarTask, context) {
       promptPreview: prompt.substring(0, 1000)
     });
     
-    const response = await openai.chat.completions.create({
-      model: "gpt-5-nano",
-      messages: [
-        {
-          role: "system",
-          content: createTaskUpdaterSystemPrompt(context)
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.1,
-      max_output_tokens: 1000, // Updated for gpt-5-nano
-      reasoning: { effort: 'medium' },
-      verbosity: "medium",
-    });
+    const systemMessage = createTaskUpdaterSystemPrompt(context);
+    const messages = [
+      { role: "system", content: systemMessage },
+      { role: "user", content: prompt }
+    ];
+    
+    const response = await llm.invoke(messages);
 
-    const gptResponse = response.choices[0].message.content;
+    const gptResponse = response.content;
 
     logger.info("Stage 3: GPT update decision raw response", {
       responseChars: gptResponse ? gptResponse.length : 0,
@@ -708,25 +702,15 @@ async function determineExplicitUpdateWithGPT(foundTask, existingTask, context) 
   try {
     const prompt = createExplicitUpdateDecisionPrompt(foundTask, existingTask, context);
     
-    const response = await openai.chat.completions.create({
-      model: "gpt-5-nano",
-      messages: [
-        {
-          role: "system",
-          content: createTaskUpdaterSystemPrompt(context)
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.1,
-      max_output_tokens: 1000, // Updated for gpt-5-nano
-      reasoning: { effort: 'medium' },
-      verbosity: "medium",
-    });
+    const systemMessage = createTaskUpdaterSystemPrompt(context);
+    const messages = [
+      { role: "system", content: systemMessage },
+      { role: "user", content: prompt }
+    ];
+    
+    const response = await llm.invoke(messages);
 
-    const gptResponse = response.choices[0].message.content;
+    const gptResponse = response.content;
     const decision = parseUpdateDecision(gptResponse);
     
     return decision;

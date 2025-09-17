@@ -11,15 +11,18 @@
  * - Domain: Task Recognition, Knowledge Structuring, Information Extraction
  */
 
-const OpenAI = require("openai");
+const { ChatOpenAI } = require("@langchain/openai");
 const { logger } = require("firebase-functions");
 
 // Load environment variables
 require("dotenv").config();
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Initialize OpenAI client using LangChain (same as transcript-chat)
+const llm = new ChatOpenAI({
+  modelName: 'gpt-5-nano',
+  max_output_tokens: 4000,
+  reasoning: { effort: 'medium' },
+  verbosity: "medium",
 });
 
 /**
@@ -54,26 +57,15 @@ async function findTasksFromTranscript(transcript, context = {}) {
       promptPreview: prompt.substring(0, 500)
     });
     
-    // Call OpenAI with maximum token allocation for detailed descriptions
-    const response = await openai.chat.completions.create({
-      model: "gpt-5-nano",
-      messages: [
-        {
-          role: "system",
-          content: createTaskFinderSystemPrompt(context)
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.3, // Slightly higher for better context extraction
-      max_output_tokens: 1000, // Updated for gpt-5-nano
-      reasoning: { effort: 'medium' },
-      verbosity: "medium",
-    });
-
-    const gptResponse = response.choices[0].message.content;
+    // Call OpenAI using LangChain (same as transcript-chat)
+    const systemMessage = createTaskFinderSystemPrompt(context);
+    const messages = [
+      { role: "system", content: systemMessage },
+      { role: "user", content: prompt }
+    ];
+    
+    const response = await llm.invoke(messages);
+    const gptResponse = response.content;
 
     logger.info("Stage 1: Task Finder raw response (preview)", {
       responseChars: gptResponse ? gptResponse.length : 0,
@@ -85,14 +77,12 @@ async function findTasksFromTranscript(transcript, context = {}) {
     });
     logger.info("Stage 1: Task Finder response received", {
       responseLength: gptResponse.length,
-      tokensUsed: response.usage.total_tokens,
-      tokenEfficiency: (gptResponse.length / response.usage.total_tokens).toFixed(2),
+      tokensUsed: response.usage_metadata?.total_tokens || 'unknown',
       transcriptIndex: context.transcriptIndex || 1
     });
     console.log("[Finder] Response received", {
       responseLength: gptResponse.length,
-      tokensUsed: response.usage.total_tokens,
-      tokenEfficiency: (gptResponse.length / response.usage.total_tokens).toFixed(2),
+      tokensUsed: response.usage_metadata?.total_tokens || 'unknown',
       transcriptIndex: context.transcriptIndex || 1
     });
 
@@ -127,8 +117,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
       metadata: {
         totalTasks,
         averageDescriptionLength,
-        tokensUsed: response.usage.total_tokens,
-        tokenEfficiency: (gptResponse.length / response.usage.total_tokens).toFixed(2),
+        tokensUsed: response.usage_metadata?.total_tokens || 'unknown',
         processedAt: new Date().toISOString(),
         transcriptIndex: context.transcriptIndex || 1
       },

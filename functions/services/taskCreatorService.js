@@ -11,15 +11,18 @@
  * - Domain: Scrum
  */
 
-const OpenAI = require("openai");
+const { ChatOpenAI } = require("@langchain/openai");
 const { logger } = require("firebase-functions");
 
 // Load environment variables
 require("dotenv").config();
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Initialize OpenAI client using LangChain (same as transcript-chat)
+const llm = new ChatOpenAI({
+  modelName: 'gpt-5-nano',
+  max_output_tokens: 1000,
+  reasoning: { effort: 'medium' },
+  verbosity: "medium",
 });
 
 /**
@@ -466,23 +469,13 @@ async function makeCreationDecisionWithGPT(foundTask, similarTasks, context) {
   try {
     const prompt = createTaskCreationDecisionPrompt(foundTask, similarTasks, context);
     
-    const response = await openai.chat.completions.create({
-      model: "gpt-5-nano",
-      messages: [
-        {
-          role: "system",
-          content: createTaskCreatorSystemPrompt(context)
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.1, // Low temperature for consistent decisions
-      max_output_tokens: 1000, // Updated for gpt-5-nano
-      reasoning: { effort: 'medium' },
-      verbosity: "medium",
-    });
+    const systemMessage = createTaskCreatorSystemPrompt(context);
+    const messages = [
+      { role: "system", content: systemMessage },
+      { role: "user", content: prompt }
+    ];
+    
+    const response = await llm.invoke(messages);
 
     logger.info("Stage 2: GPT creation decision prompt", {
       promptChars: prompt.length,
@@ -493,7 +486,7 @@ async function makeCreationDecisionWithGPT(foundTask, similarTasks, context) {
       promptPreview: prompt.substring(0, 500)
     });
 
-    const gptResponse = response.choices[0].message.content;
+    const gptResponse = response.content;
 
     logger.info("Stage 2: GPT creation decision raw response", {
       responseChars: gptResponse ? gptResponse.length : 0,
