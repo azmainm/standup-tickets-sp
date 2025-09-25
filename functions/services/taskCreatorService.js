@@ -26,120 +26,199 @@ const llm = new ChatOpenAI({
 });
 
 /**
- * Stage 2: Identify which found tasks are genuinely new
- * @param {Array} foundTasks - Tasks from Stage 1 (Task Finder)
+ * Stage 2: Identify which found tasks are genuinely new and enrich them with RAG
+ * @param {Array} foundTasks - Tasks from Stage 1 (Task Finder) 
  * @param {Array} existingTasks - Current active tasks in database
+ * @param {Array} tasksToBeCreated - Structured array from Task Finder
  * @param {Object} context - Processing context
- * @returns {Promise<Object>} New tasks to be created
+ * @returns {Promise<Object>} New tasks to be created with RAG enhancements
  */
-async function identifyNewTasks(foundTasks, existingTasks, transcript, context = {}) {
+async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, context = {}) {
   try {
-    // Filter to only process tasks marked as NEW_TASK by the Task Finder
-    const newTasksToCreate = foundTasks.filter(task => 
-      task.category === 'NEW_TASK' || 
-      (!task.category && task.ticketId === 'NONE') // Fallback for older format
-    );
+    const { taskRAG } = require("./ragService");
     
-    console.log(`[DEBUG] Task Creator filtering:`, {
-      totalFound: foundTasks.length,
-      newTasksToCreate: newTasksToCreate.length,
-      updateTasks: foundTasks.filter(t => t.category === 'UPDATE_TASK').length,
-      filtered: foundTasks.length - newTasksToCreate.length
-    });
-    
-    logger.info("Starting Stage 2: Task Creator", {
-      foundTasksCount: foundTasks.length,
-      newTasksToProcess: newTasksToCreate.length,
+    logger.info("Starting Stage 2: Task Creator with RAG enhancement", {
+      tasksToBeCreated: tasksToBeCreated.length,
       existingTasksCount: existingTasks.length,
       transcriptIndex: context.transcriptIndex || 1,
       isMultiTranscript: Boolean(context.isMultiTranscript),
       timestamp: new Date().toISOString(),
     });
 
+    console.log(`[DEBUG] Task Creator with RAG:`, {
+      tasksToProcess: tasksToBeCreated.length,
+      existingTasks: existingTasks.length
+    });
+
     const newTasks = [];
     const analysisResults = [];
 
-    // Process each new task (Task Finder already classified them)
-    for (let i = 0; i < newTasksToCreate.length; i++) {
-      const foundTask = newTasksToCreate[i];
+    // Process each task individually with RAG enhancement
+    for (let i = 0; i < tasksToBeCreated.length; i++) {
+      const taskToCreate = tasksToBeCreated[i];
       
-      logger.info(`Analyzing task ${i + 1}/${newTasksToCreate.length}`, {
-        taskDesc: foundTask.description.substring(0, 100),
-        assignee: foundTask.assignee,
-        type: foundTask.type
+      logger.info(`Creating task ${i + 1}/${tasksToBeCreated.length} with RAG`, {
+        taskDesc: taskToCreate.description.substring(0, 100),
+        assignee: taskToCreate.assignee,
+        type: taskToCreate.type
       });
 
-      // Check if task has explicit task ID (indicates existing task reference)
-      const hasExplicitTaskId = checkForExplicitTaskId(foundTask.description);
-      
-      if (hasExplicitTaskId) {
-        logger.info("Task references existing ID, skipping creation", {
-          taskDesc: foundTask.description.substring(0, 50),
-          taskId: hasExplicitTaskId
-        });
-        
-        analysisResults.push({
-          foundTask,
-          decision: 'EXISTING_REFERENCE',
-          reason: `References existing task ID: ${hasExplicitTaskId}`,
-          confidence: 1.0
-        });
-        continue;
-      }
+      console.log("[DEBUG] Processing task with RAG:", {
+        index: i + 1,
+        total: tasksToBeCreated.length,
+        description: taskToCreate.description.substring(0, 100),
+        assignee: taskToCreate.assignee,
+        type: taskToCreate.type
+      });
 
-      // Task Finder already classified this as NEW_TASK, so create it
-      let isNewTask = true;
-      let confidence = 1.0;
-      let reason = "Task Finder classified as NEW_TASK";
-      
-      if (isNewTask) {
-        // Generate detailed description using transcript context
-        const detailedDescription = await generateDetailedTaskDescription(foundTask, transcript);
-        
-        const newTask = {
-          ...foundTask,
-          description: detailedDescription,
-          creationConfidence: confidence,
-          creationReason: reason,
-          stage: 2
+      try {
+        // Use RAG to create rich task description with full context
+        const ragResult = await taskRAG.createRichTaskDescription({
+          description: taskToCreate.description,
+          assignee: taskToCreate.assignee,
+          type: taskToCreate.type,
+          evidence: taskToCreate.evidence,
+          context: taskToCreate.context
+        }, {
+          topK: 5,
+          scoreThreshold: 0.7
+        });
+
+        if (ragResult.success) {
+          const enrichedTask = {
+            description: ragResult.description,
+            title: ragResult.title,
+            assignee: taskToCreate.assignee,
+            type: taskToCreate.type,
+            isFuturePlan: taskToCreate.isFuturePlan || false,
+            evidence: taskToCreate.evidence,
+            context: taskToCreate.context,
+            urgency: taskToCreate.urgency,
+            ragEnhanced: true,
+            ragConfidence: ragResult.confidence,
+            ragSources: ragResult.ragSources || [],
+            ragReasoning: ragResult.reasoning,
+            ragScoped: ragResult.isScoped || false,
+            ragScopedToTranscript: ragResult.scopedToTranscript,
+            creationConfidence: 1.0,
+            creationReason: "RAG-enhanced task creation",
+            stage: 2,
+            source: "task_creator_rag"
+          };
+
+          newTasks.push(enrichedTask);
+
+          console.log("[DEBUG] Task Creator RAG - SUCCESS:", {
+            originalLength: taskToCreate.description.length,
+            enhancedLength: ragResult.description.length,
+            title: ragResult.title,
+            ragUsed: ragResult.ragUsed,
+            confidence: ragResult.confidence,
+            sourcesUsed: ragResult.ragSources ? ragResult.ragSources.length : 0,
+            isScoped: ragResult.isScoped,
+            scopedToTranscript: ragResult.scopedToTranscript
+          });
+
+          analysisResults.push({
+            foundTask: taskToCreate,
+            decision: 'CREATE_NEW_RAG',
+            reason: 'Task enhanced with RAG context',
+            confidence: 1.0,
+            ragUsed: ragResult.ragUsed,
+            ragConfidence: ragResult.confidence
+          });
+        } else {
+          // Fallback to basic task creation if RAG fails
+          // Create a clean title by removing artifacts and taking first few words
+          let cleanTitle = taskToCreate.description
+            .replace(/^(Purpose:|NEW_TASK|Create a task|Background|Context):\s*/i, '') // Remove prefixes
+            .replace(/\s*\([^)]*\)\s*/g, '') // Remove parenthetical text
+            .split(' ')
+            .slice(0, 5) // Take first 5 words max
+            .join(' ')
+            .replace(/[^\w\s]/g, '') // Remove special characters
+            .trim();
+          
+          if (cleanTitle.length > 50) {
+            cleanTitle = cleanTitle.substring(0, 50);
+          }
+
+          const basicTask = {
+            description: taskToCreate.description,
+            title: cleanTitle || taskToCreate.description.substring(0, 30),
+            assignee: taskToCreate.assignee,
+            type: taskToCreate.type,
+            isFuturePlan: taskToCreate.isFuturePlan || false,
+            evidence: taskToCreate.evidence,
+            context: taskToCreate.context,
+            urgency: taskToCreate.urgency,
+            ragEnhanced: false,
+            ragError: ragResult.error,
+            creationConfidence: 0.7,
+            creationReason: "Basic task creation (RAG failed)",
+            stage: 2,
+            source: "task_creator_basic"
+          };
+
+          newTasks.push(basicTask);
+
+          console.log("[DEBUG] Task Creator RAG - FALLBACK:", {
+            error: ragResult.error,
+            reason: "Using basic task creation"
+          });
+
+          analysisResults.push({
+            foundTask: taskToCreate,
+            decision: 'CREATE_NEW_BASIC',
+            reason: 'RAG failed, using basic creation',
+            confidence: 0.7,
+            ragUsed: false,
+            error: ragResult.error
+          });
+        }
+
+      } catch (error) {
+        logger.error(`Task creation failed for task ${i + 1}`, {
+          error: error.message,
+          taskDesc: taskToCreate.description.substring(0, 100)
+        });
+
+        // Fallback to basic task creation
+        const basicTask = {
+          description: taskToCreate.description,
+          title: taskToCreate.description.substring(0, 50),
+          assignee: taskToCreate.assignee,
+          type: taskToCreate.type,
+          isFuturePlan: taskToCreate.isFuturePlan || false,
+          evidence: taskToCreate.evidence,
+          context: taskToCreate.context,
+          urgency: taskToCreate.urgency,
+          ragEnhanced: false,
+          ragError: error.message,
+          creationConfidence: 0.5,
+          creationReason: "Basic task creation (exception occurred)",
+          stage: 2,
+          source: "task_creator_fallback"
         };
-        
-        newTasks.push(newTask);
-        
-        console.log("[DEBUG] Task Creator - NEW TASK:", {
-          taskDesc: foundTask.description.substring(0, 100),
-          assignee: foundTask.assignee,
-          type: foundTask.type,
-          confidence,
-          reason,
-          isFuturePlan: foundTask.isFuturePlan
-        });
-      } else {
-        console.log("[DEBUG] Task Creator - SKIPPED:", {
-          taskDesc: foundTask.description.substring(0, 100),
-          assignee: foundTask.assignee,
-          type: foundTask.type,
-          confidence,
-          reason,
-          category: foundTask.category,
-          ticketId: foundTask.ticketId
+
+        newTasks.push(basicTask);
+
+        analysisResults.push({
+          foundTask: taskToCreate,
+          decision: 'CREATE_NEW_FALLBACK',
+          reason: 'Exception occurred, using fallback creation',
+          confidence: 0.5,
+          ragUsed: false,
+          error: error.message
         });
       }
-      
-      analysisResults.push({
-        foundTask,
-        decision: isNewTask ? 'CREATE_NEW' : 'SKIP_EXISTING',
-        reason,
-        confidence,
-        similarMatches: 0 // No similarity matching since Task Finder classified
-      });
     }
 
-    logger.info("Stage 2: Task Creator completed successfully", {
-      foundTasks: foundTasks.length,
-      newTasksToCreate: newTasks.length,
-      existingTaskReferences: analysisResults.filter(a => a.decision === 'EXISTING_REFERENCE').length,
-      skippedDuplicates: analysisResults.filter(a => a.decision === 'SKIP_EXISTING').length,
+    logger.info("Stage 2: Task Creator completed successfully with RAG", {
+      tasksProcessed: tasksToBeCreated.length,
+      newTasksCreated: newTasks.length,
+      ragEnhanced: newTasks.filter(t => t.ragEnhanced).length,
+      basicCreation: newTasks.filter(t => !t.ragEnhanced).length,
       transcriptIndex: context.transcriptIndex || 1
     });
 
@@ -149,12 +228,13 @@ async function identifyNewTasks(foundTasks, existingTasks, transcript, context =
       newTasks,
       analysisResults,
       metadata: {
-        foundTasksCount: foundTasks.length,
+        tasksProcessed: tasksToBeCreated.length,
         newTasksCount: newTasks.length,
-        existingReferences: analysisResults.filter(a => a.decision === 'EXISTING_REFERENCE').length,
-        skippedDuplicates: analysisResults.filter(a => a.decision === 'SKIP_EXISTING').length,
+        ragEnhanced: newTasks.filter(t => t.ragEnhanced).length,
+        basicCreation: newTasks.filter(t => !t.ragEnhanced).length,
         processedAt: new Date().toISOString(),
-        transcriptIndex: context.transcriptIndex || 1
+        transcriptIndex: context.transcriptIndex || 1,
+        ragUsed: true
       }
     };
 
@@ -162,7 +242,7 @@ async function identifyNewTasks(foundTasks, existingTasks, transcript, context =
     logger.error("Stage 2: Task Creator failed", {
       error: error.message,
       stack: error.stack,
-      foundTasksCount: foundTasks.length,
+      tasksToBeCreated: tasksToBeCreated.length,
       existingTasksCount: existingTasks.length,
       transcriptIndex: context.transcriptIndex || 1
     });

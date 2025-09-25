@@ -59,8 +59,13 @@ async function processTranscriptForTasksWithPipeline(transcript, existingTasks =
     });
 
     // STAGE 2: TASK CREATOR - Identify which tasks are genuinely new
-    logger.info("📝 Stage 2: Task Creator - Identifying new tasks");
-    const taskCreatorResult = await identifyNewTasks(foundTasks, existingTasks, transcript, processingContext);
+    logger.info("📝 Stage 2: Task Creator - Identifying new tasks with RAG");
+    const taskCreatorResult = await identifyNewTasks(
+      foundTasks, 
+      existingTasks, 
+      taskFinderResult.tasksToBeCreated, 
+      processingContext
+    );
     
     if (!taskCreatorResult.success) {
       throw new Error("Stage 2 (Task Creator) failed");
@@ -73,15 +78,17 @@ async function processTranscriptForTasksWithPipeline(transcript, existingTasks =
     
     logger.info("Stage 2 completed", {
       newTasksToCreate: newTasks.length,
+      ragEnhanced: newTasks.filter(t => t.ragEnhanced).length,
       skippedTasks: skippedTasks.length
     });
 
     // STAGE 3: TASK UPDATER - Update existing tasks with new information
-    logger.info("🔄 Stage 3: Task Updater - Updating existing tasks");
+    logger.info("🔄 Stage 3: Task Updater - Updating existing tasks with RAG");
     const taskUpdaterResult = await updateExistingTasks(
       foundTasks, 
       skippedTasks, 
       existingTasks, 
+      taskFinderResult.tasksToBeUpdated,
       transcript, 
       processingContext
     );
@@ -92,6 +99,7 @@ async function processTranscriptForTasksWithPipeline(transcript, existingTasks =
     
     logger.info("Stage 3 completed", {
       taskUpdates: taskUpdaterResult.taskUpdates.length,
+      ragEnhancedUpdates: taskUpdaterResult.taskUpdates.filter(u => u.ragEnhanced).length,
       statusChanges: taskUpdaterResult.statusChanges.length
     });
 
@@ -129,16 +137,19 @@ async function processTranscriptForTasksWithPipeline(transcript, existingTasks =
         stage3: taskUpdaterResult
       },
       metadata: {
-        model: "3-stage-pipeline",
+        model: "3-stage-pipeline-rag",
         stage1TokensUsed: taskFinderResult.metadata.tokensUsed,
         processedAt: new Date().toISOString(),
         participantCount: Object.keys(structuredTasks).length,
         totalTasks,
         newTasks: newTasks.length,
+        ragEnhancedNewTasks: newTasks.filter(t => t.ragEnhanced).length,
         taskUpdates: taskUpdaterResult.taskUpdates.length,
+        ragEnhancedUpdates: taskUpdaterResult.taskUpdates.filter(u => u.ragEnhanced).length,
         statusChanges: taskUpdaterResult.statusChanges.length,
         averageDescriptionLength,
         enhancementsApplied: true,
+        ragEnabled: true,
         pipelineVersion: "1.0"
       }
     };
@@ -195,7 +206,7 @@ async function processTranscriptForTasks(transcript, existingTasks = []) {
         }
       ],
       temperature: 0.2, // Lower temperature for more consistent results
-      max_output_tokens: 1000, // Updated for gpt-5-nano
+      max_output_tokens: 1000, 
       reasoning: { effort: 'medium' },
       verbosity: "medium",
     });
@@ -1104,6 +1115,7 @@ function convertPipelineResultsToLegacyFormat(newTasks, taskUpdates) {
     }
     
     structuredTasks[task.assignee][task.type].push({
+      title: task.title,
       description: task.description,
       status: "To-do",
       estimatedTime: 0,

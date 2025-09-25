@@ -336,6 +336,25 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
       };
     }
 
+    // Step 11.5: Clean up local embeddings after Teams notification
+    logger.info("🧹 Cleaning up local embeddings");
+    try {
+      const { clearLocalEmbeddings } = require("./localEmbeddingCache");
+      const cleanupResult = clearLocalEmbeddings(transcriptStorageResult.documentId.toString());
+      
+      if (cleanupResult.success) {
+        logger.info("Local embeddings cleaned up successfully", {
+          transcriptId: transcriptStorageResult.documentId.toString(),
+          clearedCount: cleanupResult.cleared
+        });
+      }
+    } catch (cleanupError) {
+      logger.warn("Failed to clean up local embeddings", {
+        error: cleanupError.message,
+        transcriptId: transcriptStorageResult.documentId.toString()
+      });
+    }
+
     // Step 12: Prepare enhanced complete result
     const completeDuration = (Date.now() - startTime) / 1000;
     
@@ -889,15 +908,8 @@ async function processTranscriptToTasksWithPipeline(
           // Find the existing task to get current description
           const existingTask = existingTasks.find(task => task.ticketId === update.taskId);
           
-          // Get transcript date or use current date
-          const transcriptDate = transcriptMetadata?.targetDate ? 
-            new Date(transcriptMetadata.targetDate).toLocaleDateString("en-US") : 
-            new Date().toLocaleDateString("en-US");
-          
-          // Append new information to existing description
-          const updatedDescription = existingTask?.description ? 
-            `${existingTask.description}\n\n(${transcriptDate}) Update: ${update.newInformation}` :
-            update.newInformation;
+          // RAG-enhanced description is the complete updated description (not just new info)
+          const updatedDescription = update.newInformation;
           
           const updateResult = await updateTaskByTicketId(
             update.taskId,
@@ -968,6 +980,27 @@ async function processTranscriptToTasksWithPipeline(
         error: teamsError.message,
         timestamp: new Date().toISOString(),
       };
+    }
+
+    // Step 6: Clean up local embeddings after Teams notification
+    logger.info("🧹 Step 6: Cleaning up local embeddings");
+    try {
+      const { clearLocalEmbeddings } = require("./localEmbeddingCache");
+      const cleanupResult = clearLocalEmbeddings(transcriptStorageResult.documentId.toString());
+      
+      if (cleanupResult.success) {
+        logger.info("Local embeddings cleaned up successfully", {
+          transcriptId: transcriptStorageResult.documentId.toString(),
+          clearedCount: cleanupResult.cleared,
+          remainingCacheSize: cleanupResult.remainingCacheSize
+        });
+      }
+    } catch (cleanupError) {
+      logger.warn("Failed to clean up local embeddings", {
+        error: cleanupError.message,
+        transcriptId: transcriptStorageResult.documentId.toString()
+      });
+      // Don't fail the entire process for cleanup errors
     }
 
     // Prepare complete result

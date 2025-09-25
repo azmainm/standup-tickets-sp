@@ -15,15 +15,18 @@
     "cleanup:old-vector-db": "node scripts/migrateToMongoEmbeddings.js cleanup",
     "test:vector-db": "node tests/testVectorDB.js",
     "test:fake-flow": "node tests/testFakeFlow.js",
-    "test:real-flow": "node tests/testRealFlow.js"
+    "test:real-flow": "node tests/testRealFlow.js",
+    "fetch:yesterday": "node scripts/fetchYesterdayTranscripts.js"
   },
   "engines": {
     "node": "18"
   },
   "main": "index.js",
   "dependencies": {
+    "@langchain/core": "^0.3.77",
     "@langchain/mongodb": "^0.1.0",
     "@langchain/openai": "^0.6.12",
+    "@langchain/textsplitters": "^0.1.0",
     "dotenv": "^16.3.1",
     "faiss-node": "^0.5.1",
     "firebase-admin": "^13.4.0",

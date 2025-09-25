@@ -20,7 +20,7 @@ require("dotenv").config();
 // Initialize OpenAI client using LangChain (same as transcript-chat)
 const llm = new ChatOpenAI({
   modelName: 'gpt-5-nano',
-  max_output_tokens: 4000,
+  max_output_tokens: 2000,
   reasoning: { effort: 'medium' },
   verbosity: "medium",
 });
@@ -110,12 +110,36 @@ async function findTasksFromTranscript(transcript, context = {}) {
       qualityMetric: averageDescriptionLength > 150 ? "high" : averageDescriptionLength > 100 ? "medium" : "low"
     });
 
+    // Separate tasks into tasksToBeCreated and tasksToBeUpdated arrays
+    const tasksToBeCreated = foundTasks.filter(task => task.category === 'NEW_TASK').map(task => ({
+      description: task.description,
+      assignee: task.assignee,
+      type: task.type,
+      evidence: task.evidence,
+      context: task.context,
+      urgency: task.urgency,
+      isFuturePlan: task.isFuturePlan
+    }));
+
+    const tasksToBeUpdated = foundTasks.filter(task => task.category === 'UPDATE_TASK' && task.ticketId !== 'NONE').map(task => ({
+      description: task.description,
+      assignee: task.assignee,
+      ticketId: task.ticketId,
+      evidence: task.evidence,
+      context: task.context,
+      urgency: task.urgency
+    }));
+
     return {
       success: true,
       stage: 1,
-      foundTasks,
+      foundTasks, // Keep original for backward compatibility
+      tasksToBeCreated,
+      tasksToBeUpdated,
       metadata: {
         totalTasks,
+        tasksToBeCreated: tasksToBeCreated.length,
+        tasksToBeUpdated: tasksToBeUpdated.length,
         averageDescriptionLength,
         tokensUsed: response.usage_metadata?.total_tokens || 'unknown',
         processedAt: new Date().toISOString(),
@@ -190,12 +214,20 @@ function createTaskFindingPrompt(transcriptText, context) {
 - Capture the full scope of what needs to be done
 
 **2. COMPREHENSIVE DESCRIPTION GATHERING**:
-- For each task, gather ALL related information from the transcript
-- Include background context, technical details, and requirements
-- Connect scattered information that relates to the same work item
-- Preserve conversation flow and reasoning
-- For NEW_TASK: Capture complete requirements, context, and any technical details mentioned
-- For UPDATE_TASK: Extract the full update context, what specifically is being changed/added
+- For each task, gather ALL related information from the ENTIRE transcript
+- Include background context, technical details, and requirements from ALL mentions
+- Connect scattered information that relates to the same work item across different timestamps
+- Preserve conversation flow and reasoning from multiple discussion points
+- For NEW_TASK: 
+  * Capture initial requirements from first mention
+  * Include ANY additional details, features, or context mentioned later in the conversation
+  * Combine all related discussions about the same task into comprehensive description
+  * Include technical specifications, UI/UX requirements, integration needs mentioned anywhere
+- For UPDATE_TASK: 
+  * Extract ALL update contexts from every mention of the ticket number
+  * Include progress reports, new requirements, technical additions mentioned throughout
+  * Capture any clarifications, scope changes, or additional features discussed
+  * Combine multiple update mentions into comprehensive update description
 
 **3. WORK ITEM CLASSIFICATION (CRITICAL)**:
 
@@ -249,24 +281,38 @@ When found:
 - Mark as NEW_TASK category
 - Include [IS_FUTURE_PLAN: true] in CONTEXT field
 
-**6. ASSIGNEE DETECTION**:
+**6. CONTEXT GATHERING STRATEGY**:
+- Scan the ENTIRE transcript for ALL mentions of each identified task
+- For SP-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
+- For new tasks: Find the initial mention AND any subsequent elaborations or additions
+- Combine information from multiple speakers if they discuss the same task
+- Include all technical details, requirements, and context mentioned anywhere in the transcript
+- Capture task evolution - how requirements or scope might change during discussion
+
+**7. ASSIGNEE DETECTION**:
 - "for me" / "my task" / "I will" = assign to speaker
 - "for [Name]" / "[Name] will" / "[Name] should" = assign to that person
 - "task for [Name] who isn't here" = assign to that person (not TBD)
 - Future plans without specific assignee = assign to "TBD"
 
 **OUTPUT FORMAT**:
-For each task found, provide:
-\`\`\`
-TASK: [BRIEF task summary - just the core action, detailed description will be generated later using full transcript context]
+For each task found, provide EXACTLY this format (DO NOT use bullet points or dashes):
+
+TASK: [CLEAN, short task summary - NO prefixes like "NEW_TASK", "Purpose:", "Create a task" - just the core deliverable like "Email notification system" or "Mobile expense tracker"]
 ASSIGNEE: [Person assigned or TBD]
 TYPE: [Coding/Non-Coding]
 CATEGORY: [NEW_TASK or UPDATE_TASK]
 TICKET_ID: [SP-XXX if mentioned for updates, or "NONE" for new tasks]
-EVIDENCE: [Specific quote from transcript]
-CONTEXT: [Brief context and WHY this task is needed. Include [IS_FUTURE_PLAN: true] if this is a future plan]
+EVIDENCE: [ALL specific quotes from transcript related to this task - include quotes from every mention throughout the meeting]
+CONTEXT: [Comprehensive context combining ALL discussions about this task - include initial mention, elaborations, technical details, and any additional requirements. Include [IS_FUTURE_PLAN: true] if this is a future plan]
 URGENCY: [Any timeline mentioned]
-\`\`\`
+
+**CRITICAL FORMATTING RULES**:
+1. Start each field with the field name followed by a colon (no bullet points, no dashes)
+2. Each field should be on its own line
+3. For the TASK field, write ONLY the core deliverable/system/feature name
+4. Examples of GOOD TASK names: "Email notification system", "Mobile expense tracker", "Blue navigation menu"
+5. Examples of BAD TASK names: "NEW_TASK - Email notification system", "Purpose: Implement an email notification", "Create a task for email notifications"
 
 **CRITICAL**: Properly classify each item as NEW_TASK or UPDATE_TASK based on whether a ticket number is mentioned.
 
@@ -334,15 +380,18 @@ function parseTaskFinderResponse(response) {
   for (const line of lines) {
     const trimmed = line.trim();
     
-    if (trimmed.startsWith("TASK:")) {
+    if (trimmed.startsWith("TASK:") || trimmed.startsWith("- TASK:")) {
       // Save previous task if exists
       if (currentTask && currentTask.description) {
         tasks.push(currentTask);
       }
       
       // Start new task
+      const taskText = trimmed.startsWith("- TASK:") ? 
+        trimmed.replace("- TASK:", "").trim() : 
+        trimmed.replace("TASK:", "").trim();
       currentTask = {
-        description: trimmed.replace("TASK:", "").trim(),
+        description: taskText,
         assignee: "Unknown",
         type: "Non-Coding",
         category: "NEW_TASK", // Default to new task
@@ -355,30 +404,30 @@ function parseTaskFinderResponse(response) {
         stage: 1
       };
     } else if (currentTask) {
-      if (trimmed.startsWith('ASSIGNEE:')) {
+      if (trimmed.startsWith('ASSIGNEE:') || trimmed.startsWith('  ASSIGNEE:')) {
         // Clean assignee name to remove any extra text like "(not present)"
-        const rawAssignee = trimmed.replace('ASSIGNEE:', '').trim();
+        const rawAssignee = trimmed.replace(/^\s*ASSIGNEE:\s*/, '').trim();
         currentTask.assignee = rawAssignee.replace(/\s*\([^)]*\)\s*/g, '').trim();
-      } else if (trimmed.startsWith('TYPE:')) {
-        const type = trimmed.replace('TYPE:', '').trim();
+      } else if (trimmed.startsWith('TYPE:') || trimmed.startsWith('  TYPE:')) {
+        const type = trimmed.replace(/^\s*TYPE:\s*/, '').trim();
         currentTask.type = type.includes('Coding') ? 'Coding' : 'Non-Coding';
-      } else if (trimmed.startsWith('CATEGORY:')) {
-        const category = trimmed.replace('CATEGORY:', '').trim();
+      } else if (trimmed.startsWith('CATEGORY:') || trimmed.startsWith('  CATEGORY:')) {
+        const category = trimmed.replace(/^\s*CATEGORY:\s*/, '').trim();
         currentTask.category = category.includes('UPDATE_TASK') ? 'UPDATE_TASK' : 'NEW_TASK';
-      } else if (trimmed.startsWith('TICKET_ID:')) {
-        const ticketId = trimmed.replace('TICKET_ID:', '').trim();
+      } else if (trimmed.startsWith('TICKET_ID:') || trimmed.startsWith('  TICKET_ID:')) {
+        const ticketId = trimmed.replace(/^\s*TICKET_ID:\s*/, '').trim();
         currentTask.ticketId = ticketId === 'NONE' ? 'NONE' : ticketId;
-      } else if (trimmed.startsWith('EVIDENCE:')) {
-        currentTask.evidence = trimmed.replace('EVIDENCE:', '').trim();
-      } else if (trimmed.startsWith('CONTEXT:')) {
-        currentTask.context = trimmed.replace('CONTEXT:', '').trim();
+      } else if (trimmed.startsWith('EVIDENCE:') || trimmed.startsWith('  EVIDENCE:')) {
+        currentTask.evidence = trimmed.replace(/^\s*EVIDENCE:\s*/, '').trim();
+      } else if (trimmed.startsWith('CONTEXT:') || trimmed.startsWith('  CONTEXT:')) {
+        currentTask.context = trimmed.replace(/^\s*CONTEXT:\s*/, '').trim();
         // Check for future plan indicator in context
         if (currentTask.context.includes('[IS_FUTURE_PLAN: true]')) {
           currentTask.isFuturePlan = true;
           currentTask.assignee = 'TBD'; // Force assignee to TBD for future plans
         }
-      } else if (trimmed.startsWith('URGENCY:')) {
-        currentTask.urgency = trimmed.replace('URGENCY:', '').trim();
+      } else if (trimmed.startsWith('URGENCY:') || trimmed.startsWith('  URGENCY:')) {
+        currentTask.urgency = trimmed.replace(/^\s*URGENCY:\s*/, '').trim();
       }
     }
   }

@@ -18,6 +18,9 @@ const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCur
 // const { testJiraConnection, getProjectInfo } = require("../services/jiraService"); // Removed from main flow
 const { getBangladeshTimeComponents } = require("../services/meetingUrlService");
 const { getEmbeddingStatistics } = require("../services/mongoEmbeddingService");
+const { testTranscriptEmbeddingService } = require("../services/transcriptEmbeddingService");
+const { testRAGService } = require("../services/ragService");
+const { testLocalEmbeddingCache } = require("../services/localEmbeddingCache");
 // Vector service removed - system now uses MongoDB embeddings only
 
 /**
@@ -134,6 +137,33 @@ async function testCompleteFlow() {
   } catch (error) {
     console.log(`   ⚠️ MongoDB Embeddings warning: ${error.message}`);
     console.log("   📝 MongoDB embeddings enabled - stored for future use (no similarity search)");
+  }
+
+  console.log("   📄 Testing Transcript Embedding Service...");
+  const transcriptEmbeddingTest = await testTranscriptEmbeddingService();
+  if (!transcriptEmbeddingTest) {
+    console.warn("   ⚠️  Transcript Embedding Service test failed");
+    console.log("   ℹ️  RAG functionality may be impaired");
+  } else {
+    console.log("   ✅ Transcript Embedding Service working");
+  }
+
+  console.log("   🔗 Testing RAG Service...");
+  const ragTest = await testRAGService();
+  if (!ragTest) {
+    console.warn("   ⚠️  RAG Service test failed");
+    console.log("   ℹ️  Task enhancement may fall back to basic descriptions");
+  } else {
+    console.log("   ✅ RAG Service working");
+  }
+
+  console.log("   💾 Testing Local Embedding Cache...");
+  const localCacheTest = await testLocalEmbeddingCache();
+  if (!localCacheTest) {
+    console.warn("   ⚠️  Local Embedding Cache test failed");
+    console.log("   ℹ️  Scoped RAG may fall back to global search");
+  } else {
+    console.log("   ✅ Local Embedding Cache working");
   }
   
   console.log("   🍃 Testing MongoDB connection...");
@@ -346,8 +376,8 @@ async function testCompleteFlow() {
         
         // Show OpenAI processing details
         console.log("\n   🤖 Sample OpenAI Processing:");
-        console.log(`      - Model: ${firstSuccessfulResult.taskResult.processing?.metadata?.model || 'N/A'}`);
-        console.log(`      - Tokens used: ${firstSuccessfulResult.taskResult.processing?.metadata?.tokensUsed || 'N/A'}`);
+        console.log(`      - Pipeline Version: ${firstSuccessfulResult.taskResult.summary?.pipelineUsed || 'N/A'}`);
+        console.log(`      - Processing Duration: ${firstSuccessfulResult.taskResult.processing?.duration || 'N/A'}s`);
         
         // Show MongoDB task storage details
         console.log("\n   🍃 Sample MongoDB Task Storage:");

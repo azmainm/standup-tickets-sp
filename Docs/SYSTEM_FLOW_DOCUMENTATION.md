@@ -7,38 +7,38 @@ The Standup Tickets SP system has been completely re-architected with a **3-Stag
 1. **🆕 All Meetings Approach** - Fetches all meetings for a user on a specific date (PRIMARY)
 2. **🔄 Legacy Approach** - Fetches transcript from specific meeting URLs (FALLBACK/BACKWARD COMPATIBLE)
 
-### ✨ NEW: Enhanced 3-Stage Pipeline Architecture (Version 8.0)
+### ✨ NEW: RAG-Enhanced 3-Stage Pipeline Architecture (Version 9.0)
 
-The system now features a **modern 3-stage processing pipeline** with strict task creation rules and Atlas Vector Search:
+The system now features a **RAG-enhanced 3-stage processing pipeline** with transcript embeddings and scoped context retrieval:
 
-1. **🔍 Stage 1: Task Finder** - Pure extraction with **strict creation rules** - only when explicitly requested
-2. **📝 Stage 2: Task Creator** - Creates new tasks + generates **Atlas Vector Search embeddings**
-3. **🔄 Stage 3: Task Updater** - Updates existing tasks + maintains **embedding consistency**
+1. **🔍 Stage 1: Task Finder** - Comprehensive context gathering from ENTIRE transcript
+2. **📝 Stage 2: Task Creator** - RAG-enhanced creation with individual context retrieval per task
+3. **🔄 Stage 3: Task Updater** - RAG-enhanced updates with scoped transcript context
 
 **Key Benefits:**
-- **Quality**: 3-5x longer task descriptions with full context
-- **Accuracy**: Separate specialized prompts using **gpt-5-nano**
-- **Reliability**: Strict task creation prevents false positives
-- **Modern**: **MongoDB Atlas Vector Search** with `text-embedding-3-small`
-- **Consistent**: Same embedding approach as transcript-chat system
-- **Performance**: Dedicated `task_embeddings` collection for vector operations
+- **Quality**: RAG-enhanced descriptions with comprehensive transcript context
+- **Accuracy**: Individual RAG calls per task/update using **gpt-5-nano**  
+- **Professional Titles**: Clean, artifact-free task titles (3-5 words)
+- **Scoped Context**: Local embedding cache prioritizes current transcript
+- **Modern**: **Dual embedding system** - transcript + task embeddings
+- **Performance**: **LangChain integration** with MongoDB Atlas Vector Search
 
-### MongoDB Atlas Vector Search (Version 8.0)
+### RAG System Enhancement (Version 9.0)
 
-The system now uses **MongoDB Atlas Vector Search** for modern embedding capabilities:
+The system now uses **RAG (Retrieval-Augmented Generation)** with dual embedding systems:
 
-1. **🚀 Atlas Vector Search** - Dedicated `task_embeddings` collection with vector index
-2. **🔄 Modern Embeddings** - Using `text-embedding-3-small` model for improved quality
-3. **📊 Consistent Approach** - Same method as transcript-chat system
-4. **⚡ Real-time Updates** - Embeddings updated when tasks change via any method
-5. **🎯 Admin Panel Integration** - Full embedding support for manual operations
+1. **🧠 Transcript Embeddings** - Generated for every transcript using `text-embedding-3-small`
+2. **🎯 Local Embedding Cache** - Temporary storage for scoped RAG searches during processing
+3. **🔍 Individual RAG Calls** - Separate context retrieval per task creation/update
+4. **📊 Dual Collection System** - `transcript_embeddings` + `task_embeddings`
+5. **🚀 LangChain Integration** - Modern RAG chains with ChatOpenAI and prompt templates
 
 **Current Benefits:**
-- **Modern Infrastructure**: Latest MongoDB Atlas vector search capabilities
-- **Better Performance**: Dedicated collection optimized for vector operations
-- **Consistent Quality**: Same embedding model across all systems
-- **Future Ready**: Advanced similarity search capabilities available
-- **Space Efficient**: Embeddings no longer stored in task documents
+- **Rich Context**: Every task gets comprehensive transcript context via RAG
+- **Scoped Search**: Local embeddings prioritize current meeting context
+- **Professional Output**: Clean titles and artifact-free descriptions
+- **Automatic Cleanup**: Temporary embeddings cleaned after processing
+- **Future Ready**: Advanced context-aware task processing
 
 ## System Architecture
 
@@ -82,17 +82,18 @@ The system now uses **MongoDB Atlas Vector Search** for modern embedding capabil
                                  │
                                  ▼
     ┌─────────────────────────────────────────────────────────────┐
-    │        ✨ MODERN Processing Steps (Per Transcript)          │
+    │        ✨ RAG-ENHANCED Processing Steps (Per Transcript)    │
     ├─────────────────────────────────────────────────────────────┤
     │  1. 📁 Store Raw Transcript in MongoDB                     │
-    │  2. 🔍 Stage 1: Task Finder (Strict Creation Rules)        │
-    │  3. 📝 Stage 2: Task Creator + Atlas Vector Embeddings    │
-    │  4. 🔄 Stage 3: Task Updater + Embedding Updates          │
-    │  5. 💾 Store New Tasks in MongoDB                          │
-    │  6. 🚀 Generate/Update Atlas Vector Search Embeddings     │
-    │  7. ⏭️  Jira Integration Skipped (Removed from Main Flow)  │
-    │  8. 📢 Send Teams Notification (THIS TRANSCRIPT)           │
-    │  9. 📁 Save Backup Files                                   │
+    │  2. 🧠 Generate Transcript Embeddings (Local + MongoDB)    │
+    │  3. 🔍 Stage 1: Task Finder (Comprehensive Context)        │
+    │  4. 📝 Stage 2: Task Creator (Individual RAG calls)        │
+    │  5. 🔄 Stage 3: Task Updater (Individual RAG calls)        │
+    │  6. 💾 Store New Tasks with Professional Titles           │
+    │  7. 🚀 Generate/Update Atlas Vector Search Embeddings     │
+    │  8. 🧹 Clean Up Local Embedding Cache                     │
+    │  9. 📢 Send Teams Notification (Titles, not descriptions) │
+    │  10. 📁 Save Backup Files                                  │
     └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -133,7 +134,7 @@ if (process.env.TARGET_USER_ID) {
 Each transcript undergoes a specialized 3-stage processing pipeline that replaces the previous monolithic OpenAI approach:
 
 #### Stage 1: Task Finder 🔍
-**Purpose**: Pure extraction of actionable tasks with maximum detail and context
+**Purpose**: Comprehensive context gathering and task extraction from ENTIRE transcript
 
 **Role Identity**: Scrum Task Finder
 - **Epistemic stance**: Analytical, Evidence-oriented, Context-aware
@@ -141,63 +142,68 @@ Each transcript undergoes a specialized 3-stage processing pipeline that replace
 - **Values**: Clarity, Accuracy
 - **Domain**: Task Recognition, Knowledge Structuring, Information Extraction
 
-**Process**:
+**Enhanced Process**:
 1. **Evidence-Based Extraction**: Identifies explicit work items mentioned in conversation
-2. **Comprehensive Description Gathering**: Collects ALL related information from transcript
-3. **Context Preservation**: Includes WHO, WHY, timeline, dependencies
-4. **Maximum Token Allocation**: 4000 tokens dedicated to detailed descriptions
+2. **ENTIRE Transcript Scanning**: Gathers ALL related information from every mention throughout the meeting
+3. **Context Combination**: Combines scattered information that relates to the same work item
+4. **Task Evolution Tracking**: Captures how requirements or scope change during discussion
+5. **Comprehensive Evidence**: Includes quotes from every mention of each task
 
-**Output**: Array of found tasks with rich descriptions (average 150-300 characters vs previous 50-100)
+**Output**: Structured arrays - `tasksToBeCreated` and `tasksToBeUpdated` with comprehensive context
 
 #### Stage 2: Task Creator 📝
-**Purpose**: Systematic identification of genuinely new tasks
+**Purpose**: RAG-enhanced task creation with professional titles and rich descriptions
 
-**Role Identity**: Task Creator
-- **Epistemic stance**: Systematic
-- **Communication style**: Clear, concise, structured, neutral
-- **Values**: Clarity, efficiency
-- **Domain**: Scrum
+**Role Identity**: Task Creator with RAG capabilities
+- **Epistemic stance**: Systematic, Context-aware
+- **Communication style**: Clear, professional, structured
+- **Values**: Quality, Clarity, Professional presentation
+- **Domain**: Scrum task creation with transcript context
 
-**Process**:
-1. **Direct Classification Trust**: Trust Task Finder's NEW_TASK classifications
-2. **Explicit ID Detection**: Check for task ID references (SP-XX format)  
-3. **Description Enhancement**: Generate detailed descriptions using context and evidence
-4. **Context Isolation**: Multi-transcript processing with baseline snapshots
+**RAG-Enhanced Process**:
+1. **Individual RAG Calls**: Separate context retrieval for each task in `tasksToBeCreated`
+2. **Scoped Context Search**: Prioritizes local transcript embeddings, falls back to global search
+3. **Professional Title Generation**: Creates clean, artifact-free 3-5 word titles
+4. **Rich Description Creation**: Uses RAG context to generate comprehensive task descriptions
+5. **Quality Assurance**: Removes prefixes like "Purpose:", "NEW_TASK", etc.
 
-**Output**: Filtered list of genuinely new tasks to create
+**Output**: New tasks with professional titles, RAG-enhanced descriptions, and scoping metadata
 
 #### Stage 3: Task Updater 🔄
-**Purpose**: Enhancement of existing tasks with new information
+**Purpose**: RAG-enhanced task updates with comprehensive context and date tracking
 
-**Role Identity**: Task Updater (same as Task Creator)
-- **Epistemic stance**: Systematic
-- **Communication style**: Clear, concise, structured, neutral
-- **Values**: Clarity, efficiency
-- **Domain**: Scrum
+**Role Identity**: Task Updater with RAG capabilities  
+- **Epistemic stance**: Systematic, Context-aware
+- **Communication style**: Clear, professional, structured
+- **Values**: Comprehensive updates, Date tracking, Professional presentation
+- **Domain**: Scrum task updates with transcript context
 
-**Process**:
-1. **Explicit Reference Processing**: Process only tasks with explicit ticket IDs from Task Finder
-2. **Status Change Detection**: Identify task status transitions using regex patterns
-3. **Description Enhancement**: Combine description, context, and evidence without additional GPT calls
-4. **Direct Updates**: Apply updates immediately without similarity search decisions
+**RAG-Enhanced Process**:
+1. **Individual RAG Calls**: Separate context retrieval for each task in `tasksToBeUpdated`
+2. **Scoped Context Search**: Uses current transcript embeddings for relevant update context
+3. **Date-Prefixed Updates**: Adds date stamps in format "(DD/MM/YYYY): description update"
+4. **Status Change Detection**: Identify task status transitions using regex patterns
+5. **Comprehensive Updates**: Combines all context and evidence into professional updates
 
-**Output**: Task updates and status changes to apply
+**Output**: RAG-enhanced task updates with date prefixes and comprehensive context
 
 #### Pipeline Flow Diagram
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │  🔍 STAGE 1     │    │  📝 STAGE 2     │    │  🔄 STAGE 3     │
 │   Task Finder   │───▶│  Task Creator   │───▶│  Task Updater   │
-│                 │    │                 │    │                 │
-│ Extract all     │    │ Identify new    │    │ Update existing │
-│ actionable      │    │ tasks by        │    │ tasks with      │
-│ tasks with      │    │ trusting Task   │    │ explicit ticket │
-│ maximum detail  │    │ Finder labels   │    │ ID references   │
+│                 │    │     (RAG)       │    │     (RAG)       │
+│ Comprehensive   │    │ Individual RAG  │    │ Individual RAG  │
+│ context         │    │ calls per task  │    │ calls per update│
+│ gathering from  │    │ Professional    │    │ Date-prefixed   │
+│ ENTIRE transcript│    │ titles & rich   │    │ comprehensive   │
+│                 │    │ descriptions    │    │ updates         │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
         │                       │                       │
         ▼                       ▼                       ▼
- Found Tasks Array         New Tasks Array        Task Updates Array
-(8-15 tasks typically)   (2-5 tasks typically)   (1-3 updates typically)
+  tasksToBeCreated        RAG-Enhanced Tasks    RAG-Enhanced Updates
+  tasksToBeUpdated       (with professional     (with date prefixes
+  (structured arrays)     titles & context)     & full context)
 ```
 
 #### Multi-Transcript Context Isolation
@@ -538,15 +544,20 @@ If not configured:
 - Jira permission issues: Continue with task storage, log Jira failures
 - Network timeouts: Retry mechanisms with exponential backoff
 
-## Benefits of Current Architecture
+## Benefits of RAG-Enhanced Architecture
 
 1. **📈 Complete Coverage**: Captures all meetings, not just specific ones
-2. **🔄 Independent Processing**: Each meeting processed separately for reliability
+2. **🔄 Independent Processing**: Each meeting processed separately for reliability  
 3. **🛡️ Fault Tolerance**: Individual failures don't affect other transcripts
 4. **🔍 Detailed Visibility**: Per-meeting tracking and reporting
-5. **⚡ Real-time Notifications**: Immediate Teams updates per meeting
+5. **⚡ Real-time Notifications**: Immediate Teams updates per meeting with concise titles
 6. **🎯 Comprehensive Tracking**: Every team interaction captured and processed
 7. **📊 Rich Reporting**: Detailed metrics per meeting and overall
+8. **🧠 RAG Enhancement**: Every task gets comprehensive transcript context
+9. **🎯 Scoped Search**: Local embeddings prioritize current meeting context
+10. **👔 Professional Output**: Clean titles and artifact-free descriptions
+11. **📅 Date Tracking**: Updates include date prefixes for history tracking
+12. **🧹 Resource Management**: Automatic cleanup of temporary embeddings
 
 ## Migration Notes
 
@@ -572,13 +583,17 @@ If not configured:
 ### Database Structure
 - **MongoDB Collections**: 
   - `transcripts`: Raw transcript data with metadata
-  - `sptasks`: Processed tasks with ticket IDs and `lastModifiedAp` timestamps
+  - `transcript_embeddings`: **NEW** - Transcript embeddings for RAG context retrieval
+  - `sptasks`: Processed tasks with ticket IDs, professional titles, and `lastModifiedAp` timestamps
+  - `task_embeddings`: Task embeddings for Atlas Vector Search
   - `counters`: Ticket ID counter for SP-XX sequence
+- **✨ Local Embedding Cache**:
+  - In-memory storage for current transcript embeddings during processing
+  - Automatic cleanup after Teams notification sent
 - **✨ Vector Database (FAISS)**:
   - `functions/output/vector_db/task_embeddings.json`: Task embeddings storage
   - `functions/output/vector_db/faiss_index.index`: FAISS similarity search index
   - `functions/output/vector_db/metadata.json`: Task metadata for embeddings
-- **Jira Project**: Configured project with Task issue type
 - **Teams Channel**: Webhook-enabled channel for notifications
 
 ### Security

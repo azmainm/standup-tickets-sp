@@ -2,24 +2,26 @@
 
 This Firebase Functions project automatically fetches Microsoft Teams meeting transcripts for daily standups, processes them with a **3-Stage Pipeline** to extract actionable tasks with enhanced detail and context, and stores the results in MongoDB.
 
-## 🚀 NEW: 3-Stage Pipeline Architecture (Version 5.0)
+## 🚀 NEW: RAG-Enhanced 3-Stage Pipeline Architecture (Version 9.0)
 
-The system now features a **specialized 3-stage processing pipeline** that dramatically improves task extraction quality:
+The system now features a **RAG-enhanced 3-stage processing pipeline** with transcript embeddings and scoped context retrieval:
 
 ### Stage 1: Task Finder 🔍
-- **Purpose**: Pure extraction of actionable tasks with maximum detail and context
+- **Purpose**: Extract actionable tasks with comprehensive context gathering
 - **Role**: Scrum Task Finder (Analytical, Evidence-oriented, Context-aware)
-- **Output**: Rich task descriptions with full conversation context (3-5x longer descriptions)
+- **Output**: Structured arrays: `tasksToBeCreated` and `tasksToBeUpdated` with rich context
+- **Enhancement**: Gathers ALL related information from ENTIRE transcript for each task
 
 ### Stage 2: Task Creator 📝
-- **Purpose**: Systematic identification of genuinely new tasks
-- **Role**: Task Creator (Systematic, Clear, Neutral)
-- **Intelligence**: Direct trust of Task Finder classifications - no similarity search for decisions
+- **Purpose**: RAG-enhanced task creation with rich descriptions and professional titles
+- **Role**: Task Creator using transcript embeddings for context
+- **Intelligence**: Individual RAG calls per task for enhanced descriptions and clean titles
+- **Features**: Scoped embedding search prioritizing current transcript context
 
 ### Stage 3: Task Updater 🔄
-- **Purpose**: Enhancement of existing tasks with new information and status changes
-- **Role**: Task Updater (Systematic, Clear, Neutral)
-- **Features**: Explicit ticket ID updates only (e.g., "SP-123"), status change detection
+- **Purpose**: RAG-enhanced task updates with comprehensive context integration
+- **Role**: Task Updater using transcript embeddings for detailed updates
+- **Features**: Scoped RAG calls for each update with date-prefixed descriptions
 
 ## 🆕 All Meetings Support
 
@@ -28,16 +30,17 @@ The system supports **two approaches** for fetching transcripts:
 1. **🆕 All Meetings Approach** - Fetches ALL meetings for a user on a specific date (NEW)
 2. **🔄 Legacy Approach** - Fetches transcript from specific meeting URLs (existing, maintained for backward compatibility)
 
-## Latest Enhancement (Version 8.0) - Modern MongoDB Atlas Vector Search
+## Latest Enhancement (Version 9.0) - RAG-Enhanced Pipeline with Transcript Embeddings
 
-The system now uses **modern MongoDB Atlas Vector Search** with strict task creation rules:
+The system now uses **RAG (Retrieval-Augmented Generation)** with transcript embeddings for superior task processing:
 
-1. **🎯 Strict Task Creation** - Tasks only created when explicitly requested by participants
-2. **⚡ Atlas Vector Search** - Modern embedding approach using `text-embedding-3-small`
-3. **🔍 Enhanced 3-Stage Pipeline** - Improved Task Finder → Task Creator → Task Updater with `gpt-5-nano`
-4. **📊 Modern Embeddings** - Stored in dedicated `task_embeddings` collection for Atlas Vector Search
-5. **🔄 Admin Panel Integration** - Full integration with modern embedding generation
-6. **🚀 Migration Complete** - Seamless migration from old embedding approach to modern Atlas Vector Search
+1. **🧠 Transcript Embeddings** - Automatic embedding generation for every transcript using `text-embedding-3-small`
+2. **🎯 Scoped RAG Search** - Local embedding cache prioritizes current transcript context
+3. **🔍 RAG-Enhanced Pipeline** - Task Creator and Updater use RAG for rich, contextual descriptions
+4. **📊 Dual Embedding System** - Both transcript embeddings and task embeddings for comprehensive context
+5. **🔄 Professional Titles** - Clean, artifact-free task titles (3-5 words) via enhanced prompting
+6. **📅 Date-Prefixed Updates** - Task updates include date stamps for better history tracking
+7. **🚀 Local Cache Cleanup** - Automatic cleanup of temporary embeddings after processing
 
 See the [System Flow Documentation](../Docs/SYSTEM_FLOW_DOCUMENTATION.md) for complete technical details and real-world examples.
 
@@ -511,20 +514,23 @@ curl -X POST https://your-region-your-project.cloudfunctions.net/transcriptApi/f
 functions/
 ├── index.js                    # Main Firebase Functions entry point (🆕 ENHANCED)
 ├── services/
-│   ├── getTranscript.js        # Microsoft Graph API service (legacy approach)
-│   ├── allMeetingsService.js   # 🆕 NEW: All meetings fetching service
-│   ├── openaiService.js        # OpenAI GPT processing service (🚀 Now using gpt-5-nano)
-│   ├── mongoService.js         # MongoDB storage service (🚀 Atlas Vector Search integrated)
-│   ├── embeddingService.js     # 🚀 NEW: Modern Atlas Vector Search service
-│   ├── taskFinderService.js    # 🚀 NEW: Enhanced Task Finder (Stage 1)
-│   ├── taskCreatorService.js   # 🚀 NEW: Enhanced Task Creator (Stage 2)
-│   ├── taskUpdaterService.js   # 🚀 NEW: Enhanced Task Updater (Stage 3)
-│   ├── jiraService.js          # Jira API integration service
-│   ├── teamsService.js         # Microsoft Teams webhook integration
-│   ├── taskProcessor.js        # Task processing orchestration (🚀 3-Stage Pipeline)
-│   ├── taskMatcher.js          # Task matching and similarity detection
-│   ├── meetingUrlService.js    # Meeting URL selection service
-│   └── mongoEmbeddingService.js # Legacy embedding service (deprecated)
+│   ├── getTranscript.js            # Microsoft Graph API service (legacy approach)
+│   ├── allMeetingsService.js       # 🆕 NEW: All meetings fetching service
+│   ├── openaiService.js            # OpenAI GPT processing service (🚀 3-Stage Pipeline Orchestrator)
+│   ├── mongoService.js             # MongoDB storage service (🚀 Transcript & Task storage)
+│   ├── embeddingService.js         # 🚀 Task embeddings service (Atlas Vector Search)
+│   ├── transcriptEmbeddingService.js # 🚀 NEW: Transcript embeddings for RAG
+│   ├── ragService.js               # 🚀 NEW: RAG system with LangChain integration
+│   ├── localEmbeddingCache.js      # 🚀 NEW: Local embedding cache for scoped RAG
+│   ├── taskFinderService.js        # 🚀 Enhanced Task Finder (Stage 1) - Context gathering
+│   ├── taskCreatorService.js       # 🚀 RAG-Enhanced Task Creator (Stage 2)
+│   ├── taskUpdaterService.js       # 🚀 RAG-Enhanced Task Updater (Stage 3)
+│   ├── jiraService.js              # Jira API integration service
+│   ├── teamsService.js             # Microsoft Teams webhook integration
+│   ├── taskProcessor.js            # Task processing orchestration (🚀 RAG Pipeline)
+│   ├── taskMatcher.js              # Task matching and similarity detection
+│   ├── meetingUrlService.js        # Meeting URL selection service
+│   └── mongoEmbeddingService.js    # Legacy embedding service (deprecated)
 ├── scripts/
 │   ├── removeEmbeddingsFromTasks.js    # 🚀 NEW: Remove old embeddings from tasks
 │   ├── generateTaskEmbeddings.js       # 🚀 NEW: Generate Atlas Vector Search embeddings
@@ -574,18 +580,20 @@ functions/
 
 For EACH transcript:
 5. **Raw Transcript Storage**: Store complete transcript in MongoDB 'transcripts' collection
-6. **AI Processing**: Send transcript through Enhanced 3-Stage Pipeline with `gpt-5-nano`:
-   - **Stage 1**: Task Finder extracts actionable tasks with strict creation rules - only when participants explicitly request task creation
-   - **Stage 2**: Task Creator creates new tasks + generates Atlas Vector Search embeddings using `text-embedding-3-small`
-   - **Stage 3**: Task Updater processes explicit ticket ID references and status changes + updates embeddings
+6. **RAG-Enhanced Pipeline Processing**: Process through RAG-enhanced 3-Stage Pipeline:
+   - **Transcript Embeddings**: Generate embeddings for current transcript and store locally for scoped RAG
+   - **Stage 1**: Task Finder extracts tasks with comprehensive context gathering from ENTIRE transcript
+   - **Stage 2**: Task Creator uses individual RAG calls per task for rich descriptions and clean titles
+   - **Stage 3**: Task Updater uses RAG-enhanced updates with date-prefixed descriptions and scoped context
 7. **Database Context**: Retrieve active tasks for comparison and updates
 8. **Task Updates**: Apply updates for explicit ticket ID references
    - Append new information to existing task descriptions with date stamps
    - Apply status changes detected from transcript patterns
    - Only update tasks explicitly mentioned by ticket ID
-9. **New Task Storage**: Store new tasks in MongoDB 'sptasks' collection with unique SP-XX IDs
+9. **New Task Storage**: Store new tasks in MongoDB 'sptasks' collection with unique SP-XX IDs and professional titles
+10. **🧹 Local Cache Cleanup**: Clean up temporary transcript embeddings after Teams notification
 11. **📢 Teams Notification**: Send summary to Teams channel for THIS transcript (if webhook configured)
-    - Generate summary of new and updated tasks from this specific meeting
+    - Generate summary using task titles (not full descriptions) for concise messaging
     - Format with participant breakdown and ticket IDs
     - Send immediately after processing this transcript
 12. **Local Backup**: Save transcript to local file for reference
@@ -683,30 +691,42 @@ Each document in the 'sptasks' collection follows this structure with **unique t
 }
 ```
 
-#### Task Embeddings Collection ('task_embeddings') - NEW in Version 8.0
+#### Task Embeddings Collection ('task_embeddings') - Enhanced in Version 9.0
 Each document in the 'task_embeddings' collection stores embeddings for MongoDB Atlas Vector Search:
+
+#### Transcript Embeddings Collection ('transcript_embeddings') - NEW in Version 9.0
+Each document in the 'transcript_embeddings' collection stores embeddings for RAG-enhanced processing:
 ```json
 {
   "_id": "ObjectId(...)",
-  "taskId": "SP-1",
-  "participantName": "Azmain Morshed",
-  "type": "task_content",
-  "status": "To-do",
+  "transcriptId": "6748b2f8a1c2d3e4f5g6h7i8",
+  "meetingId": "MSo1MGE2NjM5NS1mMzFiLTRkZWUtYTQ1ZS1lZjQxZjM5MjBjOWI",
+  "date": "2025-09-25",
   "chunkIndex": 0,
-  "totalChunks": 1,
-  "content": "Integrate Teams for task forwarding\n\nIntegrate Teams for task forwarding...",
+  "chunkTotal": 15,
+  "content": "Azmain Morshed: We need to implement the email notification system for task updates...",
   "embedding": [0.123, -0.456, 0.789, ...], // 1536-dimensional vector
-  "contentHash": "373db3156619bde83c94b364f221cf4d97d2a31d0f29134f1fe8d7b4362ff415",
+  "contentHash": "a1b2c3d4e5f6789012345678901234567890abcdef",
   "metadata": {
-    "title": "Integrate Teams for task forwarding",
-    "type": "Coding",
-    "isFuturePlan": false,
-    "source": "task_creator"
+    "transcriptId": "6748b2f8a1c2d3e4f5g6h7i8",
+    "meetingId": "MSo1MGE2NjM5NS1mMzFiLTRkZWUtYTQ1ZS1lZjQxZjM5MjBjOWI",
+    "date": "2025-09-25",
+    "chunkIndex": 0,
+    "chunkTotal": 15
   },
-  "createdAt": "2025-09-17T08:25:33.456Z",
-  "updatedAt": "2025-09-17T08:25:33.456Z"
+  "createdAt": "2025-09-25T08:25:33.456Z"
 }
 ```
+
+**Transcript Embedding Fields Explanation:**
+- `transcriptId`: Links to the transcript in transcripts collection
+- `meetingId`: Microsoft Teams meeting identifier for cross-referencing
+- `date`: Date of the meeting/transcript
+- `chunkIndex/chunkTotal`: For large transcripts split into manageable chunks
+- `content`: The actual transcript text chunk that was embedded
+- `embedding`: 1536-dimensional vector using `text-embedding-3-small`
+- `contentHash`: SHA-256 hash for detecting content changes
+- `metadata`: Additional transcript information for filtering and RAG queries
 
 **Embedding Fields Explanation:**
 - `taskId`: Links to the task in sptasks collection (e.g., SP-1, SP-2)

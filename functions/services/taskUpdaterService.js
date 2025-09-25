@@ -28,44 +28,40 @@ const llm = new ChatOpenAI({
 
 
 /**
- * Stage 3: Update existing tasks with new information
+ * Stage 3: Update existing tasks with new information using RAG
  * @param {Array} foundTasks - Tasks from Stage 1 (Task Finder)
  * @param {Array} skippedTasks - Tasks not created in Stage 2
  * @param {Array} existingTasks - Current active tasks in database
+ * @param {Array} tasksToBeUpdated - Structured array from Task Finder
  * @param {Array} transcript - Original transcript for status change detection
  * @param {Object} context - Processing context
  * @returns {Promise<Object>} Task updates to be applied
  */
-async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, transcript, context = {}) {
+async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tasksToBeUpdated, transcript, context = {}) {
   try {
-    // Filter for tasks marked as UPDATE_TASK by Task Finder
-    const updateTasksFromFinder = foundTasks.filter(task => 
-      task.category === "UPDATE_TASK" && task.ticketId !== "NONE"
-    );
+    const { taskRAG } = require("./ragService");
     
-    console.log("[DEBUG] Task Updater filtering:", {
-      totalFound: foundTasks.length,
-      updateTasks: updateTasksFromFinder.length,
-      ticketIds: updateTasksFromFinder.map(t => t.ticketId)
-    });
-    
-    logger.info("Starting Stage 3: Task Updater", {
-      foundTasksCount: foundTasks.length,
-      updateTasksFromFinder: updateTasksFromFinder.length,
-      skippedTasksCount: skippedTasks.length,
+    logger.info("Starting Stage 3: Task Updater with RAG enhancement", {
+      tasksToBeUpdated: tasksToBeUpdated.length,
       existingTasksCount: existingTasks.length,
       transcriptIndex: context.transcriptIndex || 1,
       isMultiTranscript: Boolean(context.isMultiTranscript),
       timestamp: new Date().toISOString(),
     });
 
+    console.log("[DEBUG] Task Updater with RAG:", {
+      tasksToUpdate: tasksToBeUpdated.length,
+      existingTasks: existingTasks.length,
+      ticketIds: tasksToBeUpdated.map(t => t.ticketId)
+    });
+
     const taskUpdates = [];
     const statusChanges = [];
 
-    // Detect status changes from transcript
+    // Detect status changes from transcript first
     const detectedStatusChanges = detectStatusChangesFromTranscript(transcript);
     
-    // Process status changes first
+    // Process status changes
     for (const statusChange of detectedStatusChanges) {
       const existingTask = existingTasks.find(task => 
         task.ticketId === statusChange.taskId
@@ -83,51 +79,166 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tran
       }
     }
 
-    // Process skipped tasks (these might be updates to existing tasks)
-    // Process UPDATE_TASK items from Task Finder (direct ticket ID lookup)
-    for (const updateTask of updateTasksFromFinder) {
+    // Process task updates using RAG for each individual task
+    for (let i = 0; i < tasksToBeUpdated.length; i++) {
+      const taskToUpdate = tasksToBeUpdated[i];
+      
+      logger.info(`Updating task ${i + 1}/${tasksToBeUpdated.length} with RAG`, {
+        ticketId: taskToUpdate.ticketId,
+        description: taskToUpdate.description.substring(0, 100),
+        assignee: taskToUpdate.assignee
+      });
+
+      console.log("[DEBUG] Processing task update with RAG:", {
+        index: i + 1,
+        total: tasksToBeUpdated.length,
+        ticketId: taskToUpdate.ticketId,
+        description: taskToUpdate.description.substring(0, 100)
+      });
+
+      // Find the existing task in database
       const existingTask = existingTasks.find(task => 
-        task.ticketId === updateTask.ticketId
+        task.ticketId === taskToUpdate.ticketId
       );
       
-      if (existingTask) {
-        console.log(`[DEBUG] Updating task ${updateTask.ticketId} directly from Task Finder`);
+      if (!existingTask) {
+        logger.warn(`Task ${taskToUpdate.ticketId} not found in database for update`);
+        console.log(`[DEBUG] Task ${taskToUpdate.ticketId} not found in database for update`);
+        continue;
+      }
+
+      try {
+        // Use RAG to enhance task update with full context
+        const ragResult = await taskRAG.updateTaskWithRAG({
+          ticketId: taskToUpdate.ticketId,
+          currentDescription: existingTask.description || existingTask.text,
+          updateInfo: taskToUpdate.description,
+          evidence: taskToUpdate.evidence,
+          additionalContext: taskToUpdate.context
+        }, {
+          topK: 5,
+          scoreThreshold: 0.7
+        });
+
+        if (ragResult.success) {
+          const ragEnhancedUpdate = {
+            taskId: taskToUpdate.ticketId,
+            originalDescription: existingTask.description || existingTask.text,
+            newInformation: ragResult.updatedDescription,
+            updateType: ragResult.updateType || "RAG_ENHANCEMENT",
+            updateSource: "TASK_UPDATER_RAG",
+            confidence: ragResult.confidence === 'high' ? 1.0 : ragResult.confidence === 'medium' ? 0.8 : 0.6,
+            evidence: taskToUpdate.evidence,
+            speaker: taskToUpdate.assignee,
+            context: taskToUpdate.context,
+            timestamp: new Date().toISOString(),
+            ragEnhanced: true,
+            ragSources: ragResult.ragSources || [],
+            ragReasoning: ragResult.reasoning,
+            ragUpdateSummary: ragResult.updateSummary,
+            ragScoped: ragResult.isScoped || false,
+            ragScopedToTranscript: ragResult.scopedToTranscript,
+            updatedTaskData: {
+              ...existingTask,
+              description: ragResult.updatedDescription,
+              participantName: existingTask.participantName,
+              type: existingTask.type || 'Non-Coding',
+              status: existingTask.status || 'To-do'
+            }
+          };
+
+          taskUpdates.push(ragEnhancedUpdate);
+
+          console.log("[DEBUG] Task Updater RAG - SUCCESS:", {
+            ticketId: taskToUpdate.ticketId,
+            originalLength: existingTask.description ? existingTask.description.length : 0,
+            updatedLength: ragResult.updatedDescription.length,
+            updateType: ragResult.updateType,
+            confidence: ragResult.confidence,
+            sourcesUsed: ragResult.ragSources ? ragResult.ragSources.length : 0,
+            isScoped: ragResult.isScoped,
+            scopedToTranscript: ragResult.scopedToTranscript
+          });
+        } else {
+          // Fallback to basic update if RAG fails
+          const basicUpdate = generateDetailedUpdateDescription(taskToUpdate);
+          
+          const basicTaskUpdate = {
+            taskId: taskToUpdate.ticketId,
+            originalDescription: existingTask.description || existingTask.text,
+            newInformation: basicUpdate,
+            updateType: "BASIC_UPDATE",
+            updateSource: "TASK_UPDATER_BASIC",
+            confidence: 0.7,
+            evidence: taskToUpdate.evidence,
+            speaker: taskToUpdate.assignee,
+            context: taskToUpdate.context,
+            timestamp: new Date().toISOString(),
+            ragEnhanced: false,
+            ragError: ragResult.error,
+            updatedTaskData: {
+              ...existingTask,
+              description: `${existingTask.description || existingTask.text}\n\nUpdate: ${basicUpdate}`,
+              participantName: existingTask.participantName,
+              type: existingTask.type || 'Non-Coding',
+              status: existingTask.status || 'To-do'
+            }
+          };
+
+          taskUpdates.push(basicTaskUpdate);
+
+          console.log("[DEBUG] Task Updater RAG - FALLBACK:", {
+            ticketId: taskToUpdate.ticketId,
+            error: ragResult.error,
+            reason: "Using basic task update"
+          });
+        }
+
+      } catch (error) {
+        logger.error(`Task update failed for task ${taskToUpdate.ticketId}`, {
+          error: error.message,
+          ticketId: taskToUpdate.ticketId
+        });
+
+        // Fallback to basic update
+        const basicUpdate = generateDetailedUpdateDescription(taskToUpdate);
         
-        // Generate detailed update description using transcript context  
-        const detailedUpdate = generateDetailedUpdateDescription(updateTask);
-        
-        const taskUpdate = {
-          taskId: updateTask.ticketId,
-          originalDescription: existingTask.description,
-          newInformation: detailedUpdate,
-          updateType: "PROGRESS_UPDATE",
-          updateSource: "TASK_FINDER_DIRECT",
-          confidence: 1.0,
-          evidence: updateTask.evidence,
-          speaker: updateTask.assignee,
-          context: updateTask.context,
+        const fallbackTaskUpdate = {
+          taskId: taskToUpdate.ticketId,
+          originalDescription: existingTask.description || existingTask.text,
+          newInformation: basicUpdate,
+          updateType: "FALLBACK_UPDATE",
+          updateSource: "TASK_UPDATER_FALLBACK",
+          confidence: 0.5,
+          evidence: taskToUpdate.evidence,
+          speaker: taskToUpdate.assignee,
+          context: taskToUpdate.context,
           timestamp: new Date().toISOString(),
+          ragEnhanced: false,
+          ragError: error.message,
           updatedTaskData: {
             ...existingTask,
-            description: `${existingTask.description}\n\nUpdate: ${detailedUpdate}`,
+            description: `${existingTask.description || existingTask.text}\n\nUpdate: ${basicUpdate}`,
             participantName: existingTask.participantName,
             type: existingTask.type || 'Non-Coding',
             status: existingTask.status || 'To-do'
           }
         };
-        
-        taskUpdates.push(taskUpdate);
-      } else {
-        console.log(`[DEBUG] Task ${updateTask.ticketId} not found in database for update`);
+
+        taskUpdates.push(fallbackTaskUpdate);
+
+        console.log("[DEBUG] Task Updater - EXCEPTION FALLBACK:", {
+          ticketId: taskToUpdate.ticketId,
+          error: error.message
+        });
       }
     }
 
-    // No similarity search needed - Task Finder already identified UPDATE_TASK items with explicit ticket IDs
-    // All necessary updates are handled above in the UPDATE_TASK processing section
-    console.log("[DEBUG] Task Updater: Skipping similarity search - using only explicit ticket ID updates from Task Finder");
-
-    logger.info("Stage 3: Task Updater completed successfully", {
-      taskUpdatesCount: taskUpdates.length,
+    logger.info("Stage 3: Task Updater completed successfully with RAG", {
+      tasksProcessed: tasksToBeUpdated.length,
+      taskUpdatesCreated: taskUpdates.length,
+      ragEnhanced: taskUpdates.filter(u => u.ragEnhanced).length,
+      basicUpdates: taskUpdates.filter(u => !u.ragEnhanced).length,
       statusChangesCount: statusChanges.length,
       transcriptIndex: context.transcriptIndex || 1
     });
@@ -138,10 +249,14 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tran
       taskUpdates,
       statusChanges,
       metadata: {
+        tasksProcessed: tasksToBeUpdated.length,
         taskUpdatesCount: taskUpdates.length,
+        ragEnhanced: taskUpdates.filter(u => u.ragEnhanced).length,
+        basicUpdates: taskUpdates.filter(u => !u.ragEnhanced).length,
         statusChangesCount: statusChanges.length,
         processedAt: new Date().toISOString(),
-        transcriptIndex: context.transcriptIndex || 1
+        transcriptIndex: context.transcriptIndex || 1,
+        ragUsed: true
       }
     };
 
@@ -149,8 +264,7 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tran
     logger.error("Stage 3: Task Updater failed", {
       error: error.message,
       stack: error.stack,
-      foundTasksCount: foundTasks.length,
-      skippedTasksCount: skippedTasks.length,
+      tasksToBeUpdated: tasksToBeUpdated.length,
       existingTasksCount: existingTasks.length,
       transcriptIndex: context.transcriptIndex || 1
     });

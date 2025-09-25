@@ -34,7 +34,7 @@ const embeddings = new OpenAIEmbeddings({
 
 // Text splitter for large task descriptions
 const textSplitter = new RecursiveCharacterTextSplitter({
-  chunkSize: 1000,
+  chunkSize: 2000,
   chunkOverlap: 200,
 });
 

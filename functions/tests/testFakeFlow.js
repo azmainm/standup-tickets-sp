@@ -10,6 +10,9 @@ const fs = require("fs");
 const path = require("path");
 const { processTranscriptToTasks, processTranscriptToTasksWithPipeline } = require("../services/taskProcessor");
 const { sendStandupSummaryToTeams } = require("../services/teamsService");
+const { testTranscriptEmbeddingService } = require("../services/transcriptEmbeddingService");
+const { testRAGService } = require("../services/ragService");
+const { testLocalEmbeddingCache } = require("../services/localEmbeddingCache");
 const { logger } = require("firebase-functions");
 
 // Load environment variables
@@ -201,7 +204,7 @@ async function runCompleteFlowTest() {
   const startTime = Date.now();
 
   try {
-    // Step 1: Load test transcript (changed to test_transcript.json as requested)
+    // Step 1: Load test transcript first
     console.log("📁 Step 1: Loading test transcript...");
     const transcriptPath = path.join(__dirname, "..", "output", "test_transcript.json");
     
@@ -212,13 +215,82 @@ async function runCompleteFlowTest() {
     const transcriptData = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
     console.log(`✅ Loaded transcript with ${transcriptData.length} entries`);
 
+    // Step 2: Generate local embeddings for test transcript (for RAG testing)
+    console.log("🔧 Step 2: Setting up local embeddings for RAG testing...");
+    const { storeLocalEmbeddings } = require("../services/localEmbeddingCache");
+    const { RecursiveCharacterTextSplitter } = require("@langchain/textsplitters");
+    
+    try {
+      // Convert transcript to text
+      const transcriptText = transcriptData.map(entry => {
+        const speaker = entry.text.match(/<v ([^>]+)>/)?.[1] || "Unknown";
+        const text = entry.text.replace(/<v [^>]+>/, "").replace(/<\/v>/, "");
+        return `${speaker}: ${text}`;
+      }).join("\n");
+      
+      // Create chunks for embeddings
+      const textSplitter = new RecursiveCharacterTextSplitter({
+        chunkSize: 1000,
+        chunkOverlap: 200,
+      });
+      const chunks = await textSplitter.splitText(transcriptText);
+      
+      // Prepare documents for local storage
+      const documents = chunks.map((chunk, index) => ({
+        pageContent: chunk,
+        metadata: {
+          transcriptId: "test-transcript-123",
+          meetingId: "test-meeting",
+          date: "2025-09-25",
+          chunkIndex: index,
+          chunkTotal: chunks.length,
+          createdAt: new Date().toISOString()
+        }
+      }));
+      
+      // Store locally for RAG testing
+      await storeLocalEmbeddings("test-transcript-123", documents);
+      console.log(`✅ Generated ${chunks.length} local embeddings for RAG testing`);
+      
+    } catch (embeddingError) {
+      console.warn("⚠️  Failed to generate local embeddings:", embeddingError.message);
+      console.log("   RAG features will fall back to basic descriptions");
+    }
+
+    // Step 3: Test RAG Services (now with local embeddings available)
+    console.log("🔧 Step 3: Testing RAG Services with local embeddings...");
+    console.log("   📄 Testing Transcript Embedding Service...");
+    const transcriptEmbeddingTest = await testTranscriptEmbeddingService();
+    if (!transcriptEmbeddingTest) {
+      console.warn("   ⚠️  Transcript Embedding Service test failed - RAG may be impaired");
+    } else {
+      console.log("   ✅ Transcript Embedding Service working");
+    }
+
+    console.log("   🔗 Testing RAG Service...");
+    const ragTest = await testRAGService();
+    if (!ragTest) {
+      console.warn("   ⚠️  RAG Service test failed - task enhancement may fall back to basic descriptions");
+    } else {
+      console.log("   ✅ RAG Service working");
+    }
+
+    console.log("   💾 Testing Local Embedding Cache...");
+    const localCacheTest = await testLocalEmbeddingCache();
+    if (!localCacheTest) {
+      console.warn("   ⚠️  Local Embedding Cache test failed - scoped RAG may fall back to global search");
+    } else {
+      console.log("   ✅ Local Embedding Cache working");
+    }
+    console.log("");
+
     // Validate transcript structure
     if (!Array.isArray(transcriptData) || transcriptData.length === 0) {
       throw new Error("Invalid transcript format - expected non-empty array");
     }
 
-    // Step 2: Check required environment variables
-    console.log("\n🔧 Step 2: Checking environment configuration...");
+    // Step 4: Check required environment variables
+    console.log("\n🔧 Step 4: Checking environment configuration...");
     const requiredEnvVars = ["OPENAI_API_KEY", "MONGODB_URI"];
     const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
     
@@ -232,12 +304,12 @@ async function runCompleteFlowTest() {
     
     console.log("✅ Environment configuration valid");
 
-    // Step 2.5: MongoDB Embeddings check
-    console.log("\n🔧 Step 2.5: Using MongoDB embeddings for future features...");
+    // Step 4.5: MongoDB Embeddings check
+    console.log("\n🔧 Step 4.5: Using MongoDB embeddings for future features...");
     console.log("✅ MongoDB embeddings enabled - stored for future use (no similarity search)");
 
-    // Step 3: Process transcript through complete flow
-    console.log("\n🤖 Step 3: Processing transcript through enhanced system flow...");
+    // Step 5: Process transcript through complete flow
+    console.log("\n🤖 Step 5: Processing transcript through enhanced system flow...");
     console.log("This will test all enhanced features:");
     console.log("- Zod schema validation");
     console.log("- Enhanced OpenAI prompting");
@@ -248,8 +320,8 @@ async function runCompleteFlowTest() {
     console.log("- Task similarity matching");
     console.log("- Future plans detection");
 
-    // Step 3: Process with 3-Stage Pipeline
-    console.log("🚀 Step 3: Processing with 3-Stage Pipeline...");
+    // Step 5: Process with 3-Stage Pipeline
+    console.log("🚀 Step 5: Processing with 3-Stage Pipeline...");
     
     const processingContext = {
       isMultiTranscript: false,
@@ -376,6 +448,16 @@ async function runCompleteFlowTest() {
     console.log("");
     console.log("🧪 THIS WAS A TEST RUN - Check Teams channel for test notification");
 
+    // Cleanup: Remove local embeddings generated for testing
+    console.log("\n🧹 Cleaning up test embeddings...");
+    try {
+      const { clearLocalEmbeddings } = require("../services/localEmbeddingCache");
+      clearLocalEmbeddings("test-transcript-123");
+      console.log("✅ Test embeddings cleaned up");
+    } catch (cleanupError) {
+      console.warn("⚠️  Failed to clean up test embeddings:", cleanupError.message);
+    }
+
   } catch (error) {
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     
@@ -387,6 +469,16 @@ async function runCompleteFlowTest() {
     if (error.stack) {
       console.error("\n📋 Stack trace:");
       console.error(error.stack);
+    }
+
+    // Cleanup: Remove local embeddings even if test failed
+    console.log("\n🧹 Cleaning up test embeddings...");
+    try {
+      const { clearLocalEmbeddings } = require("../services/localEmbeddingCache");
+      clearLocalEmbeddings("test-transcript-123");
+      console.log("✅ Test embeddings cleaned up");
+    } catch (cleanupError) {
+      console.warn("⚠️  Failed to clean up test embeddings:", cleanupError.message);
     }
     
     process.exit(1);
