@@ -13,8 +13,8 @@ const { ChatOpenAI } = require('@langchain/openai');
 const { ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate } = require('@langchain/core/prompts');
 const { RunnableSequence } = require('@langchain/core/runnables');
 const { StringOutputParser } = require('@langchain/core/output_parsers');
-const { getRAGContextForTask } = require('./transcriptEmbeddingService');
-const { getLocalRAGContext } = require('./localEmbeddingCache');
+const { getRAGContextForTask } = require('../storage/transcriptEmbeddingService');
+const { getLocalRAGContext } = require('../storage/localEmbeddingCache');
 const { logger } = require("firebase-functions");
 
 // Load environment variables

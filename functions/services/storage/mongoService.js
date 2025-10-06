@@ -70,7 +70,7 @@ function getDatabase() {
  */
 async function addNewTasksToModernEmbeddings(processedTasksData, assignedTicketIds) {
   try {
-    const { addTaskEmbedding } = require("./embeddingService");
+    const { addTaskEmbedding } = require("./mongoEmbeddingService");
     
     let ticketIndex = 0;
     let addedCount = 0;
@@ -240,7 +240,7 @@ async function storeTasks(tasksData, _metadata = {}) {
     await initializeTicketCounter();
     
     // Import title generation function
-    const { generateTaskTitlesInBatch } = require("./openaiService");
+    const { generateTaskTitlesInBatch } = require("../integrations/openaiService");
     
     // Process NEW tasks and assign ticket IDs and titles
     const processedTasksData = {};
@@ -942,7 +942,7 @@ async function updateTask(documentId, taskPath, updateData) {
     // Update embedding if task was successfully updated and has ticket ID
     if (result.modifiedCount > 0 && updateData.ticketId) {
       try {
-        const { updateTaskEmbedding } = require("./embeddingService");
+        const { updateTaskEmbedding } = require("./mongoEmbeddingService");
         
         await updateTaskEmbedding(updateData.ticketId, {
           ticketId: updateData.ticketId,

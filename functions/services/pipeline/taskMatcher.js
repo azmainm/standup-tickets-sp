@@ -338,7 +338,7 @@ async function matchTasksWithDatabase(extractedTasksData) {
     });
     
     // Get all existing active tasks from database
-    const { getActiveTasks } = require("./mongoService");
+    const { getActiveTasks } = require("../storage/mongoService");
     const allExistingTasks = await getActiveTasks();
     
     // Convert structured task data to flat array for easier processing

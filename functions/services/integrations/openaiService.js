@@ -383,7 +383,7 @@ When found:
 - NEVER assign tasks for specific named people to TBD
 - TBD is ONLY for future plans, NOT for people who aren't present
 - If unclear assignee, assign to speaker of the task
-- Check against existing team members: ${Object.keys(require("../config/participantMapping").PARTICIPANT_TO_JIRA_MAPPING || {}).join(", ")}
+- Check against existing team members: ${Object.keys(require("../../config/participantMapping").PARTICIPANT_TO_JIRA_MAPPING || {}).join(", ")}
 
 **4. STATUS CHANGE DETECTION (ENHANCED):**
 Pay attention to these patterns and use EXACT status values:

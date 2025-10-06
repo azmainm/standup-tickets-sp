@@ -439,12 +439,14 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
  */
 async function downloadAndProcessTranscripts(accessToken, userId, meetingData, targetDate, outputPath) {
   const processedTranscripts = [];
-  const { onlineMeeting, transcripts } = meetingData;
+  const { event, onlineMeeting, transcripts } = meetingData;
 
   logger.info("📥 Starting transcript download and processing", {
     meetingSubject: onlineMeeting.subject,
     meetingId: onlineMeeting.id,
     transcriptCount: transcripts?.length || 0,
+    meetingStartTime: event?.start?.dateTime,
+    meetingEndTime: event?.end?.dateTime,
     targetDate,
   });
 
@@ -457,16 +459,38 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
     return processedTranscripts;
   }
   
-  // Create a date object for the target date's start and end
-  const targetDateStart = new Date(targetDate);
-  const targetDateEnd = new Date(targetDate);
-  targetDateEnd.setDate(targetDateEnd.getDate() + 1);
+  // Handle both date strings and custom time window objects
+  let targetDateStart, targetDateEnd;
+  
+  if (typeof targetDate === 'object' && targetDate.customTimeWindow) {
+    // Custom time window from GitHub Actions
+    targetDateStart = new Date(targetDate.startDateTime);
+    targetDateEnd = new Date(targetDate.endDateTime);
+  } else {
+    // Regular date string
+    targetDateStart = new Date(targetDate);
+    targetDateEnd = new Date(targetDate);
+    targetDateEnd.setDate(targetDateEnd.getDate() + 1);
+  }
+
+  // Get meeting end time for filtering
+  // Microsoft Graph returns datetime in format "2025-10-06T16:30:00.0000000"
+  // We need to parse this correctly as UTC
+  let meetingEndTime = null;
+  if (event?.end?.dateTime) {
+    // Remove the extra precision and ensure it's treated as UTC
+    const cleanDateTimeString = event.end.dateTime.replace(/\.0+$/, '') + 'Z';
+    meetingEndTime = new Date(cleanDateTimeString);
+  }
 
   logger.info("📅 Date filtering setup", {
     targetDate,
     targetDateStart: targetDateStart.toISOString(),
     targetDateEnd: targetDateEnd.toISOString(),
     meetingSubject: onlineMeeting.subject,
+    meetingEndTime: meetingEndTime?.toISOString(),
+    isCustomTimeWindow: typeof targetDate === 'object' && targetDate.customTimeWindow,
+    filteringLogic: "Will filter based on meeting END time, not transcript creation time"
   });
 
   const transcriptProcessingResults = [];
@@ -485,17 +509,46 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
     // Convert the transcript's created date to a Date object
     const transcriptDate = new Date(transcript.createdDateTime);
 
+    // Determine if this transcript should be processed
+    let shouldProcess = false;
+    let filterReason = "";
+    
+    if (typeof targetDate === 'object' && targetDate.customTimeWindow && meetingEndTime) {
+      // For GitHub Actions cron: check if BOTH meeting ended in window AND transcript was created in window
+      const meetingInWindow = meetingEndTime >= targetDateStart && meetingEndTime <= targetDateEnd;
+      const transcriptInWindow = transcriptDate >= targetDateStart && transcriptDate <= targetDateEnd;
+      
+      shouldProcess = meetingInWindow && transcriptInWindow;
+      
+      if (shouldProcess) {
+        filterReason = `Meeting ended and transcript created within target window (meeting: ${meetingEndTime.toISOString()}, transcript: ${transcriptDate.toISOString()})`;
+      } else if (!meetingInWindow) {
+        filterReason = `Meeting ended outside target window (${meetingEndTime.toISOString()})`;
+      } else {
+        filterReason = `Transcript created outside target window (${transcriptDate.toISOString()})`;
+      }
+    } else {
+      // For regular daily processing: use transcript creation date
+      shouldProcess = transcriptDate >= targetDateStart && transcriptDate < targetDateEnd;
+      filterReason = shouldProcess ?
+        `Transcript created within target date (${transcriptDate.toISOString()})` :
+        `Transcript created outside target date (${transcriptDate.toISOString()})`;
+    }
+
     logger.info(`📄 Processing transcript ${i + 1}/${transcripts.length}`, {
       transcriptIndex: i + 1,
       transcriptId: transcript.id,
       createdDateTime: transcript.createdDateTime,
       transcriptDate: transcriptDate.toISOString(),
+      meetingEndTime: meetingEndTime?.toISOString(),
       meetingSubject: onlineMeeting.subject,
-      willBeFiltered: transcriptDate < targetDateStart || transcriptDate >= targetDateEnd,
+      shouldProcess,
+      filterReason,
+      filteringBy: typeof targetDate === 'object' && targetDate.customTimeWindow ? 'meeting_end_time' : 'transcript_creation_time'
     });
 
     // Filter by date with detailed logging
-    if (transcriptDate >= targetDateStart && transcriptDate < targetDateEnd) {
+    if (shouldProcess) {
       processingResult.status = 'downloading';
       
       logger.info(`⬇️ Downloading transcript ${i + 1} (passes date filter)`, {
@@ -601,17 +654,18 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
       }
     } else {
       processingResult.status = 'filtered_out';
-      processingResult.reason = `Created date ${transcript.createdDateTime} outside target date ${targetDate}`;
+      processingResult.reason = filterReason;
       
-      logger.warn(`⏭️ Skipping transcript ${i + 1} - created on different date`, {
+      logger.warn(`⏭️ Skipping transcript ${i + 1} - ${filterReason}`, {
         transcriptId: transcript.id,
         createdDate: transcript.createdDateTime,
         createdDateParsed: transcriptDate.toISOString(),
+        meetingEndTime: meetingEndTime?.toISOString(),
         targetDate,
         targetDateStart: targetDateStart.toISOString(),
         targetDateEnd: targetDateEnd.toISOString(),
-        reasonForSkip: transcriptDate < targetDateStart ? 'Created before target date' : 'Created after target date',
-        suggestion: "Consider if transcript creation date should match meeting date instead of target date",
+        filteringBy: typeof targetDate === 'object' && targetDate.customTimeWindow ? 'meeting_end_time' : 'transcript_creation_time',
+        reasonForSkip: filterReason,
       });
     }
     

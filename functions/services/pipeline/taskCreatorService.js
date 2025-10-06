@@ -35,7 +35,7 @@ const llm = new ChatOpenAI({
  */
 async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, context = {}) {
   try {
-    const { taskRAG } = require("./ragService");
+    const { taskRAG } = require("../utilities/ragService");
     
     logger.info("Starting Stage 2: Task Creator with RAG enhancement", {
       tasksToBeCreated: tasksToBeCreated.length,
@@ -449,7 +449,7 @@ async function generateDetailedTaskDescription(foundTask, transcript) {
  */
 async function generateEmbeddingsForNewTasks(newTasks) {
   try {
-    const { addTaskEmbedding } = require("./embeddingService");
+    const { addTaskEmbedding } = require("../storage/mongoEmbeddingService");
     
     let generated = 0;
     let skipped = 0;

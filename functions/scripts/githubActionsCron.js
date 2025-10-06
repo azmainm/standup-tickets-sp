@@ -19,19 +19,21 @@ const { processTranscriptToTasksWithPipeline } = require("../services/core/taskP
 const { getBangladeshTimeComponents } = require("../services/utilities/meetingUrlService");
 
 /**
- * Calculate the time window for the last 60 minutes in Bangladesh time
+ * Calculate the time window for the last 60 minutes in UTC
  * @returns {Object} Object with startTime and endTime in ISO format
  */
 function calculateLast60MinutesWindow() {
-  const now = new Date();
-  const bangladeshTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
+  const now = new Date(); // This is already in UTC
   
-  // Calculate 60 minutes ago
-  const sixtyMinutesAgo = new Date(bangladeshTime.getTime() - (60 * 60 * 1000));
+  // Calculate 60 minutes ago in UTC
+  const sixtyMinutesAgo = new Date(now.getTime() - (60 * 60 * 1000));
   
-  // Format for Microsoft Graph API (ISO format)
+  // Format for Microsoft Graph API (ISO format) - already in UTC
   const startTime = sixtyMinutesAgo.toISOString();
-  const endTime = bangladeshTime.toISOString();
+  const endTime = now.toISOString();
+  
+  // For display purposes, also calculate Bangladesh time
+  const bangladeshTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
   
   return {
     startTime,
@@ -46,7 +48,7 @@ function calculateLast60MinutesWindow() {
  */
 async function runTranscriptProcessor() {
   const startTime = Date.now();
-  const isTestMode = process.env.TEST_MODE === 'true';
+  const isTestMode = process.env.TEST_MODE === "true";
   
   console.log("🚀 GITHUB ACTIONS TRANSCRIPT PROCESSOR STARTED");
   console.log("=".repeat(60));
@@ -77,14 +79,14 @@ async function runTranscriptProcessor() {
     console.log(`   Current Bangladesh Time: ${timeWindow.bangladeshTime.toISOString()}`);
     console.log(`   Window Start (60 min ago): ${timeWindow.startTime}`);
     console.log(`   Window End (now): ${timeWindow.endTime}`);
-    console.log(`   Logic: Processing meetings that ENDED in this window`);
-    console.log(`   Benefit: Catches long meetings regardless of start time`);
+    console.log("   Logic: Processing meetings that ENDED in this window");
+    console.log("   Benefit: Catches long meetings regardless of start time");
     console.log(`   Test Mode: ${isTestMode}`);
     
     // Fetch meetings for the target user within the time window
     console.log("📅 Fetching meetings from the last 60 minutes...");
     
-    const meetingsResult = await fetchAllMeetingsForUser(
+    const allTranscripts = await fetchAllMeetingsForUser(
       process.env.TARGET_USER_ID,
       {
         startDateTime: timeWindow.startTime,
@@ -93,48 +95,28 @@ async function runTranscriptProcessor() {
       }
     );
     
-    if (!meetingsResult.success) {
-      throw new Error(`Failed to fetch meetings: ${meetingsResult.error}`);
-    }
+    console.log(`📊 Transcripts found: ${allTranscripts.length}`);
     
-    console.log(`📊 Meetings found: ${meetingsResult.meetings.length}`);
-    
-    if (meetingsResult.meetings.length === 0) {
-      console.log("ℹ️  No meetings found in the last 60 minutes");
+    if (allTranscripts.length === 0) {
+      console.log("ℹ️  No transcripts found in the last 60 minutes");
       console.log("✅ Cron job completed successfully (no processing needed)");
       return {
         success: true,
         meetingsFound: 0,
         transcriptsProcessed: 0,
-        message: "No meetings found in the time window"
+        message: "No transcripts found in the time window"
       };
     }
     
-    // Filter meetings that have transcripts and ENDED within the time window
-    const meetingsWithTranscripts = meetingsResult.meetings.filter(meeting => {
-      if (!meeting.transcript || meeting.transcript.length === 0) {
-        return false;
-      }
-      
-      // Check if meeting ENDED within the last 60 minutes (regardless of start time)
-      const meetingEnd = new Date(meeting.endTime);
-      const windowStart = new Date(timeWindow.startTime);
-      const windowEnd = new Date(timeWindow.endTime);
-      
-      // Only check if the meeting ended within our time window
-      const endedInWindow = meetingEnd >= windowStart && meetingEnd <= windowEnd;
-      
-      return endedInWindow;
-    });
+    // The allTranscripts array already contains transcripts from meetings that ended in the time window
+    console.log(`📝 Transcripts ready for processing: ${allTranscripts.length}`);
     
-    console.log(`📝 Meetings with transcripts that ended in time window: ${meetingsWithTranscripts.length}`);
-    
-    if (meetingsWithTranscripts.length === 0) {
-      console.log("ℹ️  No meetings with transcripts found in the time window");
+    if (allTranscripts.length === 0) {
+      console.log("ℹ️  No transcripts found in the time window");
       console.log("✅ Cron job completed successfully (no transcripts to process)");
       return {
         success: true,
-        meetingsFound: meetingsResult.meetings.length,
+        meetingsFound: 0,
         transcriptsProcessed: 0,
         message: "No transcripts found in the time window"
       };
@@ -145,29 +127,22 @@ async function runTranscriptProcessor() {
     let errorCount = 0;
     const results = [];
     
-    for (const meeting of meetingsWithTranscripts) {
+    for (const transcript of allTranscripts) {
       try {
-        console.log(`\n🔄 Processing meeting: ${meeting.subject}`);
-        console.log(`   Meeting ID: ${meeting.id}`);
-        console.log(`   Start Time: ${meeting.startTime}`);
-        console.log(`   End Time: ${meeting.endTime}`);
-        
-        // Calculate meeting duration
-        const startTime = new Date(meeting.startTime);
-        const endTime = new Date(meeting.endTime);
-        const durationMinutes = Math.round((endTime - startTime) / (1000 * 60));
-        console.log(`   Duration: ${durationMinutes} minutes`);
-        console.log(`   Transcript Entries: ${meeting.transcript.length}`);
+        console.log(`\n🔄 Processing transcript: ${transcript.meetingSubject}`);
+        console.log(`   Meeting ID: ${transcript.meetingId}`);
+        console.log(`   Transcript Entries: ${transcript.transcript.length}`);
+        console.log(`   File Path: ${transcript.filePath}`);
         
         // Process the transcript through the 3-stage pipeline
         const processingResult = await processTranscriptToTasksWithPipeline(
-          meeting.transcript,
+          transcript.transcript,
           {
-            meetingId: meeting.id,
-            meetingSubject: meeting.subject,
-            startTime: meeting.startTime,
-            endTime: meeting.endTime,
-            targetDate: timeWindow.bangladeshTime.toISOString().split('T')[0],
+            meetingId: transcript.meetingId,
+            meetingSubject: transcript.meetingSubject,
+            startTime: transcript.startTime,
+            endTime: transcript.endTime,
+            targetDate: timeWindow.bangladeshTime.toISOString().split("T")[0],
             source: "github_actions_cron",
             timeWindow: {
               start: timeWindow.startTime,
@@ -180,29 +155,29 @@ async function runTranscriptProcessor() {
         
         if (processingResult.success) {
           processedCount++;
-          console.log(`✅ Successfully processed meeting: ${meeting.subject}`);
+          console.log(`✅ Successfully processed transcript: ${transcript.meetingSubject}`);
           console.log(`   New tasks created: ${processingResult.summary.newTasksCreated}`);
           console.log(`   Existing tasks updated: ${processingResult.summary.existingTasksUpdated}`);
           console.log(`   Status changes applied: ${processingResult.summary.statusChangesApplied}`);
         } else {
           errorCount++;
-          console.error(`❌ Failed to process meeting: ${meeting.subject}`);
+          console.error(`❌ Failed to process transcript: ${transcript.meetingSubject}`);
         }
         
         results.push({
-          meetingId: meeting.id,
-          meetingSubject: meeting.subject,
+          meetingId: transcript.meetingId,
+          meetingSubject: transcript.meetingSubject,
           success: processingResult.success,
           summary: processingResult.summary
         });
         
       } catch (error) {
         errorCount++;
-        console.error(`❌ Error processing meeting ${meeting.subject}:`, error.message);
+        console.error(`❌ Error processing transcript ${transcript.meetingSubject}:`, error.message);
         
         results.push({
-          meetingId: meeting.id,
-          meetingSubject: meeting.subject,
+          meetingId: transcript.meetingId,
+          meetingSubject: transcript.meetingSubject,
           success: false,
           error: error.message
         });
@@ -217,8 +192,8 @@ async function runTranscriptProcessor() {
     console.log("=".repeat(60));
     console.log(`⏱️  Total Duration: ${duration.toFixed(2)}s`);
     console.log(`📅 Time Window: ${timeWindow.startTime} to ${timeWindow.endTime}`);
-    console.log(`🔍 Meetings Found: ${meetingsResult.meetings.length}`);
-    console.log(`📝 Meetings with Transcripts: ${meetingsWithTranscripts.length}`);
+    console.log(`📝 Transcripts Found: ${allTranscripts.length}`);
+    console.log(`🔄 Transcripts Processed: ${processedCount}`);
     console.log(`✅ Successfully Processed: ${processedCount}`);
     console.log(`❌ Errors: ${errorCount}`);
     console.log(`🧪 Test Mode: ${isTestMode}`);
@@ -231,8 +206,7 @@ async function runTranscriptProcessor() {
     
     return {
       success: true,
-      meetingsFound: meetingsResult.meetings.length,
-      meetingsWithTranscripts: meetingsWithTranscripts.length,
+      transcriptsFound: allTranscripts.length,
       transcriptsProcessed: processedCount,
       errors: errorCount,
       duration: duration,

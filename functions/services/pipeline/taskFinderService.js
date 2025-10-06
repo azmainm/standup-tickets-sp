@@ -41,7 +41,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
     });
 
     // Extract participant names from transcript for name matching
-    const { extractParticipantsFromTranscript } = require('./assigneeDetectionService');
+    const { extractParticipantsFromTranscript } = require('../utilities/assigneeDetectionService');
     const participantsInMeeting = extractParticipantsFromTranscript(transcript);
     
     logger.info("Participants extracted from meeting", {
@@ -425,7 +425,7 @@ function formatTranscriptForTaskFinding(transcript) {
  * @returns {Array} Array of found tasks
  */
 function parseTaskFinderResponse(response, participantsInMeeting = []) {
-  const { findBestParticipantMatch, normalizeAssigneeName } = require('./assigneeDetectionService');
+  const { findBestParticipantMatch, normalizeAssigneeName } = require('../utilities/assigneeDetectionService');
   const tasks = [];
   const lines = response.split("\n");
   

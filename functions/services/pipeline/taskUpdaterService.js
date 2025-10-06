@@ -40,7 +40,7 @@ const llm = new ChatOpenAI({
  */
 async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, tasksToBeUpdated, transcript, context = {}) {
   try {
-    const { taskRAG } = require("./ragService");
+    const { taskRAG } = require("../utilities/ragService");
     
     logger.info("Starting Stage 3: Task Updater with RAG enhancement", {
       tasksToBeUpdated: tasksToBeUpdated.length,
@@ -520,7 +520,7 @@ function generateDetailedUpdateDescription(updateTask) {
  */
 async function updateEmbeddingsForModifiedTasks(taskUpdates) {
   try {
-    const { updateTaskEmbedding } = require("./embeddingService");
+    const { updateTaskEmbedding } = require("../storage/mongoEmbeddingService");
     
     let updated = 0;
     let skipped = 0;

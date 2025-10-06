@@ -166,23 +166,32 @@ async function testCompleteFlow() {
   // Step 1: Fetch ALL meeting transcripts using All Meetings approach
   console.log("\n3. 🆕 Fetching ALL meeting transcripts using All Meetings approach...");
   
-  // Calculate target date - ALWAYS use previous day for standup data
-  const bdTime = getBangladeshTimeComponents(new Date());
-  // Always use previous day regardless of current time
-  const targetDateObj = new Date(bdTime.dateString);
-  targetDateObj.setDate(targetDateObj.getDate() - 1);
-  const targetDateForFile = targetDateObj.toISOString().slice(0, 10);
+  // Calculate 60-minute time window (same logic as GitHub Actions cron)
+  const now = new Date(); // This is already in UTC
+  const sixtyMinutesAgo = new Date(now.getTime() - (120 * 60 * 1000));
   
-  console.log(`   📅 Target date: ${targetDateForFile}`);
+  const timeWindow = {
+    startDateTime: sixtyMinutesAgo.toISOString(),
+    endDateTime: now.toISOString(),
+    customTimeWindow: true
+  };
+  
+  // For display purposes, also calculate Bangladesh time
+  const bangladeshTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
+  
+  console.log(`   ⏰ Time Window (Last 60 minutes):`);
+  console.log(`      Start: ${timeWindow.startDateTime}`);
+  console.log(`      End: ${timeWindow.endDateTime}`);
+  console.log(`      Bangladesh Time: ${bangladeshTime.toISOString()}`);
   console.log(`   👤 Target user: ${process.env.TARGET_USER_ID.substring(0, 20)}...`);
   
   let allTranscriptsResults = [];
   
   try {
-    console.log("   🔄 Starting All Meetings fetch...");
+    console.log("   🔄 Starting All Meetings fetch with 60-minute window...");
     const startTime = Date.now();
     
-    allTranscriptsResults = await fetchAllMeetingsForUser(process.env.TARGET_USER_ID, targetDateForFile);
+    allTranscriptsResults = await fetchAllMeetingsForUser(process.env.TARGET_USER_ID, timeWindow);
     
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
   
@@ -211,10 +220,10 @@ async function testCompleteFlow() {
       });
     
     } else {
-      console.log("   ⚠️  No transcripts found for the target date");
+      console.log("   ⚠️  No transcripts found in the last 60 minutes");
       console.log("   This could mean:");
-      console.log("      - No meetings occurred on the target date");
-      console.log("      - No transcripts were generated"); 
+      console.log("      - No meetings ended in the last 60 minutes");
+      console.log("      - No transcripts were created in the last 60 minutes"); 
       console.log("      - Transcription is still processing");
       console.log("      - User calendar access issues");
       console.log("\n   📝 Using empty transcript for testing task processing...");
@@ -282,9 +291,20 @@ async function testCompleteFlow() {
           transcriptIndex: i + 1
         };
         
+        // Update metadata to include time window information
+        const enhancedMetadata = {
+          ...transcriptData.metadata,
+          targetDate: bangladeshTime.toISOString().split("T")[0], // Use Bangladesh date for compatibility
+          timeWindow: {
+            start: timeWindow.startDateTime,
+            end: timeWindow.endDateTime
+          },
+          source: "testRealFlow_60min_window"
+        };
+        
         const taskResult = await processTranscriptToTasksWithPipeline(
           transcriptData.transcript, 
-          transcriptData.metadata,
+          enhancedMetadata,
           transcriptContext
         );
         
