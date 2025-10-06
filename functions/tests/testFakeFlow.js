@@ -8,11 +8,11 @@
 
 const fs = require("fs");
 const path = require("path");
-const { processTranscriptToTasks, processTranscriptToTasksWithPipeline } = require("../services/taskProcessor");
-const { sendStandupSummaryToTeams } = require("../services/teamsService");
-const { testTranscriptEmbeddingService } = require("../services/transcriptEmbeddingService");
-const { testRAGService } = require("../services/ragService");
-const { testLocalEmbeddingCache } = require("../services/localEmbeddingCache");
+const { processTranscriptToTasksWithPipeline } = require("../services/core/taskProcessor");
+const { sendStandupSummaryToTeams } = require("../services/integrations/teamsService");
+const { testTranscriptEmbeddingService } = require("../services/storage/transcriptEmbeddingService");
+const { testRAGService } = require("../services/utilities/ragService");
+const { testLocalEmbeddingCache } = require("../services/storage/localEmbeddingCache");
 const { logger } = require("firebase-functions");
 
 // Load environment variables

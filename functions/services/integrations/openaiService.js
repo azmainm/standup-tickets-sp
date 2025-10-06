@@ -12,12 +12,12 @@
 
 const OpenAI = require("openai");
 const {logger} = require("firebase-functions");
-const { validateLLMResponse, sanitizeLLMResponse } = require("../schemas/taskSchemas");
-const { detectStatusChangesFromTranscript } = require("./statusChangeDetectionService");
-const { detectAssignee, extractParticipantsFromDatabase } = require("./assigneeDetectionService");
-const { findTasksFromTranscript } = require("./taskFinderService");
-const { identifyNewTasks } = require("./taskCreatorService");
-const { updateExistingTasks } = require("./taskUpdaterService");
+const { validateLLMResponse, sanitizeLLMResponse } = require("../../schemas/taskSchemas");
+const { detectStatusChangesFromTranscript } = require("../utilities/statusChangeDetectionService");
+const { detectAssignee, extractParticipantsFromDatabase } = require("../utilities/assigneeDetectionService");
+const { findTasksFromTranscript } = require("../pipeline/taskFinderService");
+const { identifyNewTasks } = require("../pipeline/taskCreatorService");
+const { updateExistingTasks } = require("../pipeline/taskUpdaterService");
 
 // Load environment variables
 require("dotenv").config();

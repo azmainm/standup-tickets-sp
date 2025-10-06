@@ -11,46 +11,17 @@
 
 require("dotenv").config();
 
-const { fetchAllMeetingsForUser, validateAllMeetingsEnvironment } = require("../services/allMeetingsService");
-const { processTranscriptToTasks, processTranscriptToTasksWithPipeline } = require("../services/taskProcessor");
-const { testOpenAIConnection } = require("../services/openaiService");
-const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/mongoService");
-// const { testJiraConnection, getProjectInfo } = require("../services/jiraService"); // Removed from main flow
-const { getBangladeshTimeComponents } = require("../services/meetingUrlService");
-const { getEmbeddingStatistics } = require("../services/mongoEmbeddingService");
-const { testTranscriptEmbeddingService } = require("../services/transcriptEmbeddingService");
-const { testRAGService } = require("../services/ragService");
-const { testLocalEmbeddingCache } = require("../services/localEmbeddingCache");
+const { fetchAllMeetingsForUser, validateAllMeetingsEnvironment } = require("../services/integrations/allMeetingsService");
+const { processTranscriptToTasksWithPipeline } = require("../services/core/taskProcessor");
+const { testOpenAIConnection } = require("../services/integrations/openaiService");
+const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/storage/mongoService");
+// const { testJiraConnection, getProjectInfo } = require("../services/integrations/jiraService"); // Removed from main flow
+const { getBangladeshTimeComponents } = require("../services/utilities/meetingUrlService");
+const { getEmbeddingStatistics } = require("../services/storage/mongoEmbeddingService");
+const { testTranscriptEmbeddingService } = require("../services/storage/transcriptEmbeddingService");
+const { testRAGService } = require("../services/utilities/ragService");
+const { testLocalEmbeddingCache } = require("../services/storage/localEmbeddingCache");
 // Vector service removed - system now uses MongoDB embeddings only
-
-/**
- * Stub function for legacy vector DB availability check
- * @returns {Promise<boolean>} Always returns false since FAISS vector DB was removed
- */
-async function isVectorDBAvailable() {
-  return false;
-}
-
-/**
- * Stub function for legacy vector DB initialization
- * @returns {Promise<void>} No-op since FAISS vector DB was removed
- */
-async function initializeVectorDB() {
-  // No-op: FAISS vector DB was removed and replaced with MongoDB embeddings
-  return;
-}
-
-/**
- * Stub function for legacy vector DB stats
- * @returns {Promise<Object>} Empty stats since FAISS vector DB was removed
- */
-async function getVectorDBStats() {
-  return {
-    totalEmbeddings: 0,
-    indexLoaded: false,
-    message: "FAISS vector DB removed - using MongoDB embeddings instead"
-  };
-}
 
 async function testCompleteFlow() {
   console.log("=".repeat(80));

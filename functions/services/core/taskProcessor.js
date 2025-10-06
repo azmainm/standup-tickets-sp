@@ -11,13 +11,13 @@
  * 7. Handling the complete end-to-end flow with comprehensive error handling
  */
 
-const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("./openaiService");
-const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("./mongoService");
-// const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow
-const { matchTasksWithDatabase, normalizeTicketId } = require("./taskMatcher");
-const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("./teamsService");
-const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("./statusChangeDetectionService");
-const { validateLLMResponse } = require("../schemas/taskSchemas");
+const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("../integrations/openaiService");
+const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("../storage/mongoService");
+// const { createJiraIssuesForCodingTasks } = require("../integrations/jiraService"); // Removed from main flow
+const { matchTasksWithDatabase, normalizeTicketId } = require("../pipeline/taskMatcher");
+const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("../integrations/teamsService");
+const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("../utilities/statusChangeDetectionService");
+const { validateLLMResponse } = require("../../schemas/taskSchemas");
 const { logger } = require("firebase-functions");
 
 /**
@@ -360,7 +360,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
     // Step 11.5: Clean up local embeddings after Teams notification
     logger.info("🧹 Cleaning up local embeddings");
     try {
-      const { clearLocalEmbeddings } = require("./localEmbeddingCache");
+      const { clearLocalEmbeddings } = require("../storage/localEmbeddingCache");
       const cleanupResult = clearLocalEmbeddings(transcriptStorageResult.documentId.toString());
       
       if (cleanupResult.success) {
@@ -1028,7 +1028,7 @@ async function processTranscriptToTasksWithPipeline(
     // Step 6: Clean up local embeddings after Teams notification
     logger.info("🧹 Step 6: Cleaning up local embeddings");
     try {
-      const { clearLocalEmbeddings } = require("./localEmbeddingCache");
+      const { clearLocalEmbeddings } = require("../storage/localEmbeddingCache");
       const cleanupResult = clearLocalEmbeddings(transcriptStorageResult.documentId.toString());
       
       if (cleanupResult.success) {
