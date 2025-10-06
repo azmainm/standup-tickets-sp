@@ -2,11 +2,11 @@
  * GitHub Actions Cron Job Script
  * 
  * This script replaces the Firebase Functions cron job and runs every 60 minutes
- * to check for meetings that occurred in the last 60 minutes and process their transcripts.
+ * to check for meetings that ENDED in the last 60 minutes and process their transcripts.
  * 
  * Key changes from Firebase version:
  * - Runs every 60 minutes instead of daily
- * - Only processes meetings from the last 60 minutes
+ * - Only processes meetings that ENDED in the last 60 minutes (catches long meetings)
  * - Uses environment variables instead of Firebase config
  * - Includes proper error handling and logging for GitHub Actions
  */
@@ -77,6 +77,8 @@ async function runTranscriptProcessor() {
     console.log(`   Current Bangladesh Time: ${timeWindow.bangladeshTime.toISOString()}`);
     console.log(`   Window Start (60 min ago): ${timeWindow.startTime}`);
     console.log(`   Window End (now): ${timeWindow.endTime}`);
+    console.log(`   Logic: Processing meetings that ENDED in this window`);
+    console.log(`   Benefit: Catches long meetings regardless of start time`);
     console.log(`   Test Mode: ${isTestMode}`);
     
     // Fetch meetings for the target user within the time window
@@ -108,25 +110,24 @@ async function runTranscriptProcessor() {
       };
     }
     
-    // Filter meetings that have transcripts and occurred within the time window
+    // Filter meetings that have transcripts and ENDED within the time window
     const meetingsWithTranscripts = meetingsResult.meetings.filter(meeting => {
       if (!meeting.transcript || meeting.transcript.length === 0) {
         return false;
       }
       
-      // Check if both meeting start and end times are within the last 60 minutes
-      const meetingStart = new Date(meeting.startTime);
+      // Check if meeting ENDED within the last 60 minutes (regardless of start time)
       const meetingEnd = new Date(meeting.endTime);
       const windowStart = new Date(timeWindow.startTime);
       const windowEnd = new Date(timeWindow.endTime);
       
-      const startInWindow = meetingStart >= windowStart && meetingStart <= windowEnd;
-      const endInWindow = meetingEnd >= windowStart && meetingEnd <= windowEnd;
+      // Only check if the meeting ended within our time window
+      const endedInWindow = meetingEnd >= windowStart && meetingEnd <= windowEnd;
       
-      return startInWindow && endInWindow;
+      return endedInWindow;
     });
     
-    console.log(`📝 Meetings with transcripts in time window: ${meetingsWithTranscripts.length}`);
+    console.log(`📝 Meetings with transcripts that ended in time window: ${meetingsWithTranscripts.length}`);
     
     if (meetingsWithTranscripts.length === 0) {
       console.log("ℹ️  No meetings with transcripts found in the time window");
@@ -150,6 +151,12 @@ async function runTranscriptProcessor() {
         console.log(`   Meeting ID: ${meeting.id}`);
         console.log(`   Start Time: ${meeting.startTime}`);
         console.log(`   End Time: ${meeting.endTime}`);
+        
+        // Calculate meeting duration
+        const startTime = new Date(meeting.startTime);
+        const endTime = new Date(meeting.endTime);
+        const durationMinutes = Math.round((endTime - startTime) / (1000 * 60));
+        console.log(`   Duration: ${durationMinutes} minutes`);
         console.log(`   Transcript Entries: ${meeting.transcript.length}`);
         
         // Process the transcript through the 3-stage pipeline

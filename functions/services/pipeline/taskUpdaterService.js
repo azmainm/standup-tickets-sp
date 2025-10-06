@@ -13,7 +13,7 @@
 
 const { ChatOpenAI } = require("@langchain/openai");
 const { logger } = require("firebase-functions");
-const { detectStatusChangesFromTranscript } = require("./statusChangeDetectionService");
+const { detectStatusChangesFromTranscript } = require("../utilities/statusChangeDetectionService");
 const { normalizeTicketId } = require("./taskMatcher");
 
 // Load environment variables

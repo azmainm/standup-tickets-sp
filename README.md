@@ -42,7 +42,7 @@ The system features a **RAG-enhanced 3-stage processing pipeline** with transcri
 - **Future Plans Detection**: Separate handling of future/TBD tasks
 
 ### Flexible Deployment Options
-- **GitHub Actions** (Recommended): Runs every 60 minutes, processes last 60 minutes of meetings
+- **GitHub Actions** (Recommended): Runs every 60 minutes, processes meetings that ended in the last 60 minutes
 - **Firebase Functions**: HTTP endpoints for manual processing and testing
 
 ## 🏗️ Architecture Overview
@@ -164,7 +164,7 @@ curl -X POST "https://your-region-your-project.cloudfunctions.net/fetch-transcri
 
 ### GitHub Actions Flow (Every 60 Minutes)
 1. **Time Window Calculation**: Last 60 minutes in Bangladesh time
-2. **Meeting Fetch**: Get meetings that occurred entirely within the window
+2. **Meeting Fetch**: Get meetings that ENDED within the window (catches long meetings)
 3. **Transcript Processing**: 3-stage pipeline for each meeting with transcripts
 4. **Results**: Tasks created/updated, status changes applied, Teams notification sent
 
