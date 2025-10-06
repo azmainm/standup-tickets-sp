@@ -10,6 +10,8 @@
     "logs": "firebase functions:log",
     "test:fake-flow": "node tests/testFakeFlow.js",
     "test:real-flow": "node tests/testRealFlow.js",
+    "test:github-actions": "node scripts/testGithubActionsCron.js",
+    "github:cron": "node scripts/githubActionsCron.js",
     "fetch:yesterday": "node scripts/fetchYesterdayTranscripts.js"
   },
   "engines": {

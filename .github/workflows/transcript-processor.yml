@@ -1,0 +1,81 @@
+name: Transcript Processor Cron Job
+
+on:
+  schedule:
+    # Run every 60 minutes
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allow manual triggering
+    inputs:
+      test_mode:
+        description: 'Run in test mode'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  process-transcripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: functions/package-lock.json
+        
+    - name: Install dependencies
+      run: |
+        cd functions
+        npm ci
+        
+    - name: Set up environment variables
+      env:
+        # Azure/Microsoft Graph credentials
+        AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        AZURE_AUTHORITY: ${{ secrets.AZURE_AUTHORITY }}
+        TARGET_USER_ID: ${{ secrets.TARGET_USER_ID }}
+        
+        # OpenAI credentials
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        
+        # MongoDB credentials
+        MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        
+        # Teams webhook (optional)
+        TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        
+        # Test mode flag
+        TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
+        
+      run: |
+        cd functions
+        # Create .env file for the Node.js application
+        cat > .env << EOF
+        AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+        AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
+        AZURE_AUTHORITY=${AZURE_AUTHORITY}
+        TARGET_USER_ID=${TARGET_USER_ID}
+        OPENAI_API_KEY=${OPENAI_API_KEY}
+        MONGODB_URI=${MONGODB_URI}
+        TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+        TEST_MODE=${TEST_MODE}
+        EOF
+        
+    - name: Run transcript processor
+      run: |
+        cd functions
+        node scripts/githubActionsCron.js
+        
+    - name: Upload logs (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: error-logs-${{ github.run_number }}
+        path: functions/logs/
+        retention-days: 7

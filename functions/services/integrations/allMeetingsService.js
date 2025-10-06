@@ -110,8 +110,17 @@ async function fetchCalendarEvents(accessToken, userId, targetDate) {
       },
     });
 
-    const startDateTime = `${targetDate}T00:00:00Z`;
-    const endDateTime = `${targetDate}T23:59:59Z`;
+    let startDateTime, endDateTime;
+    
+    // Support custom time windows for GitHub Actions cron
+    if (typeof targetDate === 'object' && targetDate.startDateTime && targetDate.endDateTime) {
+      startDateTime = targetDate.startDateTime;
+      endDateTime = targetDate.endDateTime;
+    } else {
+      // Original behavior for daily processing
+      startDateTime = `${targetDate}T00:00:00Z`;
+      endDateTime = `${targetDate}T23:59:59Z`;
+    }
 
     logger.info("Searching for calendar events", {
       targetDate,
@@ -685,7 +694,17 @@ async function fetchAllMeetingsForUser(userId, targetDate) {
 
     // Step 2: Fetch calendar events to find meeting IDs
     logger.info("Step 2: Fetching calendar events");
-    const events = await fetchCalendarEvents(accessToken, userId, targetDate);
+    
+    // Support custom time windows for GitHub Actions cron
+    let calendarQuery = targetDate;
+    if (typeof targetDate === 'object' && targetDate.customTimeWindow) {
+      calendarQuery = {
+        startDateTime: targetDate.startDateTime,
+        endDateTime: targetDate.endDateTime
+      };
+    }
+    
+    const events = await fetchCalendarEvents(accessToken, userId, calendarQuery);
 
     if (events.length === 0) {
       logger.info("No online meetings found for the specified date", {

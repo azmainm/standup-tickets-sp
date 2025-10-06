@@ -9,10 +9,10 @@
  */
 
 const { logger } = require("firebase-functions");
-const { AssigneeDetectionSchema } = require("../schemas/taskSchemas");
+const { AssigneeDetectionSchema } = require("../../schemas/taskSchemas");
 
 // Load participant mapping
-const { PARTICIPANT_TO_JIRA_MAPPING } = require("../config/participantMapping");
+const { PARTICIPANT_TO_JIRA_MAPPING } = require("../../config/participantMapping");
 
 /**
  * Detect assignee from task description and context
