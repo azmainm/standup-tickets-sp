@@ -44,7 +44,7 @@ function parseVttToJson(vttContent) {
     const line = lines[i].trim();
     
     // Skip empty lines and metadata
-    if (!line || line === 'WEBVTT' || line.includes('NOTE')) {
+    if (!line || line === "WEBVTT" || line.includes("NOTE")) {
       continue;
     }
 
@@ -113,7 +113,7 @@ async function fetchCalendarEvents(accessToken, userId, targetDate) {
     let startDateTime, endDateTime;
     
     // Support custom time windows for GitHub Actions cron
-    if (typeof targetDate === 'object' && targetDate.startDateTime && targetDate.endDateTime) {
+    if (typeof targetDate === "object" && targetDate.startDateTime && targetDate.endDateTime) {
       startDateTime = targetDate.startDateTime;
       endDateTime = targetDate.endDateTime;
     } else {

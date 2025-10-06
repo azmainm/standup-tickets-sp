@@ -783,7 +783,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 taskType: "Coding",
                 taskIndex: i,
                 updateData,
-                result: result.modifiedCount > 0 ? 'success' : 'no_changes'
+                result: result.modifiedCount > 0 ? "success" : "no_changes"
               });
               
               return {
@@ -856,7 +856,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 taskType: "Non-Coding",
                 taskIndex: i,
                 updateData,
-                result: result.modifiedCount > 0 ? 'success' : 'no_changes'
+                result: result.modifiedCount > 0 ? "success" : "no_changes"
               });
               
               return {
@@ -877,7 +877,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
     logger.warn("Task not found for update", { ticketId, updateData });
     return {
       success: false,
-      error: 'Task not found',
+      error: "Task not found",
       ticketId
     };
     
