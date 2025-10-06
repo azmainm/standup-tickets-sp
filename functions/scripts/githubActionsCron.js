@@ -99,28 +99,24 @@ async function runTranscriptProcessor() {
     
     if (allTranscripts.length === 0) {
       console.log("ℹ️  No transcripts found in the last 60 minutes");
+      console.log("   This could mean:");
+      console.log("   - No meetings ended in the last 60 minutes");
+      console.log("   - No transcripts were created in the last 60 minutes");
+      console.log("   - All transcripts were filtered out (too old)");
       console.log("✅ Cron job completed successfully (no processing needed)");
+      
       return {
         success: true,
-        meetingsFound: 0,
+        transcriptsFound: 0,
         transcriptsProcessed: 0,
-        message: "No transcripts found in the time window"
+        errors: 0,
+        duration: (Date.now() - startTime) / 1000,
+        message: "No transcripts found in the time window - early exit"
       };
     }
     
     // The allTranscripts array already contains transcripts from meetings that ended in the time window
     console.log(`📝 Transcripts ready for processing: ${allTranscripts.length}`);
-    
-    if (allTranscripts.length === 0) {
-      console.log("ℹ️  No transcripts found in the time window");
-      console.log("✅ Cron job completed successfully (no transcripts to process)");
-      return {
-        success: true,
-        meetingsFound: 0,
-        transcriptsProcessed: 0,
-        message: "No transcripts found in the time window"
-      };
-    }
     
     // Process each transcript
     let processedCount = 0;
