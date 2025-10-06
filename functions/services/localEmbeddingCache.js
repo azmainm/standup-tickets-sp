@@ -95,7 +95,20 @@ async function searchLocalEmbeddings(query, options = {}) {
     } = options;
 
     if (!transcriptId) {
-      throw new Error("No current transcript ID set for local search");
+      logger.info("No current transcript ID set for local search", {
+        query: query.substring(0, 100),
+        transcriptId: null
+      });
+      return {
+        success: false,
+        results: [],
+        searchMetadata: {
+          totalResults: 0,
+          searchTime: 0,
+          transcriptId: null,
+          reason: "No transcript ID provided"
+        }
+      };
     }
 
     const cacheEntry = localEmbeddingCache.get(transcriptId);

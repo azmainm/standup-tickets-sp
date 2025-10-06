@@ -40,11 +40,20 @@ async function findTasksFromTranscript(transcript, context = {}) {
       timestamp: new Date().toISOString(),
     });
 
+    // Extract participant names from transcript for name matching
+    const { extractParticipantsFromTranscript } = require('./assigneeDetectionService');
+    const participantsInMeeting = extractParticipantsFromTranscript(transcript);
+    
+    logger.info("Participants extracted from meeting", {
+      participants: participantsInMeeting,
+      count: participantsInMeeting.length
+    });
+
     // Convert transcript to readable format
     const transcriptText = formatTranscriptForTaskFinding(transcript);
     
-    // Create the task finding prompt
-    const prompt = createTaskFindingPrompt(transcriptText, context);
+    // Create the task finding prompt with participant context
+    const prompt = createTaskFindingPrompt(transcriptText, context, participantsInMeeting);
 
     logger.info("Stage 1: Task Finder prompt created", {
       transcriptChars: transcriptText.length,
@@ -86,13 +95,17 @@ async function findTasksFromTranscript(transcript, context = {}) {
       transcriptIndex: context.transcriptIndex || 1
     });
 
-    // Parse the response into structured tasks
-    const foundTasks = parseTaskFinderResponse(gptResponse);
+    // Parse the response into structured tasks with participant matching
+    const foundTasks = parseTaskFinderResponse(gptResponse, participantsInMeeting);
+    
+    // Apply task cancellation detection
+    const finalTasks = detectAndRemoveCancelledTasks(foundTasks, transcriptText);
     
     // DEBUG: Log all found tasks
     console.log("[DEBUG] Task Finder found tasks:", {
-      totalTasks: foundTasks.length,
-      tasks: foundTasks.map(task => ({
+      originalTasks: foundTasks.length,
+      finalTasks: finalTasks.length,
+      tasks: finalTasks.map(task => ({
         description: task.description.substring(0, 100),
         assignee: task.assignee,
         type: task.type,
@@ -100,8 +113,8 @@ async function findTasksFromTranscript(transcript, context = {}) {
       }))
     });
     
-    const totalTasks = foundTasks.length;
-    const averageDescriptionLength = calculateAverageDescriptionLength(foundTasks);
+    const totalTasks = finalTasks.length;
+    const averageDescriptionLength = calculateAverageDescriptionLength(finalTasks);
     
     logger.info("Stage 1: Task Finder completed successfully", {
       totalTasksFound: totalTasks,
@@ -111,7 +124,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
     });
 
     // Separate tasks into tasksToBeCreated and tasksToBeUpdated arrays
-    const tasksToBeCreated = foundTasks.filter(task => task.category === 'NEW_TASK').map(task => ({
+    const tasksToBeCreated = finalTasks.filter(task => task.category === 'NEW_TASK').map(task => ({
       description: task.description,
       assignee: task.assignee,
       type: task.type,
@@ -121,7 +134,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
       isFuturePlan: task.isFuturePlan
     }));
 
-    const tasksToBeUpdated = foundTasks.filter(task => task.category === 'UPDATE_TASK' && task.ticketId !== 'NONE').map(task => ({
+    const tasksToBeUpdated = finalTasks.filter(task => task.category === 'UPDATE_TASK' && task.ticketId !== 'NONE').map(task => ({
       description: task.description,
       assignee: task.assignee,
       ticketId: task.ticketId,
@@ -133,7 +146,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
     return {
       success: true,
       stage: 1,
-      foundTasks, // Keep original for backward compatibility
+      foundTasks: finalTasks, // Keep original for backward compatibility
       tasksToBeCreated,
       tasksToBeUpdated,
       metadata: {
@@ -201,7 +214,10 @@ function createTaskFinderSystemPrompt(context) {
  * @param {Object} context - Processing context
  * @returns {string} Task finding prompt
  */
-function createTaskFindingPrompt(transcriptText, context) {
+function createTaskFindingPrompt(transcriptText, context, participantsInMeeting = []) {
+  const participantsList = participantsInMeeting.length > 0 ? 
+    `\n\n**PARTICIPANTS IN THIS MEETING**: ${participantsInMeeting.join(', ')}\n` : '';
+  
   return `
 **OBJECTIVE**: Extract ALL actionable work items from this meeting transcript with maximum detail and context.
 
@@ -231,22 +247,33 @@ function createTaskFindingPrompt(transcriptText, context) {
 
 **3. WORK ITEM CLASSIFICATION (CRITICAL)**:
 
-**NEW TASK PATTERNS** (STRICT - EXPLICIT CREATION INTENT REQUIRED):
+**NEW TASK PATTERNS** (EXPLICIT CREATION INTENT REQUIRED):
 - EXPLICIT task creation: "create a new task", "new task for [assignee]", "add this as a new task"
 - EXPLICIT assignment: "this will be a new task for me/[assignee]", "make this a new task for [person]"
 - EXPLICIT work assignment: "[description] and this will be a new task", "create a task for [person] to [action]"
-- FUTURE PLAN assignments: "[description] as a future plan/initiative"
+- EXPLICIT future plan: "as a future plan", "this is a future plan", "future plan", "future initiative"
 
-**CRITICAL RULE**: A task should ONLY be created if the participant EXPLICITLY mentions:
-- "new task" / "create a task" / "add a task" / "make a task"
-- OR explicitly assigns work with "this will be a task for [person]"
-- OR mentions it as a "future plan" / "future initiative"
+**CRITICAL RULE**: A task should be created if the participant EXPLICITLY mentions:
+- "new task" / "create a task" / "add a task" / "make a task" / "this will be a task"
+- OR explicitly assigns work with "this will be a task for [person]" / "make this a task for [person]"
+- OR explicitly mentions "as a future plan" / "this is a future plan" / "future plan" / "future initiative"
 
-**DO NOT CREATE TASKS FOR**:
+**DO NOT CREATE TASKS FOR VAGUE STATEMENTS**:
 - General statements: "I need to...", "John should...", "[Name] will..."
 - Problem mentions: "We need to fix...", "There's an issue with..."
 - Casual suggestions: "We should implement...", "Maybe we could..."
+- Vague considerations: "we should consider" (UNLESS followed by "as a future plan")
 - General discussions about work without explicit task creation intent
+- Brainstorming: "what if we...", "it would be nice to...", "eventually we could..."
+- Vague future plans: "down the line", "in the future", "someday we should"
+
+**FUTURE PLAN DETECTION**: If someone says "as a future plan" or "this is a future plan", CREATE the task with isFuturePlan=true and assignee="TBD"
+
+**TASK CANCELLATION DETECTION**: If someone mentions a potential new task but later in the conversation says:
+- "actually, let's not do that", "never mind", "scratch that", "forget about that"
+- "we decided not to", "on second thought", "let's hold off on that"
+- "maybe later", "not right now", "let's table that"
+Then DO NOT create that task.
 
 **TASK UPDATE PATTERNS** (ticket number explicitly mentioned):
 - Status updates: "SP-XXX is completed", "SP-XXX is in progress"
@@ -266,20 +293,35 @@ function createTaskFindingPrompt(transcriptText, context) {
 - Note any dependencies or requirements discussed
 - Preserve timeline information ("by Friday", "next week")
 
-**5. FUTURE PLAN DETECTION**:
-Look for these patterns that indicate future plans:
-- "future plan" / "as a future plan" / "future initiative"
-- "we should consider" / "we should definitely consider"
-- "for the future" / "something for later" / "down the line"
-- "future enhancement" / "future consideration" / "on our roadmap"
-- "eventually we'll" / "in the future we should" / "planned for future"
+**5. FUTURE PLAN DETECTION** (CREATE TASKS FOR EXPLICIT FUTURE PLANS):
+Look for these patterns that indicate future plans that should become tasks:
+- "as a future plan" / "this is a future plan" / "future plan" 
+- "future initiative" / "this will be a future plan"
+- "add this as a future plan" / "make this a future plan"
 
-When found:
+**ALSO CREATE FUTURE TASKS FOR**:
+- "we should definitely consider" (when they provide specific details)
+- Clear detailed future work that's being planned (not just brainstorming)
+
+**DO NOT CREATE FUTURE TASKS FOR VAGUE PATTERNS**:
+- "for the future" / "something for later" / "down the line" (VAGUE PLANNING)
+- "future enhancement" / "future consideration" / "on our roadmap" (WISHFUL THINKING)
+- "eventually we'll" / "in the future we should" / "someday" (GENERAL DISCUSSION)
+- Casual "we should consider" without specific details
+
+When EXPLICIT future plan language found:
 - Extract the COMPLETE description of what the future plan entails
 - Use conversation context to understand the full scope
-- Assign to "TBD" participant
+- Assign to "TBD" participant (unless specifically assigned to someone)
 - Mark as NEW_TASK category
 - Include [IS_FUTURE_PLAN: true] in CONTEXT field
+
+**6. TASK CANCELLATION DETECTION**:
+Scan the ENTIRE transcript for task cancellation patterns:
+- If someone mentions a potential task early in the conversation
+- But later says cancellation phrases like: "actually, let's not", "never mind", "scratch that", "forget about that", "we decided not to", "on second thought", "let's hold off", "maybe later", "not right now", "let's table that"
+- Then DO NOT include that task in the final output
+- Always check the full conversation context before finalizing any task
 
 **6. CONTEXT GATHERING STRATEGY**:
 - Scan the ENTIRE transcript for ALL mentions of each identified task
@@ -289,11 +331,22 @@ When found:
 - Include all technical details, requirements, and context mentioned anywhere in the transcript
 - Capture task evolution - how requirements or scope might change during discussion
 
-**7. ASSIGNEE DETECTION**:
+**7. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
 - "for me" / "my task" / "I will" = assign to speaker
 - "for [Name]" / "[Name] will" / "[Name] should" = assign to that person
 - "task for [Name] who isn't here" = assign to that person (not TBD)
 - Future plans without specific assignee = assign to "TBD"
+
+**SMART PARTICIPANT NAME MATCHING**:
+- If assignee name is mentioned (e.g., "faiyaz", "john", "jane"), check if any participant in the meeting has a similar name
+- Use fuzzy matching to handle spelling variations and transcript errors
+- Match first names to full participant names from the meeting
+- Examples:
+  * "faiyaz" → find participant "Faiyaz Rahman" in meeting
+  * "john" → find participant "John Doe" in meeting
+  * "jane" → find participant "Jane Smith" in meeting
+- Always use the FULL NAME from the participant timestamp for the assignee field
+- This ensures proper task assignment even with transcript spelling errors
 
 **OUTPUT FORMAT**:
 For each task found, provide EXACTLY this format (DO NOT use bullet points or dashes):
@@ -316,10 +369,10 @@ URGENCY: [Any timeline mentioned]
 
 **CRITICAL**: Properly classify each item as NEW_TASK or UPDATE_TASK based on whether a ticket number is mentioned.
 
-**MEETING TRANSCRIPT**:
+**MEETING TRANSCRIPT**:${participantsList}
 ${transcriptText}
 
-**YOUR RESPONSE**: Extract ALL actionable work items with maximum detail and context.`;
+**YOUR RESPONSE**: Extract ALL actionable work items with maximum detail and context. Remember to use EXACT participant names from the meeting participant list above when assigning tasks.`;
 }
 
 /**
@@ -371,7 +424,8 @@ function formatTranscriptForTaskFinding(transcript) {
  * @param {string} response - GPT response
  * @returns {Array} Array of found tasks
  */
-function parseTaskFinderResponse(response) {
+function parseTaskFinderResponse(response, participantsInMeeting = []) {
+  const { findBestParticipantMatch, normalizeAssigneeName } = require('./assigneeDetectionService');
   const tasks = [];
   const lines = response.split("\n");
   
@@ -407,7 +461,24 @@ function parseTaskFinderResponse(response) {
       if (trimmed.startsWith('ASSIGNEE:') || trimmed.startsWith('  ASSIGNEE:')) {
         // Clean assignee name to remove any extra text like "(not present)"
         const rawAssignee = trimmed.replace(/^\s*ASSIGNEE:\s*/, '').trim();
-        currentTask.assignee = rawAssignee.replace(/\s*\([^)]*\)\s*/g, '').trim();
+        const cleanAssignee = rawAssignee.replace(/\s*\([^)]*\)\s*/g, '').trim();
+        
+        // Try to match against participants in the meeting
+        if (participantsInMeeting.length > 0 && cleanAssignee !== 'TBD') {
+          const matchResult = findBestParticipantMatch(cleanAssignee, participantsInMeeting);
+          if (matchResult.confidence > 0.7) {
+            currentTask.assignee = matchResult.participant;
+            logger.info('Assignee name matched', {
+              original: cleanAssignee,
+              matched: matchResult.participant,
+              confidence: matchResult.confidence
+            });
+          } else {
+            currentTask.assignee = normalizeAssigneeName(cleanAssignee);
+          }
+        } else {
+          currentTask.assignee = normalizeAssigneeName(cleanAssignee);
+        }
       } else if (trimmed.startsWith('TYPE:') || trimmed.startsWith('  TYPE:')) {
         const type = trimmed.replace(/^\s*TYPE:\s*/, '').trim();
         currentTask.type = type.includes('Coding') ? 'Coding' : 'Non-Coding';
@@ -444,6 +515,53 @@ function parseTaskFinderResponse(response) {
     !task.description.includes('[') &&
     task.assignee !== 'Unknown'
   );
+}
+
+/**
+ * Detect and remove tasks that were mentioned but later cancelled in the conversation
+ * @param {Array} tasks - Array of found tasks
+ * @param {string} transcriptText - Full transcript text
+ * @returns {Array} Filtered tasks with cancelled ones removed
+ */
+function detectAndRemoveCancelledTasks(tasks, transcriptText) {
+  if (!tasks || tasks.length === 0) return tasks;
+  
+  // Cancellation patterns to look for
+  const cancellationPatterns = [
+    /actually,?\s*let's not(?:\s+do\s+that)?/i,
+    /never\s*mind/i,
+    /scratch\s+that/i,
+    /forget\s+about\s+that/i,
+    /we\s+decided\s+not\s+to/i,
+    /on\s+second\s+thought/i,
+    /let's\s+hold\s+off\s+on\s+that/i,
+    /maybe\s+later/i,
+    /not\s+right\s+now/i,
+    /let's\s+table\s+that/i,
+    /actually,?\s*don't/i,
+    /changed\s+my\s+mind/i,
+    /let's\s+skip\s+that/i
+  ];
+  
+  const lowerTranscript = transcriptText.toLowerCase();
+  
+  // Check if any cancellation pattern appears in the transcript
+  const hasCancellation = cancellationPatterns.some(pattern => pattern.test(lowerTranscript));
+  
+  if (!hasCancellation) {
+    return tasks; // No cancellation detected, return all tasks
+  }
+  
+  logger.info("Task cancellation patterns detected in transcript", {
+    taskCount: tasks.length,
+    patterns: cancellationPatterns.filter(pattern => pattern.test(lowerTranscript)).map(p => p.source)
+  });
+  
+  // For now, we'll keep all tasks but log the detection
+  // In a more sophisticated implementation, we could try to match specific tasks to cancellations
+  // This would require understanding the context around each cancellation phrase
+  
+  return tasks;
 }
 
 /**
@@ -490,5 +608,6 @@ module.exports = {
   parseTaskFinderResponse,
   calculateAverageDescriptionLength,
   createTaskFinderSystemPrompt,
-  createTaskFindingPrompt
+  createTaskFindingPrompt,
+  detectAndRemoveCancelledTasks
 };

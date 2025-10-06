@@ -126,28 +126,48 @@ async function fetchCalendarEvents(accessToken, userId, targetDate) {
     const allEvents = eventsResponse.data.value || [];
     const onlineMeetings = allEvents.filter(event => event.isOnlineMeeting);
     
-    logger.info("Calendar events fetched", {
-      totalEvents: allEvents.length,
-      onlineMeetings: onlineMeetings.length,
+  logger.info("📅 Calendar events fetched successfully", {
+    totalEvents: allEvents.length,
+    onlineMeetings: onlineMeetings.length,
+    targetDate,
+    userId: userId.substring(0, 20) + "...",
+    timeRange: `${startDateTime} to ${endDateTime}`,
+  });
+
+  if (onlineMeetings.length === 0) {
+    logger.warn("⚠️ No online meetings found for the specified date", { 
       targetDate,
+      totalEventsFound: allEvents.length,
+      possibleReasons: [
+        "No meetings scheduled for this date",
+        "Meetings exist but are not online meetings",
+        "User calendar access issues",
+        "Meeting organizer permissions",
+      ],
     });
-
-    if (onlineMeetings.length === 0) {
-      logger.info("No online meetings found for the specified date", { targetDate });
-      return [];
-    }
-    
-    // Log meeting details for debugging
-    onlineMeetings.forEach((meeting, index) => {
-      logger.info(`Meeting ${index + 1} found`, {
-        subject: meeting.subject,
-        startTime: meeting.start.dateTime,
-        endTime: meeting.end.dateTime,
-        organizer: meeting.organizer?.emailAddress?.name || 'Unknown',
-      });
+    return [];
+  }
+  
+  // Log meeting details for debugging
+  logger.info(`📋 Found ${onlineMeetings.length} online meeting(s) for processing`, {
+    targetDate,
+    meetingCount: onlineMeetings.length,
+  });
+  
+  onlineMeetings.forEach((meeting, index) => {
+    logger.info(`📅 Meeting ${index + 1}/${onlineMeetings.length} details`, {
+      subject: meeting.subject,
+      startTime: meeting.start?.dateTime,
+      endTime: meeting.end?.dateTime,
+      organizer: meeting.organizer?.emailAddress?.name || 'Unknown',
+      organizerEmail: meeting.organizer?.emailAddress?.address || 'Unknown',
+      hasOnlineMeeting: !!meeting.onlineMeeting,
+      hasJoinUrl: !!(meeting.onlineMeeting?.joinUrl),
+      joinUrlPrefix: meeting.onlineMeeting?.joinUrl?.substring(0, 50) + "..." || 'N/A',
     });
+  });
 
-    return onlineMeetings;
+  return onlineMeetings;
   } catch (error) {
     logger.error("Error fetching calendar events", {
       error: error.message,
@@ -183,72 +203,154 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
   });
 
   const meetingsWithTranscripts = [];
+  const processingResults = [];
+
+  logger.info("🔍 Starting to process meetings for transcripts", {
+    totalEvents: events.length,
+    targetDate,
+    userId: userId.substring(0, 20) + "...",
+  });
 
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
+    const processingResult = {
+      eventIndex: i + 1,
+      subject: event.subject,
+      status: 'processing',
+      reason: null,
+      error: null,
+      meetingId: null,
+      transcriptCount: 0,
+      joinUrl: null
+    };
+
+    logger.info(`📋 Processing meeting ${i + 1}/${events.length}`, {
+      eventIndex: i + 1,
+      subject: event.subject,
+      startTime: event.start?.dateTime,
+      organizer: event.organizer?.emailAddress?.name || 'Unknown',
+    });
+
     const onlineMeeting = event.onlineMeeting;
     if (!onlineMeeting || !onlineMeeting.joinUrl) {
-      logger.warn("Skipping event - no join URL found", {
+      processingResult.status = 'skipped';
+      processingResult.reason = 'No join URL found in calendar event';
+      processingResults.push(processingResult);
+      
+      logger.warn(`❌ Skipping event ${i + 1} - no join URL found`, {
         eventIndex: i + 1,
         subject: event.subject,
+        hasOnlineMeeting: !!onlineMeeting,
+        hasJoinUrl: !!(onlineMeeting?.joinUrl),
       });
       continue;
     }
-    
-    logger.info("Processing meeting for transcripts", {
-      eventIndex: i + 1,
-      totalEvents: events.length,
-      subject: event.subject,
-    });
     
     let meetingObject = null;
     let transcripts = [];
     const joinWebUrl = onlineMeeting.joinUrl;
+    processingResult.joinUrl = joinWebUrl.substring(0, 100) + "...";
     
     try {
-      logger.info("Searching for online meeting by join URL", {
+      logger.info(`🔎 Searching for online meeting by join URL for event ${i + 1}`, {
         userId: userId.substring(0, 20) + "...",
-        joinUrlPrefix: joinWebUrl.substring(0, 50) + "...",
+        joinUrlPrefix: joinWebUrl.substring(0, 80) + "...",
+        fullJoinUrl: joinWebUrl, // Log full URL for debugging
       });
       
       const meetingEndpoint = `/users/${userId}/onlineMeetings?$filter=JoinWebUrl eq '${encodeURIComponent(joinWebUrl)}'`;
+      logger.info(`📡 Making Graph API call for event ${i + 1}`, {
+        endpoint: meetingEndpoint,
+        method: 'GET',
+      });
+      
       const response = await graphApi.get(meetingEndpoint);
-      meetingObject = response.data.value[0];
+      const allOnlineMeetings = response.data.value || [];
+      meetingObject = allOnlineMeetings[0];
+      
+      logger.info(`📊 Graph API response for event ${i + 1}`, {
+        totalMeetingsReturned: allOnlineMeetings.length,
+        foundMatch: !!meetingObject,
+        meetingId: meetingObject?.id || 'none',
+      });
       
       if (meetingObject) {
-        logger.info("Matched online meeting, fetching transcripts", {
+        processingResult.meetingId = meetingObject.id;
+        
+        logger.info(`✅ Matched online meeting for event ${i + 1}, fetching transcripts`, {
           meetingId: meetingObject.id,
+          meetingSubject: meetingObject.subject,
         });
         
         const transcriptsEndpoint = `/users/${userId}/onlineMeetings/${meetingObject.id}/transcripts`;
+        logger.info(`📡 Fetching transcripts for event ${i + 1}`, {
+          transcriptsEndpoint,
+        });
+        
         const transcriptsResponse = await graphApi.get(transcriptsEndpoint);
         transcripts = transcriptsResponse.data.value || [];
+        processingResult.transcriptCount = transcripts.length;
         
-        logger.info("Transcripts found for meeting", {
+        logger.info(`📋 Transcripts found for event ${i + 1}`, {
           meetingId: meetingObject.id,
           transcriptCount: transcripts.length,
+          transcriptIds: transcripts.map(t => t.id),
+          transcriptCreatedDates: transcripts.map(t => t.createdDateTime),
         });
+
+        if (transcripts.length === 0) {
+          processingResult.status = 'no_transcripts';
+          processingResult.reason = 'Meeting found but no transcripts available';
+          logger.warn(`⚠️ Meeting found for event ${i + 1} but no transcripts available`, {
+            meetingId: meetingObject.id,
+            meetingSubject: meetingObject.subject,
+          });
+        } else {
+          processingResult.status = 'success';
+          processingResult.reason = `Found ${transcripts.length} transcript(s)`;
+        }
+        
       } else {
-        logger.warn("No matching online meeting found for join URL", {
-          joinUrlPrefix: joinWebUrl.substring(0, 50) + "...",
+        processingResult.status = 'no_meeting_match';
+        processingResult.reason = 'Calendar event join URL did not match any online meeting';
+        
+        logger.warn(`❌ No matching online meeting found for event ${i + 1}`, {
+          joinUrlPrefix: joinWebUrl.substring(0, 80) + "...",
+          calendarEventId: event.id,
+          totalOnlineMeetingsReturned: allOnlineMeetings.length,
+          suggestion: "The join URL from calendar might not match the online meeting URL format",
         });
       }
 
     } catch (error) {
-      logger.error("Error fetching online meeting or transcripts", {
+      processingResult.status = 'error';
+      processingResult.error = error.message;
+      processingResult.reason = `API error: ${error.message}`;
+      
+      logger.error(`💥 Error fetching online meeting or transcripts for event ${i + 1}`, {
         eventIndex: i + 1,
         subject: event.subject,
         error: error.message,
+        stack: error.stack,
+        joinUrlPrefix: joinWebUrl.substring(0, 80) + "...",
       });
+      
       if (error.response) {
-        logger.error("Graph API error details", {
+        logger.error(`📡 Graph API error details for event ${i + 1}`, {
           status: error.response.status,
+          statusText: error.response.statusText,
           data: JSON.stringify(error.response.data, null, 2),
+          headers: error.response.headers,
         });
       }
-      continue;
+      
+      // REMOVED: continue; - We no longer silently skip errors
+      // Instead, we log the error and continue to next meeting
     }
     
+    processingResults.push(processingResult);
+    
+    // Only add to results if we have both meeting object and transcripts
     if (meetingObject && transcripts.length > 0) {
       meetingsWithTranscripts.push({
         event,
@@ -256,13 +358,63 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
         transcripts,
         organizerEmail: event.organizer?.emailAddress?.address,
       });
+      
+      logger.info(`✅ Successfully added meeting ${i + 1} to results`, {
+        meetingId: meetingObject.id,
+        transcriptCount: transcripts.length,
+      });
+    } else {
+      logger.warn(`❌ Meeting ${i + 1} not added to results`, {
+        hasMeetingObject: !!meetingObject,
+        transcriptCount: transcripts.length,
+        reason: !meetingObject ? 'No meeting object found' : 'No transcripts available',
+      });
     }
   }
 
-  logger.info("All meetings processed", {
+  // Comprehensive summary logging
+  logger.info("📊 All meetings processing completed - DETAILED SUMMARY", {
     totalEvents: events.length,
-    meetingsWithTranscripts: meetingsWithTranscripts.length,
+    successfulMeetings: meetingsWithTranscripts.length,
+    targetDate,
   });
+
+  // Log detailed breakdown
+  const summary = {
+    success: processingResults.filter(r => r.status === 'success').length,
+    skipped_no_joinurl: processingResults.filter(r => r.status === 'skipped').length,
+    no_meeting_match: processingResults.filter(r => r.status === 'no_meeting_match').length,
+    no_transcripts: processingResults.filter(r => r.status === 'no_transcripts').length,
+    errors: processingResults.filter(r => r.status === 'error').length,
+  };
+
+  logger.info("📈 Processing breakdown", summary);
+
+  // Log each meeting's result for debugging
+  processingResults.forEach((result, index) => {
+    const logLevel = result.status === 'success' ? 'info' : 'warn';
+    logger[logLevel](`Meeting ${result.eventIndex}: ${result.subject}`, {
+      status: result.status,
+      reason: result.reason,
+      meetingId: result.meetingId,
+      transcriptCount: result.transcriptCount,
+      error: result.error,
+    });
+  });
+
+  if (meetingsWithTranscripts.length === 0) {
+    logger.error("🚨 CRITICAL: No meetings with transcripts found!", {
+      totalEventsProcessed: events.length,
+      summary,
+      possibleIssues: [
+        "Join URL format mismatch between calendar and online meetings",
+        "Insufficient permissions to access online meetings",
+        "Transcripts not yet generated for meetings",
+        "TARGET_USER_ID not the organizer of meetings",
+        "Meeting transcription not enabled",
+      ],
+    });
+  }
 
   return meetingsWithTranscripts;
 }
@@ -280,9 +432,18 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
   const processedTranscripts = [];
   const { onlineMeeting, transcripts } = meetingData;
 
+  logger.info("📥 Starting transcript download and processing", {
+    meetingSubject: onlineMeeting.subject,
+    meetingId: onlineMeeting.id,
+    transcriptCount: transcripts?.length || 0,
+    targetDate,
+  });
+
   if (!transcripts || transcripts.length === 0) {
-    logger.info("No transcripts to download for meeting", {
+    logger.warn("⚠️ No transcripts to download for meeting", {
       meetingSubject: onlineMeeting.subject,
+      meetingId: onlineMeeting.id,
+      reason: "Meeting has no transcripts available",
     });
     return processedTranscripts;
   }
@@ -292,23 +453,58 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
   const targetDateEnd = new Date(targetDate);
   targetDateEnd.setDate(targetDateEnd.getDate() + 1);
 
+  logger.info("📅 Date filtering setup", {
+    targetDate,
+    targetDateStart: targetDateStart.toISOString(),
+    targetDateEnd: targetDateEnd.toISOString(),
+    meetingSubject: onlineMeeting.subject,
+  });
+
+  const transcriptProcessingResults = [];
+
   for (let i = 0; i < transcripts.length; i++) {
     const transcript = transcripts[i];
+    const processingResult = {
+      transcriptIndex: i + 1,
+      transcriptId: transcript.id,
+      createdDateTime: transcript.createdDateTime,
+      status: 'processing',
+      reason: null,
+      error: null,
+    };
     
     // Convert the transcript's created date to a Date object
     const transcriptDate = new Date(transcript.createdDateTime);
 
-    // Filter by date
+    logger.info(`📄 Processing transcript ${i + 1}/${transcripts.length}`, {
+      transcriptIndex: i + 1,
+      transcriptId: transcript.id,
+      createdDateTime: transcript.createdDateTime,
+      transcriptDate: transcriptDate.toISOString(),
+      meetingSubject: onlineMeeting.subject,
+      willBeFiltered: transcriptDate < targetDateStart || transcriptDate >= targetDateEnd,
+    });
+
+    // Filter by date with detailed logging
     if (transcriptDate >= targetDateStart && transcriptDate < targetDateEnd) {
-      logger.info("Downloading transcript", {
+      processingResult.status = 'downloading';
+      
+      logger.info(`⬇️ Downloading transcript ${i + 1} (passes date filter)`, {
         transcriptIndex: i + 1,
         totalTranscripts: transcripts.length,
         transcriptId: transcript.id,
+        createdDate: transcript.createdDateTime,
         meetingSubject: onlineMeeting.subject,
+        targetDateRange: `${targetDateStart.toISOString()} to ${targetDateEnd.toISOString()}`,
       });
 
       try {
         const transcriptContentEndpoint = `/users/${userId}/onlineMeetings/${onlineMeeting.id}/transcripts/${transcript.id}/content`;
+        
+        logger.info(`📡 Making API call to download transcript content ${i + 1}`, {
+          endpoint: transcriptContentEndpoint,
+          transcriptId: transcript.id,
+        });
         
         const transcriptResponse = await axios.get(
           `https://graph.microsoft.com/v1.0${transcriptContentEndpoint}`,
@@ -323,6 +519,13 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
         const transcriptText = transcriptResponse.data;
         const transcriptJson = parseVttToJson(transcriptText);
 
+        logger.info(`📝 Transcript content parsed for transcript ${i + 1}`, {
+          transcriptId: transcript.id,
+          rawTextLength: transcriptText.length,
+          parsedEntries: transcriptJson.length,
+          meetingSubject: onlineMeeting.subject,
+        });
+
         // Create filename consistent with existing system
         const meetingSubject = onlineMeeting.subject.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
         const timestamp = new Date(onlineMeeting.startDateTime).toISOString().slice(0, 19).replace(/:/g, '-');
@@ -332,15 +535,21 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
         // Ensure output directory exists
         if (!fs.existsSync(outputPath)) {
           fs.mkdirSync(outputPath, { recursive: true });
+          logger.info("📁 Created output directory", { outputPath });
         }
 
         // Save transcript to file (for debugging and backup)
         fs.writeFileSync(filePath, JSON.stringify(transcriptJson, null, 2));
         
-        logger.info("Transcript processed successfully", {
+        processingResult.status = 'success';
+        processingResult.reason = `Successfully downloaded and processed ${transcriptJson.length} entries`;
+        
+        logger.info(`✅ Transcript ${i + 1} processed successfully`, {
           filename,
           entries: transcriptJson.length,
           meetingSubject: onlineMeeting.subject,
+          filePath,
+          transcriptId: transcript.id,
         });
         
         // Return transcript data with metadata for processing
@@ -361,20 +570,85 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
         });
         
       } catch (downloadError) {
-        logger.error("Error downloading transcript", {
+        processingResult.status = 'error';
+        processingResult.error = downloadError.message;
+        processingResult.reason = `Download failed: ${downloadError.message}`;
+        
+        logger.error(`💥 Error downloading transcript ${i + 1}`, {
           transcriptId: transcript.id,
           meetingSubject: onlineMeeting.subject,
           error: downloadError.message,
           stack: downloadError.stack,
+          endpoint: `/users/${userId}/onlineMeetings/${onlineMeeting.id}/transcripts/${transcript.id}/content`,
         });
+        
+        if (downloadError.response) {
+          logger.error(`📡 API error details for transcript ${i + 1}`, {
+            status: downloadError.response.status,
+            statusText: downloadError.response.statusText,
+            data: JSON.stringify(downloadError.response.data, null, 2),
+          });
+        }
       }
     } else {
-      logger.info("Skipping transcript - created on different date", {
+      processingResult.status = 'filtered_out';
+      processingResult.reason = `Created date ${transcript.createdDateTime} outside target date ${targetDate}`;
+      
+      logger.warn(`⏭️ Skipping transcript ${i + 1} - created on different date`, {
         transcriptId: transcript.id,
         createdDate: transcript.createdDateTime,
+        createdDateParsed: transcriptDate.toISOString(),
         targetDate,
+        targetDateStart: targetDateStart.toISOString(),
+        targetDateEnd: targetDateEnd.toISOString(),
+        reasonForSkip: transcriptDate < targetDateStart ? 'Created before target date' : 'Created after target date',
+        suggestion: "Consider if transcript creation date should match meeting date instead of target date",
       });
     }
+    
+    transcriptProcessingResults.push(processingResult);
+  }
+
+  // Summary logging for transcript processing
+  const summary = {
+    total: transcripts.length,
+    success: transcriptProcessingResults.filter(r => r.status === 'success').length,
+    filtered_out: transcriptProcessingResults.filter(r => r.status === 'filtered_out').length,
+    errors: transcriptProcessingResults.filter(r => r.status === 'error').length,
+  };
+
+  logger.info("📊 Transcript processing completed", {
+    meetingSubject: onlineMeeting.subject,
+    meetingId: onlineMeeting.id,
+    summary,
+    processedTranscriptsCount: processedTranscripts.length,
+    targetDate,
+  });
+
+  // Log each transcript result
+  transcriptProcessingResults.forEach((result) => {
+    const logLevel = result.status === 'success' ? 'info' : 'warn';
+    logger[logLevel](`Transcript ${result.transcriptIndex} result`, {
+      transcriptId: result.transcriptId,
+      status: result.status,
+      reason: result.reason,
+      createdDateTime: result.createdDateTime,
+      error: result.error,
+    });
+  });
+
+  if (processedTranscripts.length === 0 && transcripts.length > 0) {
+    logger.error("🚨 CRITICAL: No transcripts were successfully processed!", {
+      meetingSubject: onlineMeeting.subject,
+      totalTranscriptsAvailable: transcripts.length,
+      summary,
+      possibleIssues: [
+        "All transcripts created outside target date range",
+        "Transcript download API errors",
+        "Insufficient permissions to download transcript content",
+        "Transcript content format issues",
+      ],
+    });
   }
 
   return processedTranscripts;

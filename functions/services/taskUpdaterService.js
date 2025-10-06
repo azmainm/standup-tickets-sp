@@ -14,6 +14,7 @@
 const { ChatOpenAI } = require("@langchain/openai");
 const { logger } = require("firebase-functions");
 const { detectStatusChangesFromTranscript } = require("./statusChangeDetectionService");
+const { normalizeTicketId } = require("./taskMatcher");
 
 // Load environment variables
 require("dotenv").config();
@@ -63,8 +64,9 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, task
     
     // Process status changes
     for (const statusChange of detectedStatusChanges) {
+      const normalizedStatusChangeTaskId = normalizeTicketId(statusChange.taskId);
       const existingTask = existingTasks.find(task => 
-        task.ticketId === statusChange.taskId
+        normalizeTicketId(task.ticketId) === normalizedStatusChangeTaskId
       );
       
       if (existingTask) {
@@ -96,9 +98,10 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, task
         description: taskToUpdate.description.substring(0, 100)
       });
 
-      // Find the existing task in database
+      // Find the existing task in database (using normalized comparison)
+      const normalizedUpdateTicketId = normalizeTicketId(taskToUpdate.ticketId);
       const existingTask = existingTasks.find(task => 
-        task.ticketId === taskToUpdate.ticketId
+        normalizeTicketId(task.ticketId) === normalizedUpdateTicketId
       );
       
       if (!existingTask) {
@@ -587,8 +590,9 @@ async function findAndCreateTaskUpdates(skippedTask, existingTasks, context) {
  */
 async function createExplicitTaskUpdate(foundTask, taskId, existingTasks, context) {
   try {
+    const normalizedTaskId = normalizeTicketId(taskId);
     const existingTask = existingTasks.find(task => 
-      task.ticketId === taskId
+      normalizeTicketId(task.ticketId) === normalizedTaskId
     );
     
     if (!existingTask) {

@@ -208,7 +208,7 @@ async function processTranscriptForTasks(transcript, existingTasks = []) {
       temperature: 0.2, // Lower temperature for more consistent results
       max_output_tokens: 1000, 
       reasoning: { effort: 'medium' },
-      verbosity: "medium",
+      verbosity: "medium", 
     });
 
     const gptResponse = response.choices[0].message.content;

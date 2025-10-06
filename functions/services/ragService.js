@@ -126,10 +126,10 @@ You are a Task Updater assistant for a Scrum team. Your role is to update existi
 **TASK UPDATE GUIDELINES**:
 
 1. **UPDATE INTEGRATION**:
-   - Analyze the existing task description and new information
-   - Integrate new details without redundancy
-   - Preserve the original task structure while adding new insights
-   - Include progress updates, new requirements, or clarifications
+   - PRESERVE the existing task description completely
+   - APPEND new information to the existing description (do not replace or rewrite)
+   - Add new details as an update section with date prefix
+   - Include progress updates, new requirements, or clarifications as additions
 
 2. **CONTEXT UTILIZATION**:
    - Use transcript context to provide rich, detailed updates
@@ -145,7 +145,7 @@ You are a Task Updater assistant for a Scrum team. Your role is to update existi
 
 4. **OUTPUT FORMAT**:
 Return your response as a valid JSON object with these exact fields:
-- updatedDescription: Enhanced description with new information integrated in professional language (include date prefix like "(DD/MM/YYYY): description update" but NO "BackgroundContext" or artifacts)
+- updatedDescription: The COMPLETE description with the original description preserved and new information APPENDED (format: "[ORIGINAL_DESCRIPTION]\n\n(DD/MM/YYYY): [NEW_UPDATE_CONTENT]" - NO "BackgroundContext" or artifacts)
 - updateSummary: Brief summary of what was added/changed
 - updateType: "progress", "requirements", "technical", or "clarification"
 - confidence: "high", "medium", or "low" 
@@ -165,7 +165,7 @@ IMPORTANT: Return ONLY the JSON object, no additional text or explanations.
 - Evidence from transcript: {evidence}
 - Additional Context: {additionalContext}
 
-Please enhance the existing task description with the new information using the transcript context provided above.
+Please PRESERVE the existing task description completely and APPEND the new information as an update section. Do not rewrite or replace the original description - only add to it.
 `)
     ]);
 
@@ -372,15 +372,16 @@ Please enhance the existing task description with the new information using the 
           error: ragContext.error
         });
         
-        // Fallback to basic update without RAG
+        // Fallback to basic update without RAG - append to existing description
+        const currentDate = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY format
         return {
           success: true,
-          updatedDescription: `${updateInfo.currentDescription}\n\nUpdate: ${updateInfo.updateInfo}`,
-          updateSummary: 'Basic update added',
+          updatedDescription: `${updateInfo.currentDescription}\n\n(${currentDate}): ${updateInfo.updateInfo}`,
+          updateSummary: 'Basic update appended without RAG context',
           updateType: 'clarification',
           confidence: 'low',
           sources_used: [],
-          reasoning: 'No RAG context available, using basic update',
+          reasoning: 'No RAG context available, appended basic update to existing description',
           ragUsed: false
         };
       }
@@ -409,14 +410,15 @@ Please enhance the existing task description with the new information using the 
           parseError: parseError.message
         });
         
-        // Fallback parsing
+        // Fallback parsing - append to existing description
+        const currentDate = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY format
         parsedResponse = {
-          updatedDescription: response || `${updateInfo.currentDescription}\n\nUpdate: ${updateInfo.updateInfo}`,
-          updateSummary: 'Update applied from response',
+          updatedDescription: `${updateInfo.currentDescription}\n\n(${currentDate}): ${updateInfo.updateInfo}`,
+          updateSummary: 'Update appended from non-JSON response',
           updateType: 'clarification',
           confidence: 'medium',
           sources_used: ragContext.sources ? ragContext.sources.map(s => s.date) : [],
-          reasoning: 'Parsed from non-JSON response'
+          reasoning: 'Parsed from non-JSON response, appended to existing description'
         };
       }
 
@@ -453,15 +455,16 @@ Please enhance the existing task description with the new information using the 
         updateInfo: updateInfo.updateInfo.substring(0, 100)
       });
 
-      // Fallback to basic update
+      // Fallback to basic update - append to existing description
+      const currentDate = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY format
       return {
         success: true,
-        updatedDescription: `${updateInfo.currentDescription}\n\nUpdate: ${updateInfo.updateInfo}`,
-        updateSummary: 'Basic update added due to RAG failure',
+        updatedDescription: `${updateInfo.currentDescription}\n\n(${currentDate}): ${updateInfo.updateInfo}`,
+        updateSummary: 'Basic update appended due to RAG failure',
         updateType: 'clarification',
         confidence: 'low',
         sources_used: [],
-        reasoning: 'RAG failed, using basic update',
+        reasoning: 'RAG failed, appended basic update to existing description',
         ragUsed: false,
         error: error.message
       };

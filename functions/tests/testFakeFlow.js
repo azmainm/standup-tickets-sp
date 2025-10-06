@@ -336,6 +336,8 @@ async function runCompleteFlowTest() {
       testDate: new Date().toISOString().split("T")[0],
       testDescription: "3-Stage Pipeline test transcript"
     }, processingContext, { testMode: true });
+    
+    console.log("🧪 Test mode activated - transcript NOT saved to MongoDB transcripts collection");
 
     if (!processingResult.success) {
       throw new Error("Transcript processing failed");
