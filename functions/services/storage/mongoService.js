@@ -70,7 +70,7 @@ function getDatabase() {
  */
 async function addNewTasksToModernEmbeddings(processedTasksData, assignedTicketIds) {
   try {
-    const { addTaskEmbedding } = require("./embeddingService");
+    const { addTaskEmbedding } = require("./mongoEmbeddingService");
     
     let ticketIndex = 0;
     let addedCount = 0;
@@ -240,7 +240,7 @@ async function storeTasks(tasksData, _metadata = {}) {
     await initializeTicketCounter();
     
     // Import title generation function
-    const { generateTaskTitlesInBatch } = require("./openaiService");
+    const { generateTaskTitlesInBatch } = require("../integrations/openaiService");
     
     // Process NEW tasks and assign ticket IDs and titles
     const processedTasksData = {};
@@ -275,8 +275,10 @@ async function storeTasks(tasksData, _metadata = {}) {
       
       // Process Coding tasks
       if (participantTasks.Coding && Array.isArray(participantTasks.Coding)) {
-        // Generate titles for all coding tasks in batch
-        const tasksWithTitles = await generateTaskTitlesInBatch(participantTasks.Coding);
+        // Use existing titles if available (from RAG), otherwise generate them
+        const tasksWithTitles = participantTasks.Coding.some(task => task.title) ? 
+          participantTasks.Coding : 
+          await generateTaskTitlesInBatch(participantTasks.Coding);
         
         for (const task of tasksWithTitles) {
           const ticketId = await getNextTicketId();
@@ -302,8 +304,10 @@ async function storeTasks(tasksData, _metadata = {}) {
       
       // Process Non-Coding tasks
       if (participantTasks["Non-Coding"] && Array.isArray(participantTasks["Non-Coding"])) {
-        // Generate titles for all non-coding tasks in batch
-        const tasksWithTitles = await generateTaskTitlesInBatch(participantTasks["Non-Coding"]);
+        // Use existing titles if available (from RAG), otherwise generate them
+        const tasksWithTitles = participantTasks["Non-Coding"].some(task => task.title) ? 
+          participantTasks["Non-Coding"] : 
+          await generateTaskTitlesInBatch(participantTasks["Non-Coding"]);
         
         for (const task of tasksWithTitles) {
           const ticketId = await getNextTicketId();
@@ -403,6 +407,40 @@ async function storeTranscript(transcriptData, metadata = {}) {
       entryCount: transcriptData.length,
       dataSize: compressedTranscript.length,
     });
+    
+    // Generate transcript embeddings right after storing transcript
+    try {
+      const { generateTranscriptEmbeddings } = require("./transcriptEmbeddingService");
+      
+      const embeddingResult = await generateTranscriptEmbeddings(
+        result.insertedId.toString(), 
+        transcriptData, 
+        {
+          meetingId: metadata.meetingId,
+          date: dateString,
+          transcriptId: metadata.transcriptId
+        }
+      );
+      
+      if (embeddingResult.success && !embeddingResult.skipped) {
+        logger.info("Transcript embeddings generated successfully", {
+          documentId: result.insertedId,
+          chunksStored: embeddingResult.chunksStored,
+          model: embeddingResult.model
+        });
+      } else if (embeddingResult.skipped) {
+        logger.info("Transcript embeddings skipped (already exist)", {
+          documentId: result.insertedId
+        });
+      }
+    } catch (embeddingError) {
+      // Don't fail transcript storage if embedding generation fails
+      logger.warn("Failed to generate transcript embeddings", {
+        documentId: result.insertedId,
+        error: embeddingError.message,
+        stack: embeddingError.stack
+      });
+    }
     
     return {
       success: true,
@@ -745,7 +783,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 taskType: "Coding",
                 taskIndex: i,
                 updateData,
-                result: result.modifiedCount > 0 ? 'success' : 'no_changes'
+                result: result.modifiedCount > 0 ? "success" : "no_changes"
               });
               
               return {
@@ -818,7 +856,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 taskType: "Non-Coding",
                 taskIndex: i,
                 updateData,
-                result: result.modifiedCount > 0 ? 'success' : 'no_changes'
+                result: result.modifiedCount > 0 ? "success" : "no_changes"
               });
               
               return {
@@ -839,7 +877,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
     logger.warn("Task not found for update", { ticketId, updateData });
     return {
       success: false,
-      error: 'Task not found',
+      error: "Task not found",
       ticketId
     };
     
@@ -904,7 +942,7 @@ async function updateTask(documentId, taskPath, updateData) {
     // Update embedding if task was successfully updated and has ticket ID
     if (result.modifiedCount > 0 && updateData.ticketId) {
       try {
-        const { updateTaskEmbedding } = require("./embeddingService");
+        const { updateTaskEmbedding } = require("./mongoEmbeddingService");
         
         await updateTaskEmbedding(updateData.ticketId, {
           ticketId: updateData.ticketId,

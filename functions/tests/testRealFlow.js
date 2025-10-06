@@ -11,43 +11,17 @@
 
 require("dotenv").config();
 
-const { fetchAllMeetingsForUser, validateAllMeetingsEnvironment } = require("../services/allMeetingsService");
-const { processTranscriptToTasks, processTranscriptToTasksWithPipeline } = require("../services/taskProcessor");
-const { testOpenAIConnection } = require("../services/openaiService");
-const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/mongoService");
-// const { testJiraConnection, getProjectInfo } = require("../services/jiraService"); // Removed from main flow
-const { getBangladeshTimeComponents } = require("../services/meetingUrlService");
-const { getEmbeddingStatistics } = require("../services/mongoEmbeddingService");
+const { fetchAllMeetingsForUser, validateAllMeetingsEnvironment } = require("../services/integrations/allMeetingsService");
+const { processTranscriptToTasksWithPipeline } = require("../services/core/taskProcessor");
+const { testOpenAIConnection } = require("../services/integrations/openaiService");
+const { testMongoConnection, getCollectionStats, initializeTicketCounter, getCurrentTicketCount } = require("../services/storage/mongoService");
+// const { testJiraConnection, getProjectInfo } = require("../services/integrations/jiraService"); // Removed from main flow
+const { getBangladeshTimeComponents } = require("../services/utilities/meetingUrlService");
+const { getEmbeddingStatistics } = require("../services/storage/mongoEmbeddingService");
+const { testTranscriptEmbeddingService } = require("../services/storage/transcriptEmbeddingService");
+const { testRAGService } = require("../services/utilities/ragService");
+const { testLocalEmbeddingCache } = require("../services/storage/localEmbeddingCache");
 // Vector service removed - system now uses MongoDB embeddings only
-
-/**
- * Stub function for legacy vector DB availability check
- * @returns {Promise<boolean>} Always returns false since FAISS vector DB was removed
- */
-async function isVectorDBAvailable() {
-  return false;
-}
-
-/**
- * Stub function for legacy vector DB initialization
- * @returns {Promise<void>} No-op since FAISS vector DB was removed
- */
-async function initializeVectorDB() {
-  // No-op: FAISS vector DB was removed and replaced with MongoDB embeddings
-  return;
-}
-
-/**
- * Stub function for legacy vector DB stats
- * @returns {Promise<Object>} Empty stats since FAISS vector DB was removed
- */
-async function getVectorDBStats() {
-  return {
-    totalEmbeddings: 0,
-    indexLoaded: false,
-    message: "FAISS vector DB removed - using MongoDB embeddings instead"
-  };
-}
 
 async function testCompleteFlow() {
   console.log("=".repeat(80));
@@ -135,6 +109,33 @@ async function testCompleteFlow() {
     console.log(`   ⚠️ MongoDB Embeddings warning: ${error.message}`);
     console.log("   📝 MongoDB embeddings enabled - stored for future use (no similarity search)");
   }
+
+  console.log("   📄 Testing Transcript Embedding Service...");
+  const transcriptEmbeddingTest = await testTranscriptEmbeddingService();
+  if (!transcriptEmbeddingTest) {
+    console.warn("   ⚠️  Transcript Embedding Service test failed");
+    console.log("   ℹ️  RAG functionality may be impaired");
+  } else {
+    console.log("   ✅ Transcript Embedding Service working");
+  }
+
+  console.log("   🔗 Testing RAG Service...");
+  const ragTest = await testRAGService();
+  if (!ragTest) {
+    console.warn("   ⚠️  RAG Service test failed");
+    console.log("   ℹ️  Task enhancement may fall back to basic descriptions");
+  } else {
+    console.log("   ✅ RAG Service working");
+  }
+
+  console.log("   💾 Testing Local Embedding Cache...");
+  const localCacheTest = await testLocalEmbeddingCache();
+  if (!localCacheTest) {
+    console.warn("   ⚠️  Local Embedding Cache test failed");
+    console.log("   ℹ️  Scoped RAG may fall back to global search");
+  } else {
+    console.log("   ✅ Local Embedding Cache working");
+  }
   
   console.log("   🍃 Testing MongoDB connection...");
   const mongoTest = await testMongoConnection();
@@ -165,23 +166,32 @@ async function testCompleteFlow() {
   // Step 1: Fetch ALL meeting transcripts using All Meetings approach
   console.log("\n3. 🆕 Fetching ALL meeting transcripts using All Meetings approach...");
   
-  // Calculate target date - ALWAYS use previous day for standup data
-  const bdTime = getBangladeshTimeComponents(new Date());
-  // Always use previous day regardless of current time
-  const targetDateObj = new Date(bdTime.dateString);
-  targetDateObj.setDate(targetDateObj.getDate() - 1);
-  const targetDateForFile = targetDateObj.toISOString().slice(0, 10);
+  // Calculate 60-minute time window (same logic as GitHub Actions cron)
+  const now = new Date(); // This is already in UTC
+  const sixtyMinutesAgo = new Date(now.getTime() - (120 * 60 * 1000));
   
-  console.log(`   📅 Target date: ${targetDateForFile}`);
+  const timeWindow = {
+    startDateTime: sixtyMinutesAgo.toISOString(),
+    endDateTime: now.toISOString(),
+    customTimeWindow: true
+  };
+  
+  // For display purposes, also calculate Bangladesh time
+  const bangladeshTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
+  
+  console.log(`   ⏰ Time Window (Last 60 minutes):`);
+  console.log(`      Start: ${timeWindow.startDateTime}`);
+  console.log(`      End: ${timeWindow.endDateTime}`);
+  console.log(`      Bangladesh Time: ${bangladeshTime.toISOString()}`);
   console.log(`   👤 Target user: ${process.env.TARGET_USER_ID.substring(0, 20)}...`);
   
   let allTranscriptsResults = [];
   
   try {
-    console.log("   🔄 Starting All Meetings fetch...");
+    console.log("   🔄 Starting All Meetings fetch with 60-minute window...");
     const startTime = Date.now();
     
-    allTranscriptsResults = await fetchAllMeetingsForUser(process.env.TARGET_USER_ID, targetDateForFile);
+    allTranscriptsResults = await fetchAllMeetingsForUser(process.env.TARGET_USER_ID, timeWindow);
     
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
   
@@ -210,10 +220,10 @@ async function testCompleteFlow() {
       });
     
     } else {
-      console.log("   ⚠️  No transcripts found for the target date");
+      console.log("   ⚠️  No transcripts found in the last 60 minutes");
       console.log("   This could mean:");
-      console.log("      - No meetings occurred on the target date");
-      console.log("      - No transcripts were generated"); 
+      console.log("      - No meetings ended in the last 60 minutes");
+      console.log("      - No transcripts were created in the last 60 minutes"); 
       console.log("      - Transcription is still processing");
       console.log("      - User calendar access issues");
       console.log("\n   📝 Using empty transcript for testing task processing...");
@@ -281,9 +291,20 @@ async function testCompleteFlow() {
           transcriptIndex: i + 1
         };
         
+        // Update metadata to include time window information
+        const enhancedMetadata = {
+          ...transcriptData.metadata,
+          targetDate: bangladeshTime.toISOString().split("T")[0], // Use Bangladesh date for compatibility
+          timeWindow: {
+            start: timeWindow.startDateTime,
+            end: timeWindow.endDateTime
+          },
+          source: "testRealFlow_60min_window"
+        };
+        
         const taskResult = await processTranscriptToTasksWithPipeline(
           transcriptData.transcript, 
-          transcriptData.metadata,
+          enhancedMetadata,
           transcriptContext
         );
         
@@ -346,8 +367,8 @@ async function testCompleteFlow() {
         
         // Show OpenAI processing details
         console.log("\n   🤖 Sample OpenAI Processing:");
-        console.log(`      - Model: ${firstSuccessfulResult.taskResult.processing?.metadata?.model || 'N/A'}`);
-        console.log(`      - Tokens used: ${firstSuccessfulResult.taskResult.processing?.metadata?.tokensUsed || 'N/A'}`);
+        console.log(`      - Pipeline Version: ${firstSuccessfulResult.taskResult.summary?.pipelineUsed || 'N/A'}`);
+        console.log(`      - Processing Duration: ${firstSuccessfulResult.taskResult.processing?.duration || 'N/A'}s`);
         
         // Show MongoDB task storage details
         console.log("\n   🍃 Sample MongoDB Task Storage:");

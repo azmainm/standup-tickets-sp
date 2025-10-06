@@ -2,207 +2,315 @@
 
 ## Complete Function Flow: From Inception to Conclusion
 
-This document traces the exact function call sequence from start to finish in the 3-Stage Pipeline system.
+This document traces the exact function call sequence from start to finish in the RAG-enhanced 3-Stage Pipeline system.
 
 ---
 
 ## Entry Points
 
-### 1. Scheduled Execution (`dailyTranscriptFetch`)
-**File**: `functions/index.js`
-**Schedule**: Tuesday-Saturday 2:00 AM Bangladesh Time
+### 1. GitHub Actions Cron (Recommended)
+**File**: `functions/scripts/githubActionsCron.js`
+**Schedule**: Every 60 minutes (`0 * * * *`)
+**Time Window**: Last 60 minutes in Bangladesh time
 
-### 2. Manual HTTP Execution (`transcriptApi`)
+### 2. Firebase HTTP Endpoint (Manual)
 **File**: `functions/index.js`
 **Endpoint**: `POST /fetch-transcript`
+**Time Window**: Specified date (full day)
 
 ---
 
-## Phase 1: Transcript Fetching
+## Phase 1: Meeting Discovery & Transcript Fetching
 
 ### Entry Function: `fetchAllMeetingsForUser()`
-**File**: `functions/services/allMeetingsService.js`
+**File**: `functions/services/integrations/allMeetingsService.js`
 **Purpose**: Orchestrate the complete meeting fetching process
-**Returns**: Array of transcript objects with metadata
+**Returns**: Array of meetings with transcript data and metadata
 
 #### Function Chain:
 1. **`getAccessToken()`** - Authenticate with Microsoft Graph API
-2. **`fetchCalendarEvents()`** - Get all calendar events for target date
+2. **`fetchCalendarEvents()`** - Get calendar events for time window
 3. **`fetchOnlineMeetingsWithTranscripts()`** - Process each online meeting
    - **`getOnlineMeetingFromJoinUrl()`** - Find meeting object from join URL
    - **`fetchTranscriptsForMeeting()`** - Get all transcripts for meeting
    - **`downloadTranscriptContent()`** - Download VTT content
    - **`convertVttToJson()`** - Convert VTT to structured JSON
 
+**Time Window Support**:
+- **GitHub Actions**: Custom time window (last 60 minutes)
+- **Manual Processing**: Full day processing
+
 ---
 
-## Phase 2: Processing Pipeline (Per Transcript)
+## Phase 2: RAG-Enhanced 3-Stage Pipeline Processing
 
 ### Main Orchestrator: `processTranscriptToTasksWithPipeline()`
-**File**: `functions/services/taskProcessor.js`
-**Purpose**: Complete 3-stage pipeline processing for each transcript
+**File**: `functions/services/core/taskProcessor.js`
+**Purpose**: Complete RAG-enhanced 3-stage pipeline processing
 **Input**: Single transcript + metadata
-**Output**: Complete processing result with tasks and status changes
+**Output**: Processing result with tasks, updates, and RAG enhancements
 
 #### Sequential Function Flow:
 
-### Step 1: Storage & Context
+### Step 1: Transcript Storage & Embedding Generation
 1. **`storeTranscript()`** - Store raw transcript in MongoDB
-   - **File**: `functions/services/mongoService.js`
-   - **Purpose**: Archive complete transcript data
+   - **File**: `functions/services/storage/mongoService.js`
+   - **Purpose**: Store transcript and generate embeddings immediately
+   - **Calls**: `generateTranscriptEmbeddings()` automatically
 
-2. **`getActiveTasks()`** - Retrieve existing tasks for context
-   - **File**: `functions/services/mongoService.js`
-   - **Purpose**: Get current database state for comparison
+2. **`generateTranscriptEmbeddings()`** - Create embeddings for RAG
+   - **File**: `functions/services/storage/transcriptEmbeddingService.js`
+   - **Purpose**: Generate embeddings using `text-embedding-3-small`
+   - **Storage**: MongoDB `transcript_embeddings` collection
 
-### Step 2: 3-Stage Pipeline Processing
-4. **`processTranscriptForTasksWithPipeline()`** - Execute 3-stage pipeline
-   - **File**: `functions/services/openaiService.js`
-   - **Purpose**: Coordinate all three stages
+3. **`storeLocalEmbeddings()`** - Cache embeddings locally
+   - **File**: `functions/services/storage/localEmbeddingCache.js`
+   - **Purpose**: Temporary cache for scoped RAG searches
 
-#### Stage 1: Task Finder
-5. **`findTasksFromTranscript()`** - Extract all actionable tasks
-   - **File**: `functions/services/taskFinderService.js`
-   - **Purpose**: Find and classify all tasks with lightweight descriptions
-   - **OpenAI Call**: GPT-4o-mini with Task Finder prompt
-   - **Returns**: Array of found tasks with categories (NEW_TASK/UPDATE_TASK)
+### Step 2: Context Preparation
+4. **`getActiveTasks()`** - Retrieve existing tasks for context
+   - **File**: `functions/services/storage/mongoService.js`
+   - **Purpose**: Provide context for task matching and updates
 
-#### Stage 2: Task Creator  
-6. **`identifyNewTasks()`** - Determine which tasks are genuinely new
-   - **File**: `functions/services/taskCreatorService.js`
-   - **Purpose**: Filter for new tasks and generate detailed descriptions
+---
+
+## Phase 3: 3-Stage Pipeline Execution
+
+### Stage 1: Task Finder 🔍
+**Entry**: `processTranscriptForTasksWithPipeline()`
+**File**: `functions/services/integrations/openaiService.js`
+
+#### Function Chain:
+1. **`findTasksFromTranscript()`** - Extract tasks with context
+   - **File**: `functions/services/pipeline/taskFinderService.js`
+   - **Purpose**: Comprehensive task extraction with evidence gathering
+   - **Output**: `tasksToBeCreated` and `tasksToBeUpdated` arrays
+
+2. **`detectStatusChangesFromTranscript()`** - Find status changes
+   - **File**: `functions/services/utilities/statusChangeDetectionService.js`
+   - **Purpose**: Pattern-based status change detection
+   - **Patterns**: "SP-XXX is completed", "finished SP-XXX", etc.
+
+### Stage 2: Task Creator 📝
+**Entry**: `identifyNewTasks()`
+**File**: `functions/services/pipeline/taskCreatorService.js`
+
+#### RAG-Enhanced Creation Flow:
+1. **`createRichTaskDescription()`** - RAG enhancement per task
+   - **File**: `functions/services/utilities/ragService.js`
+   - **Purpose**: Individual RAG calls for each task
+   - **Process**:
+     - `getLocalRAGContext()` - Search local transcript embeddings
+     - `getRAGContextForTask()` - Fallback to global embeddings if needed
+     - Context enhancement via GPT-4
+
+2. **Task Processing**:
+   - Professional title generation (3-5 words)
+   - Rich description creation with full context
+   - Assignee detection and validation
+   - Future plan identification
+
+### Stage 3: Task Updater 🔄
+**Entry**: `updateExistingTasks()`
+**File**: `functions/services/pipeline/taskUpdaterService.js`
+
+#### RAG-Enhanced Update Flow:
+1. **Explicit ID Matching** - Direct task updates via ticket IDs
+2. **`createRichTaskDescription()`** - RAG enhancement per update
+   - Same RAG process as Task Creator
+   - Date-prefixed descriptions
+   - Comprehensive context integration
+
+---
+
+## Phase 4: Data Storage & Persistence
+
+### Task Storage
+1. **`storeTasks()`** - Store new tasks in MongoDB
+   - **File**: `functions/services/storage/mongoService.js`
    - **Process**: 
-     - Trust Task Finder's NEW_TASK classifications (no similarity search)
-     - **`generateDetailedTaskDescription()`** - Enhance descriptions using context
-   - **Returns**: Filtered new tasks with detailed descriptions
+     - Generate ticket IDs
+     - Store task data
+     - Create task embeddings automatically
 
-#### Stage 3: Task Updater
-7. **`updateExistingTasks()`** - Process explicit task updates and status changes
-   - **File**: `functions/services/taskUpdaterService.js`
-   - **Purpose**: Handle explicit ticket ID updates and status changes (e.g., "SP-123")
-   - **Sub-functions**:
-     - **`detectStatusChangesFromTranscript()`** - Find status changes
-     - **`generateDetailedUpdateDescription()`** - Create update descriptions
-   - **Returns**: Task updates and status changes for explicitly mentioned tickets only
+2. **`generateEmbeddingsForNewTasks()`** - Task embeddings
+   - **File**: `functions/services/pipeline/taskCreatorService.js`
+   - **Purpose**: Generate embeddings for similarity matching
 
-### Step 3: Database Operations
-8. **`storeTasks()`** - Store new tasks in MongoDB
-   - **File**: `functions/services/mongoService.js`
-   - **Purpose**: Save new tasks with unique ticket IDs
-   - **Sub-functions**:
-     - **`getNextTicketId()`** - Generate SP-XXX ticket IDs
-     - **`addOrUpdateTaskEmbedding()`** - Create embeddings for future use
+### Task Updates
+3. **`updateTaskByTicketId()`** - Apply status changes
+   - **File**: `functions/services/storage/mongoService.js`
+   - **Purpose**: Update existing tasks with new status/descriptions
 
-9. **Status Change Application** - Apply detected status changes
-   - **`updateTaskByTicketId()`** - Update task status in database
-   - **File**: `functions/services/mongoService.js`
-   - **Purpose**: Apply status changes (To-do → In-progress → Completed)
-
-10. **Task Description Updates** - Apply description updates
-    - **`updateTaskByTicketId()`** - Append new information to existing descriptions
-    - **File**: `functions/services/mongoService.js`
-    - **Purpose**: Add new context with date stamps
-
-### Step 4: Notifications
-11. **`generatePipelineSummaryData()`** - Create Teams message data
-    - **File**: `functions/services/taskProcessor.js`
-    - **Purpose**: Format results for Teams notification
-
-12. **`sendStandupSummaryToTeams()`** - Send Teams notification
-    - **File**: `functions/services/teamsService.js`
-    - **Purpose**: Send structured summary to Teams channel
+4. **`updateEmbeddingsForModifiedTasks()`** - Update embeddings
+   - **File**: `functions/services/pipeline/taskUpdaterService.js`
+   - **Purpose**: Refresh embeddings for updated tasks
 
 ---
 
-## Phase 3: Completion & Cleanup
+## Phase 5: Notification & Cleanup
 
-### Final Functions:
-13. **File Backup** - Save processed transcript locally
-    - **File**: Local filesystem in `functions/output/`
-    - **Purpose**: Archive for debugging and manual processing
+### Teams Notification
+1. **`generatePipelineSummaryData()`** - Create summary
+   - **File**: `functions/services/core/taskProcessor.js`
+   - **Purpose**: Aggregate results for Teams notification
 
-14. **Return Results** - Complete processing result
-    - **Includes**: Tasks created, status changes, Teams notification status
-    - **Purpose**: Provide comprehensive processing summary
+2. **`sendStandupSummaryToTeams()`** - Send notification
+   - **File**: `functions/services/integrations/teamsService.js`
+   - **Content**: New tasks, updates, status changes, participants
 
----
-
-## Support Functions (Called Throughout)
-
-### Vector Database Functions
-**File**: `functions/services/vectorService.js`
-- **`isVectorDBAvailable()`** - Check if vector DB is operational
-- **`addTaskToVectorDatabase()`** - Store embeddings for new tasks
-- **`findSimilarTasks()`** - Search for similar tasks (currently not used in pipeline)
-
-### MongoDB Functions  
-**File**: `functions/services/mongoService.js`
-- **`getActiveTasks()`** - Retrieve current tasks
-- **`updateTaskByTicketId()`** - Update specific tasks
-- **`storeTranscript()`** - Archive raw transcripts
-- **`storeTasks()`** - Save new tasks
-- **`getNextTicketId()`** - Generate unique ticket IDs
-
-### Status Detection Functions
-**File**: `functions/services/statusChangeDetectionService.js`
-- **`detectStatusChangesFromTranscript()`** - Parse status change patterns
-- **`normalizeTaskId()`** - Standardize ticket ID formats
-- **`validateStatusChange()`** - Ensure status change validity
-
-### Teams Integration Functions
-**File**: `functions/services/teamsService.js`
-- **`sendStandupSummaryToTeams()`** - Send formatted message
-- **`formatStandupSummary()`** - Create message structure
-- **`testTeamsWebhook()`** - Validate webhook connectivity
+### Cleanup
+3. **`clearLocalEmbeddings()`** - Clean temporary cache
+   - **File**: `functions/services/storage/localEmbeddingCache.js`
+   - **Purpose**: Remove temporary embeddings after processing
 
 ---
 
-## Processing Statistics
+## Detailed Function Specifications
 
-### Typical Function Call Counts (Per Transcript):
-- **OpenAI API Calls**: 3 (Task Finder + Task Creator + Task Updater)
-- **MongoDB Operations**: 5-10 (depends on number of tasks and updates)
-- **Vector DB Operations**: 3-5 (sync + new task embeddings)
-- **Teams API Calls**: 1 per transcript
+### Core Processing Functions
 
-### Performance Metrics:
-- **Total Processing Time**: 30-60 seconds per transcript
-- **Stage 1 (Task Finder)**: 8-15 seconds
-- **Stage 2 (Task Creator)**: 5-10 seconds  
-- **Stage 3 (Task Updater)**: 3-8 seconds
-- **Database Operations**: 5-10 seconds
-- **Teams Notification**: 1-2 seconds
+#### `processTranscriptToTasksWithPipeline()`
+```javascript
+// Input
+transcript: Array<TranscriptEntry>
+transcriptMetadata: Object
+processingContext: Object
+processingOptions: Object
 
----
-
-## Error Handling Functions
-
-### Validation Functions:
-- **`validateStatusChange()`** - Ensure status changes are valid
-- **`testMongoConnection()`** - Verify database connectivity
-- **`testOpenAIConnection()`** - Check OpenAI API access
-- **`testTeamsWebhook()`** - Validate Teams webhook
-
-### Fallback Mechanisms:
-- **Vector DB Fallback**: If vector operations fail, continue without embeddings
-- **Teams Notification Fallback**: Log failure but continue processing
-- **Status Update Fallback**: Log failures but continue with other updates
-
----
-
-## Multi-Transcript Processing
-
-When multiple transcripts are found:
-1. **Baseline Snapshot**: Capture current database state once
-2. **Sequential Processing**: Each transcript follows complete function flow
-3. **Context Isolation**: Each transcript uses same baseline for consistency
-4. **Independent Results**: Each transcript generates separate Teams notification
-
-**Example with 3 Transcripts**:
-```
-Transcript 1 → Complete Function Flow → Teams Message 1
-Transcript 2 → Complete Function Flow → Teams Message 2  
-Transcript 3 → Complete Function Flow → Teams Message 3
+// Output
+{
+  success: boolean,
+  tasks: Object,              // New tasks by participant
+  pipelineResults: {
+    stage1: { foundTasks, statusChanges },
+    stage2: { newTasks, ragEnhancements },
+    stage3: { taskUpdates, ragEnhancements }
+  },
+  summary: {
+    newTasksCreated: number,
+    existingTasksUpdated: number,
+    statusChangesApplied: number
+  }
+}
 ```
 
-Each transcript is processed independently with the full function chain above.
+#### `findTasksFromTranscript()`
+```javascript
+// Input
+transcript: Array<TranscriptEntry>
+existingTasks: Array<Task>
+processingContext: Object
+
+// Output
+{
+  tasksToBeCreated: Array<TaskToCreate>,
+  tasksToBeUpdated: Array<TaskToUpdate>,
+  metadata: {
+    totalTasks: number,
+    averageDescriptionLength: number
+  }
+}
+```
+
+#### `createRichTaskDescription()`
+```javascript
+// Input
+taskInfo: {
+  description: string,
+  assignee: string,
+  type: string,
+  evidence: string
+}
+options: {
+  topK: number,
+  scoreThreshold: number
+}
+
+// Output
+{
+  title: string,              // Professional 3-5 word title
+  description: string,        // RAG-enhanced description
+  ragUsed: boolean,
+  confidence: "high" | "medium" | "low",
+  sourcesUsed: number,
+  isScoped: boolean          // Used local vs global embeddings
+}
+```
+
+### RAG System Functions
+
+#### `getLocalRAGContext()`
+```javascript
+// Purpose: Search current transcript embeddings
+// Priority: Local context over global
+// Fallback: Global search if insufficient local results
+```
+
+#### `getRAGContextForTask()`
+```javascript
+// Purpose: Search all transcript embeddings
+// Use case: Fallback when local context insufficient
+// Enhancement: Comprehensive context from all meetings
+```
+
+### Status Change Detection
+
+#### `detectStatusChangesFromTranscript()`
+```javascript
+// Patterns Detected:
+// - "SP-XXX is completed"
+// - "finished SP-XXX"
+// - "SP-XXX is in progress"
+// - "working on SP-XXX"
+
+// Output:
+Array<{
+  taskId: string,
+  newStatus: string,
+  speaker: string,
+  confidence: number,
+  evidence: string
+}>
+```
+
+---
+
+## Error Handling & Fallbacks
+
+### RAG Fallback Chain
+1. **Local Embeddings** → Current transcript context
+2. **Global Embeddings** → All transcript context
+3. **Original Description** → No enhancement if RAG fails
+
+### Processing Fallbacks
+1. **API Failures** → Retry with exponential backoff
+2. **Embedding Failures** → Skip enhancement, continue processing
+3. **Partial Failures** → Process successful parts, log failures
+
+### Recovery Mechanisms
+- Comprehensive error logging at each stage
+- Graceful degradation for non-critical failures
+- Manual reprocessing capabilities
+- Test mode for debugging without data persistence
+
+---
+
+## Performance Optimization
+
+### Parallel Processing
+- Multiple transcript processing (when applicable)
+- Concurrent RAG calls for multiple tasks
+- Batch embedding generation
+
+### Caching Strategy
+- Local embedding cache for current transcript
+- Persistent task embeddings in MongoDB
+- Access token caching for Graph API
+
+### Resource Management
+- Memory cleanup after processing
+- Connection pooling for MongoDB
+- Rate limiting for OpenAI API calls
+
+This function flow ensures robust, scalable processing with intelligent task extraction and RAG-enhanced descriptions while maintaining high performance and reliability.

@@ -9,10 +9,10 @@
  */
 
 const { logger } = require("firebase-functions");
-const { AssigneeDetectionSchema } = require("../schemas/taskSchemas");
+const { AssigneeDetectionSchema } = require("../../schemas/taskSchemas");
 
 // Load participant mapping
-const { PARTICIPANT_TO_JIRA_MAPPING, getJiraAssigneeForParticipant } = require("../config/participantMapping");
+const { PARTICIPANT_TO_JIRA_MAPPING } = require("../../config/participantMapping");
 
 /**
  * Detect assignee from task description and context
@@ -104,7 +104,7 @@ function detectSelfAssignment(taskDescription, speaker) {
 
   if (confidence > 0) {
     return {
-      assignee: speaker || "TBD",
+      assignee: normalizeAssigneeName(speaker) || "TBD",
       confidence,
       method: "SPEAKER_INFERENCE",
       originalMention: matchedPattern,
@@ -122,7 +122,6 @@ function detectSelfAssignment(taskDescription, speaker) {
  * @returns {Object} Detection result
  */
 function detectExplicitMention(taskDescription, availableParticipants) {
-  const lowerDescription = taskDescription.toLowerCase();
   
   // Patterns for explicit assignment
   const assignmentPatterns = [
@@ -141,7 +140,7 @@ function detectExplicitMention(taskDescription, availableParticipants) {
       
       if (matchedParticipant.confidence > 0.7) {
         return {
-          assignee: matchedParticipant.participant,
+          assignee: normalizeAssigneeName(matchedParticipant.participant),
           confidence: 0.8,
           method: "EXPLICIT_MENTION", 
           originalMention: mentionedName,
@@ -191,7 +190,7 @@ async function detectDatabaseParticipant(taskDescription, availableParticipants)
 
   if (bestMatch.confidence > 0.6) {
     return {
-      assignee: bestMatch.participant,
+      assignee: normalizeAssigneeName(bestMatch.participant),
       confidence: bestMatch.confidence,
       method: "DATABASE_MATCH",
       originalMention: potentialNames.join(", "),
@@ -221,7 +220,7 @@ function detectParticipantFromMapping(taskDescription) {
     // Check for full name match
     if (lowerDescription.includes(fullName)) {
       return {
-        assignee: participant,
+        assignee: normalizeAssigneeName(participant),
         confidence: 0.8,
         method: "EXPLICIT_MENTION",
         originalMention: participant,
@@ -232,7 +231,7 @@ function detectParticipantFromMapping(taskDescription) {
     // Check for first name match (lower confidence)
     if (lowerDescription.includes(firstName) && firstName.length > 2) {
       return {
-        assignee: participant,
+        assignee: normalizeAssigneeName(participant),
         confidence: 0.6,
         method: "EXPLICIT_MENTION", 
         originalMention: firstName,
@@ -245,7 +244,36 @@ function detectParticipantFromMapping(taskDescription) {
 }
 
 /**
- * Find best matching participant from a list
+ * Normalize assignee name to handle common variations
+ * @param {string} name - Name to normalize
+ * @returns {string} Normalized name
+ */
+function normalizeAssigneeName(name) {
+  if (!name || typeof name !== 'string') {
+    return name;
+  }
+
+  const lowerName = name.toLowerCase().trim();
+  
+  // Handle Fayaz/Faiyaz variations - normalize to "Faiyaz Rahman"
+  const fayazVariations = [
+    "fayaz",
+    "faiyaz", 
+    "fayaz rahman",
+    "faiyaz rahman",
+    "faiyazrahman1685"
+  ];
+  
+  if (fayazVariations.includes(lowerName)) {
+    return "Faiyaz Rahman";
+  }
+  
+  // Return original name if no normalization needed
+  return name;
+}
+
+/**
+ * Find best matching participant from a list with enhanced fuzzy matching
  * @param {string} mentionedName - Name mentioned in text
  * @param {Array} availableParticipants - List of participant names
  * @returns {Object} Match result with confidence
@@ -255,13 +283,17 @@ function findBestParticipantMatch(mentionedName, availableParticipants) {
     return { participant: null, confidence: 0, alternatives: [] };
   }
 
-  const lowerMentioned = mentionedName.toLowerCase().trim();
+  // First normalize the mentioned name
+  const normalizedMentioned = normalizeAssigneeName(mentionedName);
+  const lowerMentioned = normalizedMentioned.toLowerCase().trim();
   let bestMatch = { participant: null, confidence: 0, alternatives: [] };
 
   for (const participant of availableParticipants) {
     if (!participant) continue;
     
-    const lowerParticipant = participant.toLowerCase();
+    // Also normalize the participant name for comparison
+    const normalizedParticipant = normalizeAssigneeName(participant);
+    const lowerParticipant = normalizedParticipant.toLowerCase();
     const nameParts = lowerParticipant.split(' ');
     const firstName = nameParts[0];
     const lastName = nameParts[nameParts.length - 1];
@@ -280,9 +312,13 @@ function findBestParticipantMatch(mentionedName, availableParticipants) {
     else if (lowerMentioned.includes(lowerParticipant) || lowerParticipant.includes(lowerMentioned)) {
       confidence = 0.8;
     }
-    // First name match
-    else if (lowerMentioned === firstName || lowerMentioned.includes(firstName)) {
-      confidence = 0.7;
+    // First name exact match (handle cases like "faiyaz" -> "Faiyaz Rahman")
+    else if (lowerMentioned === firstName) {
+      confidence = 0.85; // High confidence for exact first name match
+    }
+    // First name fuzzy match (handle spelling variations)
+    else if (calculateStringSimilarity(lowerMentioned, firstName) > 0.8) {
+      confidence = 0.75;
     }
     // Last name match
     else if (lowerMentioned === lastName || lowerMentioned.includes(lastName)) {
@@ -292,10 +328,14 @@ function findBestParticipantMatch(mentionedName, availableParticipants) {
     else if (lowerMentioned.length >= 3 && (lowerParticipant.includes(lowerMentioned) || lowerMentioned.includes(lowerParticipant))) {
       confidence = 0.5;
     }
+    // Fuzzy match for common misspellings (only if no higher confidence match found)
+    else if (confidence === 0 && calculateStringSimilarity(lowerMentioned, lowerParticipant) > 0.7) {
+      confidence = 0.4;
+    }
 
     if (confidence > bestMatch.confidence) {
       bestMatch = {
-        participant,
+        participant: normalizedParticipant, // Use normalized name
         confidence,
         alternatives: availableParticipants.filter(p => p !== participant).slice(0, 3)
       };
@@ -314,7 +354,7 @@ function getDefaultAssignment(speaker) {
   // If speaker is known, assign to them
   if (speaker && speaker !== "Unknown" && speaker.trim().length > 0) {
     return {
-      assignee: speaker,
+      assignee: normalizeAssigneeName(speaker),
       confidence: 0.3,
       method: "DEFAULT_ASSIGNMENT",
       originalMention: null,
@@ -378,6 +418,75 @@ function validateAssigneeDetection(result) {
   }
 }
 
+/**
+ * Calculate string similarity using Levenshtein distance
+ * @param {string} str1 - First string
+ * @param {string} str2 - Second string
+ * @returns {number} Similarity score between 0 and 1
+ */
+function calculateStringSimilarity(str1, str2) {
+  if (str1 === str2) return 1;
+  if (str1.length === 0 || str2.length === 0) return 0;
+  
+  const matrix = [];
+  
+  // Initialize matrix
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+  
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  // Fill matrix
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  
+  const maxLength = Math.max(str1.length, str2.length);
+  const distance = matrix[str2.length][str1.length];
+  return 1 - (distance / maxLength);
+}
+
+/**
+ * Extract participant names from transcript entries
+ * @param {Array} transcript - Transcript entries with speaker information
+ * @returns {Array} Unique participant names found in transcript
+ */
+function extractParticipantsFromTranscript(transcript) {
+  if (!transcript || !Array.isArray(transcript)) {
+    return [];
+  }
+
+  const participants = new Set();
+  
+  for (const entry of transcript) {
+    if (entry.text) {
+      // Extract participant name from <v ParticipantName> format
+      const speakerMatch = entry.text.match(/<v\s*([^>]+)>/);
+      if (speakerMatch && speakerMatch[1]) {
+        const participantName = speakerMatch[1].trim();
+        if (participantName.length > 0) {
+          participants.add(participantName);
+        }
+      }
+    }
+  }
+
+  return Array.from(participants);
+}
+
 module.exports = {
   detectAssignee,
   detectSelfAssignment,
@@ -387,5 +496,8 @@ module.exports = {
   findBestParticipantMatch,
   getDefaultAssignment,
   extractParticipantsFromDatabase,
-  validateAssigneeDetection
+  validateAssigneeDetection,
+  calculateStringSimilarity,
+  extractParticipantsFromTranscript,
+  normalizeAssigneeName
 };

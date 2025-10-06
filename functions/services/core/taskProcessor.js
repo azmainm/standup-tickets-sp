@@ -11,13 +11,13 @@
  * 7. Handling the complete end-to-end flow with comprehensive error handling
  */
 
-const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("./openaiService");
-const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("./mongoService");
-// const { createJiraIssuesForCodingTasks } = require("./jiraService"); // Removed from main flow
-const { matchTasksWithDatabase } = require("./taskMatcher");
-const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("./teamsService");
-const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("./statusChangeDetectionService");
-const { validateLLMResponse } = require("../schemas/taskSchemas");
+const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("../integrations/openaiService");
+const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("../storage/mongoService");
+// const { createJiraIssuesForCodingTasks } = require("../integrations/jiraService"); // Removed from main flow
+const { matchTasksWithDatabase, normalizeTicketId } = require("../pipeline/taskMatcher");
+const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("../integrations/teamsService");
+const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("../utilities/statusChangeDetectionService");
+const { validateLLMResponse } = require("../../schemas/taskSchemas");
 const { logger } = require("firebase-functions");
 
 /**
@@ -31,15 +31,35 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
   const startTime = Date.now();
   
   try {
+    // Check for test mode from multiple sources
+    const isTestMode = processingOptions.testMode || 
+                      transcriptMetadata.isTestRun || 
+                      transcriptMetadata.sourceFile === "test_transcript.json";
+    
     logger.info("Starting enhanced task processing flow", {
       transcriptEntries: transcript.length,
       hasMetadata: Object.keys(transcriptMetadata).length > 0,
+      isTestMode: isTestMode,
       timestamp: new Date().toISOString(),
     });
 
-    // Step 1: Store the raw transcript in MongoDB
-    logger.info("📁 Step 1: Storing raw transcript in MongoDB");
-    const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
+    // Step 1: Store the raw transcript in MongoDB (skip for test mode)
+    let transcriptStorageResult;
+    if (isTestMode) {
+      logger.info("🧪 Step 1: Skipping transcript storage (TEST MODE)");
+      transcriptStorageResult = {
+        success: true,
+        documentId: "test-mode-skip",
+        timestamp: new Date(),
+        message: "Transcript storage skipped - test mode",
+        dataSize: JSON.stringify(transcript).length,
+        entryCount: transcript.length,
+        isTestMode: true
+      };
+    } else {
+      logger.info("📁 Step 1: Storing raw transcript in MongoDB");
+      transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
+    }
 
     // Step 2: REMOVED - No longer need to sync vector database
     // MongoDB embeddings are automatically updated when tasks change
@@ -109,9 +129,10 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
           confidence: statusChange.confidence
         });
         
-        // Find the task in database by ticket ID
+        // Find the task in database by ticket ID (using normalized comparison)
+        const normalizedStatusTaskId = normalizeTicketId(statusChange.taskId);
         const taskToUpdate = existingTasks.find(task => 
-          task.ticketId === statusChange.taskId
+          normalizeTicketId(task.ticketId) === normalizedStatusTaskId
         );
         
         console.log("[DEBUG] Task lookup result:", {
@@ -334,6 +355,25 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
         error: teamsError.message,
         timestamp: new Date().toISOString(),
       };
+    }
+
+    // Step 11.5: Clean up local embeddings after Teams notification
+    logger.info("🧹 Cleaning up local embeddings");
+    try {
+      const { clearLocalEmbeddings } = require("../storage/localEmbeddingCache");
+      const cleanupResult = clearLocalEmbeddings(transcriptStorageResult.documentId.toString());
+      
+      if (cleanupResult.success) {
+        logger.info("Local embeddings cleaned up successfully", {
+          transcriptId: transcriptStorageResult.documentId.toString(),
+          clearedCount: cleanupResult.cleared
+        });
+      }
+    } catch (cleanupError) {
+      logger.warn("Failed to clean up local embeddings", {
+        error: cleanupError.message,
+        transcriptId: transcriptStorageResult.documentId.toString()
+      });
     }
 
     // Step 12: Prepare enhanced complete result
@@ -684,7 +724,7 @@ function generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeRe
   for (const taskUpdate of taskUpdateResults.filter(r => r.success)) {
     // Find the speaker from status changes or task finder results
     const relatedStatusChange = statusChangeResults.find(sc => sc.taskId === taskUpdate.taskId);
-    const relatedTask = pipelineResult.pipelineResults?.stage1?.foundTasks?.find(t => t.ticketId === taskUpdate.taskId);
+    const relatedTask = pipelineResult.pipelineResults?.stage1?.foundTasks?.find(t => normalizeTicketId(t.ticketId) === normalizeTicketId(taskUpdate.taskId));
     const participantName = relatedStatusChange?.speaker || relatedTask?.assignee || "Unknown";
     
     if (!summaryData.participants[participantName]) {
@@ -696,7 +736,7 @@ function generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeRe
     
     // Check if we already have an update for this task
     const existingUpdate = summaryData.participants[participantName].updatedTasks.find(
-      u => u.ticketId === taskUpdate.taskId
+      u => normalizeTicketId(u.ticketId) === normalizeTicketId(taskUpdate.taskId)
     );
     if (!existingUpdate) {
       summaryData.participants[participantName].updatedTasks.push({
@@ -740,17 +780,37 @@ async function processTranscriptToTasksWithPipeline(
   const startTime = Date.now();
   
   try {
+    // Check for test mode from multiple sources
+    const isTestMode = processingOptions.testMode || 
+                      transcriptMetadata.isTestRun || 
+                      transcriptMetadata.sourceFile === "test_transcript.json";
+    
     logger.info("Starting 3-Stage Pipeline task processing flow", {
       transcriptEntries: transcript.length,
       hasMetadata: Object.keys(transcriptMetadata).length > 0,
       isMultiTranscript: Boolean(processingContext.isMultiTranscript),
       transcriptIndex: processingContext.transcriptIndex || 1,
+      isTestMode: isTestMode,
       timestamp: new Date().toISOString(),
     });
 
-    // Step 1: Store the raw transcript in MongoDB
-    logger.info("📁 Step 1: Storing raw transcript in MongoDB");
-    const transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
+    // Step 1: Store the raw transcript in MongoDB (skip for test mode)
+    let transcriptStorageResult;
+    if (isTestMode) {
+      logger.info("🧪 Step 1: Skipping transcript storage (TEST MODE)");
+      transcriptStorageResult = {
+        success: true,
+        documentId: "test-mode-skip",
+        timestamp: new Date(),
+        message: "Transcript storage skipped - test mode",
+        dataSize: JSON.stringify(transcript).length,
+        entryCount: transcript.length,
+        isTestMode: true
+      };
+    } else {
+      logger.info("📁 Step 1: Storing raw transcript in MongoDB");
+      transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
+    }
 
     // Step 2: REMOVED - No longer need to sync vector database
     // MongoDB embeddings are automatically updated when tasks change
@@ -813,7 +873,8 @@ async function processTranscriptToTasksWithPipeline(
     
     for (const statusChange of statusChanges) {
       try {
-        const taskToUpdate = existingTasks.find(task => task.ticketId === statusChange.taskId);
+        const normalizedStatusTaskId = normalizeTicketId(statusChange.taskId);
+        const taskToUpdate = existingTasks.find(task => normalizeTicketId(task.ticketId) === normalizedStatusTaskId);
         
         console.log("[DEBUG] Processing status change:", {
           taskId: statusChange.taskId,
@@ -887,17 +948,11 @@ async function processTranscriptToTasksWithPipeline(
       try {
         if (update.updateType && update.updateType !== "none" && update.newInformation) {
           // Find the existing task to get current description
-          const existingTask = existingTasks.find(task => task.ticketId === update.taskId);
+          const normalizedUpdateTaskId = normalizeTicketId(update.taskId);
+          const existingTask = existingTasks.find(task => normalizeTicketId(task.ticketId) === normalizedUpdateTaskId);
           
-          // Get transcript date or use current date
-          const transcriptDate = transcriptMetadata?.targetDate ? 
-            new Date(transcriptMetadata.targetDate).toLocaleDateString("en-US") : 
-            new Date().toLocaleDateString("en-US");
-          
-          // Append new information to existing description
-          const updatedDescription = existingTask?.description ? 
-            `${existingTask.description}\n\n(${transcriptDate}) Update: ${update.newInformation}` :
-            update.newInformation;
+          // RAG-enhanced description is the complete updated description (not just new info)
+          const updatedDescription = update.newInformation;
           
           const updateResult = await updateTaskByTicketId(
             update.taskId,
@@ -968,6 +1023,27 @@ async function processTranscriptToTasksWithPipeline(
         error: teamsError.message,
         timestamp: new Date().toISOString(),
       };
+    }
+
+    // Step 6: Clean up local embeddings after Teams notification
+    logger.info("🧹 Step 6: Cleaning up local embeddings");
+    try {
+      const { clearLocalEmbeddings } = require("../storage/localEmbeddingCache");
+      const cleanupResult = clearLocalEmbeddings(transcriptStorageResult.documentId.toString());
+      
+      if (cleanupResult.success) {
+        logger.info("Local embeddings cleaned up successfully", {
+          transcriptId: transcriptStorageResult.documentId.toString(),
+          clearedCount: cleanupResult.cleared,
+          remainingCacheSize: cleanupResult.remainingCacheSize
+        });
+      }
+    } catch (cleanupError) {
+      logger.warn("Failed to clean up local embeddings", {
+        error: cleanupError.message,
+        transcriptId: transcriptStorageResult.documentId.toString()
+      });
+      // Don't fail the entire process for cleanup errors
     }
 
     // Prepare complete result

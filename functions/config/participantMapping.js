@@ -20,11 +20,14 @@ const PARTICIPANT_TO_JIRA_MAPPING = {
   "Azmain Morshed": "azmainmorshed03@gmail.com",
   "Doug Whitewolff": "doug@transformationmath.com", // Replace with actual email
   "Shafkat Kabir": "kabir.shafkat@gmail.com", // Replace with actual email
+  "Faiyaz Rahman": "faiyaz.rahman@example.com", // Replace with actual email
   
   // You can also use variations of names that might appear in transcripts
   "Azmain": "azmainmorshed03@gmail.com",
   "Doug": "doug@transformationmath.com",
   "Shafkat": "kabir.shafkat@gmail.com",
+  "Faiyaz": "faiyaz.rahman@example.com",
+  "Fayaz": "faiyaz.rahman@example.com", // Map Fayaz to Faiyaz's email
   
 };
 
@@ -33,6 +36,35 @@ const PARTICIPANT_TO_JIRA_MAPPING = {
  * Set this to your email or leave null to create unassigned issues
  */
 const DEFAULT_ASSIGNEE = "azmainmorshed03@gmail.com"; // or null
+
+/**
+ * Normalize assignee name to handle common variations
+ * @param {string} name - Name to normalize
+ * @returns {string} Normalized name
+ */
+function normalizeAssigneeName(name) {
+  if (!name || typeof name !== 'string') {
+    return name;
+  }
+
+  const lowerName = name.toLowerCase().trim();
+  
+  // Handle Fayaz/Faiyaz variations - normalize to "Faiyaz Rahman"
+  const fayazVariations = [
+    "fayaz",
+    "faiyaz", 
+    "fayaz rahman",
+    "faiyaz rahman",
+    "faiyazrahman1685"
+  ];
+  
+  if (fayazVariations.includes(lowerName)) {
+    return "Faiyaz Rahman";
+  }
+  
+  // Return original name if no normalization needed
+  return name;
+}
 
 /**
  * Get Jira assignee identifier for a participant
@@ -44,14 +76,17 @@ function getJiraAssigneeForParticipant(participantName) {
     return DEFAULT_ASSIGNEE;
   }
   
+  // First normalize the participant name
+  const normalizedName = normalizeAssigneeName(participantName);
+  
   // Direct lookup
-  let assignee = PARTICIPANT_TO_JIRA_MAPPING[participantName];
+  let assignee = PARTICIPANT_TO_JIRA_MAPPING[normalizedName];
   if (assignee) {
     return assignee;
   }
   
   // Try case-insensitive lookup
-  const lowerName = participantName.toLowerCase();
+  const lowerName = normalizedName.toLowerCase();
   for (const [mappedName, email] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
     if (mappedName.toLowerCase() === lowerName) {
       return email;
@@ -59,7 +94,7 @@ function getJiraAssigneeForParticipant(participantName) {
   }
   
   // Try partial matching (first name)
-  const firstName = participantName.split(" ")[0].toLowerCase();
+  const firstName = normalizedName.split(" ")[0].toLowerCase();
   for (const [mappedName, email] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
     if (mappedName.toLowerCase().includes(firstName)) {
       return email;
@@ -110,4 +145,5 @@ module.exports = {
   getJiraAssigneeForParticipant,
   getAllParticipants,
   validateParticipantMapping,
+  normalizeAssigneeName,
 };

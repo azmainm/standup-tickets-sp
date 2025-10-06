@@ -46,10 +46,10 @@ if (process.env.NODE_ENV === "production" && !process.env.OPENAI_API_KEY) {
 }
 
 // Import our services
-const {processTranscriptToTasks, processTranscriptToTasksWithPipeline} = require("./services/taskProcessor");
-const {getBangladeshTimeComponents} = require("./services/meetingUrlService");
+const {processTranscriptToTasksWithPipeline} = require("./services/core/taskProcessor");
+const {getBangladeshTimeComponents} = require("./services/utilities/meetingUrlService");
 // Main service: All meetings approach
-const {fetchAllMeetingsForUser} = require("./services/allMeetingsService");
+const {fetchAllMeetingsForUser} = require("./services/integrations/allMeetingsService");
 
 // For cost control, set maximum container instances
 setGlobalOptions({maxInstances: 10});

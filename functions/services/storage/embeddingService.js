@@ -14,7 +14,7 @@
 
 const { MongoClient } = require('mongodb');
 const { OpenAIEmbeddings } = require('@langchain/openai');
-const { RecursiveCharacterTextSplitter } = require('langchain/text_splitter');
+const { RecursiveCharacterTextSplitter } = require('@langchain/textsplitters');
 const { MongoDBAtlasVectorSearch } = require('@langchain/mongodb');
 const crypto = require('crypto');
 const { logger } = require('firebase-functions');
@@ -33,7 +33,7 @@ const embeddings = new OpenAIEmbeddings({
 
 // Text splitter for large descriptions
 const textSplitter = new RecursiveCharacterTextSplitter({
-  chunkSize: 1000,
+  chunkSize: 2000,
   chunkOverlap: 200,
 });
 

@@ -297,7 +297,7 @@ async function processSimpleTaskMatching(newTasks, existingTasks) {
         logger.info("Task match found via explicit ID", {
           newTaskDesc: newTask.description.substring(0, 50),
           matchedTaskId: matchingTask.ticketId,
-          method: 'explicit_id'
+          method: "explicit_id"
         });
         
       } else {
@@ -338,7 +338,7 @@ async function matchTasksWithDatabase(extractedTasksData) {
     });
     
     // Get all existing active tasks from database
-    const { getActiveTasks } = require("./mongoService");
+    const { getActiveTasks } = require("../storage/mongoService");
     const allExistingTasks = await getActiveTasks();
     
     // Convert structured task data to flat array for easier processing
@@ -357,7 +357,7 @@ async function matchTasksWithDatabase(extractedTasksData) {
         participantsProcessed: participantNames.length,
         existingTasksChecked: allExistingTasks.length,
         processedAt: new Date().toISOString(),
-        matchingMethod: 'explicit_id_only'
+        matchingMethod: "explicit_id_only"
       }
     };
     

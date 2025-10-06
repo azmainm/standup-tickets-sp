@@ -6,7 +6,7 @@
  */
 
 const { logger } = require("firebase-functions");
-const { StatusChangeSchema } = require("../schemas/taskSchemas");
+const { StatusChangeSchema } = require("../../schemas/taskSchemas");
 
 /**
  * Detect status changes from transcript text

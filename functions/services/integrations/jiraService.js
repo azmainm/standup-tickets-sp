@@ -9,7 +9,7 @@
 
 const axios = require("axios");
 const {logger} = require("firebase-functions");
-const { getJiraAssigneeForParticipant } = require("../config/participantMapping");
+const { getJiraAssigneeForParticipant } = require("../../config/participantMapping");
 
 // Load environment variables
 require("dotenv").config();
