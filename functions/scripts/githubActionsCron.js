@@ -2,11 +2,11 @@
  * GitHub Actions Cron Job Script
  * 
  * This script replaces the Firebase Functions cron job and runs every 60 minutes
- * to check for meetings that ENDED in the last 60 minutes and process their transcripts.
+ * to check for meetings that ENDED in the last 90 minutes and process their transcripts.
  * 
  * Key changes from Firebase version:
  * - Runs every 60 minutes instead of daily
- * - Only processes meetings that ENDED in the last 60 minutes (catches long meetings)
+ * - Only processes meetings that ENDED in the last 90 minutes (catches long meetings)
  * - Uses environment variables instead of Firebase config
  * - Includes proper error handling and logging for GitHub Actions
  */
@@ -16,20 +16,20 @@ require("dotenv").config();
 // Import required services with updated paths
 const { fetchAllMeetingsForUser } = require("../services/integrations/allMeetingsService");
 const { processTranscriptToTasksWithPipeline } = require("../services/core/taskProcessor");
-const { getBangladeshTimeComponents } = require("../services/utilities/meetingUrlService");
+// const { getBangladeshTimeComponents } = require("../services/utilities/meetingUrlService");
 
 /**
- * Calculate the time window for the last 60 minutes in UTC
+ * Calculate the time window for the last 90 minutes in UTC
  * @returns {Object} Object with startTime and endTime in ISO format
  */
 function calculateLast60MinutesWindow() {
   const now = new Date(); // This is already in UTC
   
-  // Calculate 60 minutes ago in UTC
-  const sixtyMinutesAgo = new Date(now.getTime() - (60 * 60 * 1000));
+  // Calculate 90 minutes ago in UTC
+  const ninetyMinutesAgo = new Date(now.getTime() - (90 * 60 * 1000));
   
   // Format for Microsoft Graph API (ISO format) - already in UTC
-  const startTime = sixtyMinutesAgo.toISOString();
+  const startTime = ninetyMinutesAgo.toISOString();
   const endTime = now.toISOString();
   
   // For display purposes, also calculate Bangladesh time
@@ -39,7 +39,7 @@ function calculateLast60MinutesWindow() {
     startTime,
     endTime,
     bangladeshTime,
-    sixtyMinutesAgo
+    ninetyMinutesAgo
   };
 }
 
@@ -72,19 +72,19 @@ async function runTranscriptProcessor() {
     
     console.log("✅ Environment variables validated");
     
-    // Calculate the 60-minute time window
+    // Calculate the 90-minute time window
     const timeWindow = calculateLast60MinutesWindow();
     
     console.log("⏰ Time Window Calculation:");
     console.log(`   Current Bangladesh Time: ${timeWindow.bangladeshTime.toISOString()}`);
-    console.log(`   Window Start (60 min ago): ${timeWindow.startTime}`);
+    console.log(`   Window Start (90 min ago): ${timeWindow.startTime}`);
     console.log(`   Window End (now): ${timeWindow.endTime}`);
     console.log("   Logic: Processing meetings that ENDED in this window");
     console.log("   Benefit: Catches long meetings regardless of start time");
     console.log(`   Test Mode: ${isTestMode}`);
     
     // Fetch meetings for the target user within the time window
-    console.log("📅 Fetching meetings from the last 60 minutes...");
+    console.log("📅 Fetching meetings from the last 90 minutes...");
     
     const allTranscripts = await fetchAllMeetingsForUser(
       process.env.TARGET_USER_ID,
@@ -98,10 +98,10 @@ async function runTranscriptProcessor() {
     console.log(`📊 Transcripts found: ${allTranscripts.length}`);
     
     if (allTranscripts.length === 0) {
-      console.log("ℹ️  No transcripts found in the last 60 minutes");
+      console.log("ℹ️  No transcripts found in the last 90 minutes");
       console.log("   This could mean:");
-      console.log("   - No meetings ended in the last 60 minutes");
-      console.log("   - No transcripts were created in the last 60 minutes");
+      console.log("   - No meetings ended in the last 90 minutes");
+      console.log("   - No transcripts were created in the last 90 minutes");
       console.log("   - All transcripts were filtered out (too old)");
       console.log("✅ Cron job completed successfully (no processing needed)");
       
@@ -228,7 +228,7 @@ async function runTranscriptProcessor() {
 // Run the cron job if this script is executed directly
 if (require.main === module) {
   runTranscriptProcessor()
-    .then((result) => {
+    .then((_result) => {
       console.log("\n✅ Cron job completed successfully");
       process.exit(0);
     })
