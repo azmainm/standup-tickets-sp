@@ -514,18 +514,15 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
     let filterReason = "";
     
     if (typeof targetDate === 'object' && targetDate.customTimeWindow && meetingEndTime) {
-      // For GitHub Actions cron: check if BOTH meeting ended in window AND transcript was created in window
+      // For GitHub Actions cron: check if meeting ended in window (transcript timing doesn't matter)
       const meetingInWindow = meetingEndTime >= targetDateStart && meetingEndTime <= targetDateEnd;
-      const transcriptInWindow = transcriptDate >= targetDateStart && transcriptDate <= targetDateEnd;
       
-      shouldProcess = meetingInWindow && transcriptInWindow;
+      shouldProcess = meetingInWindow;
       
       if (shouldProcess) {
-        filterReason = `Meeting ended and transcript created within target window (meeting: ${meetingEndTime.toISOString()}, transcript: ${transcriptDate.toISOString()})`;
-      } else if (!meetingInWindow) {
-        filterReason = `Meeting ended outside target window (${meetingEndTime.toISOString()})`;
+        filterReason = `Meeting ended within target window (meeting: ${meetingEndTime.toISOString()}, transcript: ${transcriptDate.toISOString()})`;
       } else {
-        filterReason = `Transcript created outside target window (${transcriptDate.toISOString()})`;
+        filterReason = `Meeting ended outside target window (${meetingEndTime.toISOString()})`;
       }
     } else {
       // For regular daily processing: use transcript creation date
