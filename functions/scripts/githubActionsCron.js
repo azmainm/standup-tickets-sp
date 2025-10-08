@@ -32,13 +32,10 @@ function calculateLast60MinutesWindow() {
   const startTime = ninetyMinutesAgo.toISOString();
   const endTime = now.toISOString();
   
-  // For display purposes, also calculate Bangladesh time
-  const bangladeshTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Dhaka"}));
-  
   return {
     startTime,
     endTime,
-    bangladeshTime,
+    now,
     ninetyMinutesAgo
   };
 }
@@ -76,7 +73,7 @@ async function runTranscriptProcessor() {
     const timeWindow = calculateLast60MinutesWindow();
     
     console.log("⏰ Time Window Calculation:");
-    console.log(`   Current Bangladesh Time: ${timeWindow.bangladeshTime.toISOString()}`);
+    console.log(`   Current UTC Time: ${timeWindow.endTime}`);
     console.log(`   Window Start (90 min ago): ${timeWindow.startTime}`);
     console.log(`   Window End (now): ${timeWindow.endTime}`);
     console.log("   Logic: Processing meetings that ENDED in this window");
@@ -138,7 +135,7 @@ async function runTranscriptProcessor() {
             meetingSubject: transcript.meetingSubject,
             startTime: transcript.startTime,
             endTime: transcript.endTime,
-            targetDate: timeWindow.bangladeshTime.toISOString().split("T")[0],
+            targetDate: timeWindow.now.toISOString().split("T")[0],
             source: "github_actions_cron",
             timeWindow: {
               start: timeWindow.startTime,
