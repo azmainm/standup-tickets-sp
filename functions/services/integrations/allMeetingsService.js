@@ -532,6 +532,27 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
         `Transcript created outside target date (${transcriptDate.toISOString()})`;
     }
 
+    // Additional 24-hour age check for transcript safety
+    if (shouldProcess) {
+      const now = new Date();
+      const transcriptAge = (now - transcriptDate) / (1000 * 60 * 60); // Age in hours
+      const maxTranscriptAgeHours = 24;
+
+      if (transcriptAge > maxTranscriptAgeHours) {
+        shouldProcess = false;
+        filterReason = `Transcript too old (${transcriptAge.toFixed(1)} hours, max: ${maxTranscriptAgeHours} hours)`;
+        
+        logger.warn(`⏰ Skipping old transcript`, {
+          transcriptId: transcript.id,
+          transcriptAge: transcriptAge.toFixed(1) + " hours",
+          maxAge: maxTranscriptAgeHours + " hours",
+          transcriptDate: transcriptDate.toISOString(),
+          meetingSubject: onlineMeeting.subject,
+          reason: "Transcript exceeds 24-hour age limit"
+        });
+      }
+    }
+
     logger.info(`📄 Processing transcript ${i + 1}/${transcripts.length}`, {
       transcriptIndex: i + 1,
       transcriptId: transcript.id,
