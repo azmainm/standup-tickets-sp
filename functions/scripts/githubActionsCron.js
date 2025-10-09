@@ -16,10 +16,17 @@ require("dotenv").config();
 // Import required services with updated paths
 const { fetchAllMeetingsForUser } = require("../services/integrations/allMeetingsService");
 const { processTranscriptToTasksWithPipeline } = require("../services/core/taskProcessor");
+const { 
+  calculateDynamicTimeWindow, 
+  updateCronRunTimestamp, 
+  getCronJobStats 
+} = require("../services/storage/mongoService");
 // const { getBangladeshTimeComponents } = require("../services/utilities/meetingUrlService");
 
 /**
- * Calculate the time window for the last 90 minutes in UTC
+ * LEGACY: Calculate the time window for the last 90 minutes in UTC
+ * This function is kept for backward compatibility but is no longer used.
+ * The new system uses calculateDynamicTimeWindow from mongoService.
  * @returns {Object} Object with startTime and endTime in ISO format
  */
 function calculateLast60MinutesWindow() {
@@ -45,12 +52,20 @@ function calculateLast60MinutesWindow() {
  */
 async function runTranscriptProcessor() {
   const startTime = Date.now();
+  const runStartTime = new Date();
   const isTestMode = process.env.TEST_MODE === "true";
+  const cronJobName = "github_actions_transcript_processor";
   
-  console.log("🚀 GITHUB ACTIONS TRANSCRIPT PROCESSOR STARTED");
-  console.log("=".repeat(60));
+  console.log("🚀 GITHUB ACTIONS TRANSCRIPT PROCESSOR STARTED (ENHANCED)");
+  console.log("=".repeat(70));
   
   try {
+    // Mark cron job as started
+    await updateCronRunTimestamp(cronJobName, runStartTime, "started", {
+      testMode: isTestMode,
+      startedAt: runStartTime.toISOString()
+    });
+    
     // Validate required environment variables
     const requiredEnvVars = [
       "AZURE_CLIENT_ID",
@@ -69,19 +84,33 @@ async function runTranscriptProcessor() {
     
     console.log("✅ Environment variables validated");
     
-    // Calculate the 90-minute time window
-    const timeWindow = calculateLast60MinutesWindow();
+    // Get cron job statistics for logging
+    const cronStats = await getCronJobStats(cronJobName);
+    console.log("📊 Cron Job History:", {
+      totalPreviousRuns: cronStats.totalRuns || 0,
+      lastSuccessfulRun: cronStats.lastSuccessfulRun?.toISOString() || "Never",
+      lastStatus: cronStats.lastStatus || "Unknown",
+      timeSinceLastRun: cronStats.lastSuccessfulRun ? 
+        Math.round((runStartTime - cronStats.lastSuccessfulRun) / (1000 * 60)) + " minutes" : 
+        "N/A"
+    });
     
-    console.log("⏰ Time Window Calculation:");
-    console.log(`   Current UTC Time: ${timeWindow.endTime}`);
-    console.log(`   Window Start (90 min ago): ${timeWindow.startTime}`);
-    console.log(`   Window End (now): ${timeWindow.endTime}`);
+    // Calculate dynamic time window based on last successful run
+    const timeWindow = await calculateDynamicTimeWindow(cronJobName, 90);
+    
+    console.log("⏰ ENHANCED Time Window Calculation:");
+    console.log(`   Window Type: ${timeWindow.windowType}`);
+    console.log(`   Description: ${timeWindow.windowDescription}`);
+    console.log(`   Window Start: ${timeWindow.startTime}`);
+    console.log(`   Window End: ${timeWindow.endTime}`);
+    console.log(`   Duration: ${timeWindow.durationMinutes} minutes`);
+    console.log(`   Last Run Found: ${timeWindow.lastRunFound ? "✅ Yes" : "❌ No (using fallback)"}`);
     console.log("   Logic: Processing meetings that ENDED in this window");
-    console.log("   Benefit: Catches long meetings regardless of start time");
+    console.log("   Benefit: No transcript gaps - processes ALL since last successful run");
     console.log(`   Test Mode: ${isTestMode}`);
     
-    // Fetch meetings for the target user within the time window
-    console.log("📅 Fetching meetings from the last 90 minutes...");
+    // Fetch meetings for the target user within the dynamic time window
+    console.log(`📅 Fetching meetings from ${timeWindow.windowDescription.toLowerCase()}...`);
     
     const allTranscripts = await fetchAllMeetingsForUser(
       process.env.TARGET_USER_ID,
@@ -95,21 +124,35 @@ async function runTranscriptProcessor() {
     console.log(`📊 Transcripts found: ${allTranscripts.length}`);
     
     if (allTranscripts.length === 0) {
-      console.log("ℹ️  No transcripts found in the last 90 minutes");
+      console.log(`ℹ️  No transcripts found in the time window (${timeWindow.windowDescription})`);
       console.log("   This could mean:");
-      console.log("   - No meetings ended in the last 90 minutes");
-      console.log("   - No transcripts were created in the last 90 minutes");
+      console.log("   - No meetings ended in the specified time window");
+      console.log("   - No transcripts were created in the specified time window");
       console.log("   - All transcripts were filtered out (too old)");
       console.log("✅ Cron job completed successfully (no processing needed)");
       
-      return {
+      const earlyExitResult = {
         success: true,
         transcriptsFound: 0,
         transcriptsProcessed: 0,
         errors: 0,
         duration: (Date.now() - startTime) / 1000,
+        timeWindow: timeWindow,
         message: "No transcripts found in the time window - early exit"
       };
+      
+      // Still mark as successful run to update the timestamp
+      await updateCronRunTimestamp(cronJobName, runStartTime, "success", {
+        ...earlyExitResult,
+        completedAt: new Date().toISOString(),
+        windowType: timeWindow.windowType,
+        windowDurationMinutes: timeWindow.durationMinutes,
+        earlyExit: true
+      });
+      
+      console.log("✅ Cron run timestamp updated (early exit)");
+      
+      return earlyExitResult;
     }
     
     // The allTranscripts array already contains transcripts from meetings that ended in the time window
@@ -197,7 +240,8 @@ async function runTranscriptProcessor() {
     
     console.log("\n🎉 GitHub Actions cron job completed!");
     
-    return {
+    // Mark cron job as successful and update timestamp
+    const finalResult = {
       success: true,
       transcriptsFound: allTranscripts.length,
       transcriptsProcessed: processedCount,
@@ -206,6 +250,17 @@ async function runTranscriptProcessor() {
       timeWindow: timeWindow,
       results: results
     };
+    
+    await updateCronRunTimestamp(cronJobName, runStartTime, "success", {
+      ...finalResult,
+      completedAt: new Date().toISOString(),
+      windowType: timeWindow.windowType,
+      windowDurationMinutes: timeWindow.durationMinutes
+    });
+    
+    console.log("✅ Cron run timestamp updated successfully");
+    
+    return finalResult;
     
   } catch (error) {
     const duration = (Date.now() - startTime) / 1000;
@@ -216,6 +271,19 @@ async function runTranscriptProcessor() {
     console.error(`⏱️  Duration: ${duration.toFixed(2)}s`);
     console.error(`❌ Error: ${error.message}`);
     console.error(`📚 Stack: ${error.stack}`);
+    
+    // Mark cron job as failed (but don't throw if this fails)
+    try {
+      await updateCronRunTimestamp(cronJobName, runStartTime, "failed", {
+        error: error.message,
+        stack: error.stack,
+        duration: duration,
+        failedAt: new Date().toISOString()
+      });
+      console.error("❌ Cron run marked as failed in database");
+    } catch (updateError) {
+      console.error("⚠️  Failed to update cron failure status:", updateError.message);
+    }
     
     // Exit with error code for GitHub Actions to detect failure
     process.exit(1);

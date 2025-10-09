@@ -19,6 +19,7 @@ const DATABASE_NAME = "standuptickets";
 const COLLECTION_NAME = "sptasks";
 const TRANSCRIPTS_COLLECTION = "transcripts";
 const COUNTERS_COLLECTION = "counters";
+const CRON_TRACKING_COLLECTION = "cron_tracking";
 
 let client = null;
 let db = null;
@@ -1178,6 +1179,204 @@ async function resetTicketCounter(newCount) {
 }
 
 /**
+ * Get the last successful cron run timestamp
+ * @param {string} cronJobName - Name of the cron job (e.g., "github_actions_transcript_processor")
+ * @returns {Promise<Date|null>} Last run timestamp or null if never run
+ */
+async function getLastCronRunTimestamp(cronJobName = "github_actions_transcript_processor") {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(CRON_TRACKING_COLLECTION);
+    
+    const cronRecord = await collection.findOne({ _id: cronJobName });
+    
+    if (!cronRecord || !cronRecord.lastSuccessfulRun) {
+      logger.info("No previous cron run timestamp found", {
+        cronJobName,
+        reason: !cronRecord ? "No record exists" : "No successful run recorded"
+      });
+      return null;
+    }
+    
+    logger.info("Retrieved last cron run timestamp", {
+      cronJobName,
+      lastRun: cronRecord.lastSuccessfulRun.toISOString(),
+      totalRuns: cronRecord.totalRuns || 0,
+      lastStatus: cronRecord.lastStatus || "unknown"
+    });
+    
+    return cronRecord.lastSuccessfulRun;
+    
+  } catch (error) {
+    logger.error("Error retrieving last cron run timestamp", {
+      cronJobName,
+      error: error.message,
+      stack: error.stack
+    });
+    throw new Error(`Failed to get last cron run timestamp: ${error.message}`);
+  }
+}
+
+/**
+ * Update the cron run timestamp and status
+ * @param {string} cronJobName - Name of the cron job
+ * @param {Date} timestamp - Timestamp of the run
+ * @param {string} status - Status of the run ("success", "failed", "started")
+ * @param {Object} metadata - Additional metadata about the run
+ * @returns {Promise<boolean>} True if successfully updated
+ */
+async function updateCronRunTimestamp(cronJobName = "github_actions_transcript_processor", timestamp = new Date(), status = "success", metadata = {}) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(CRON_TRACKING_COLLECTION);
+    
+    const updateData = {
+      lastRun: timestamp,
+      lastStatus: status,
+      lastUpdated: new Date(),
+      ...metadata
+    };
+    
+    // Only update lastSuccessfulRun if status is success
+    if (status === "success") {
+      updateData.lastSuccessfulRun = timestamp;
+    }
+    
+    const result = await collection.updateOne(
+      { _id: cronJobName },
+      { 
+        $set: updateData,
+        $inc: { totalRuns: 1 }
+      },
+      { upsert: true }
+    );
+    
+    logger.info("Updated cron run timestamp", {
+      cronJobName,
+      timestamp: timestamp.toISOString(),
+      status,
+      upserted: result.upsertedCount > 0,
+      modified: result.modifiedCount > 0,
+      metadata
+    });
+    
+    return result.modifiedCount > 0 || result.upsertedCount > 0;
+    
+  } catch (error) {
+    logger.error("Error updating cron run timestamp", {
+      cronJobName,
+      timestamp: timestamp.toISOString(),
+      status,
+      error: error.message,
+      stack: error.stack
+    });
+    throw new Error(`Failed to update cron run timestamp: ${error.message}`);
+  }
+}
+
+/**
+ * Get cron job statistics and history
+ * @param {string} cronJobName - Name of the cron job
+ * @returns {Promise<Object>} Cron job statistics
+ */
+async function getCronJobStats(cronJobName = "github_actions_transcript_processor") {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(CRON_TRACKING_COLLECTION);
+    
+    const cronRecord = await collection.findOne({ _id: cronJobName });
+    
+    if (!cronRecord) {
+      return {
+        exists: false,
+        cronJobName,
+        totalRuns: 0,
+        lastRun: null,
+        lastSuccessfulRun: null,
+        lastStatus: null
+      };
+    }
+    
+    return {
+      exists: true,
+      cronJobName,
+      totalRuns: cronRecord.totalRuns || 0,
+      lastRun: cronRecord.lastRun,
+      lastSuccessfulRun: cronRecord.lastSuccessfulRun,
+      lastStatus: cronRecord.lastStatus,
+      lastUpdated: cronRecord.lastUpdated,
+      metadata: cronRecord.metadata || {}
+    };
+    
+  } catch (error) {
+    logger.error("Error getting cron job stats", {
+      cronJobName,
+      error: error.message
+    });
+    throw new Error(`Failed to get cron job stats: ${error.message}`);
+  }
+}
+
+/**
+ * Calculate the time window for processing based on last successful run
+ * @param {string} cronJobName - Name of the cron job
+ * @param {number} fallbackMinutes - Fallback window in minutes if no last run (default: 90)
+ * @returns {Promise<Object>} Time window with startTime, endTime, and metadata
+ */
+async function calculateDynamicTimeWindow(cronJobName = "github_actions_transcript_processor", fallbackMinutes = 90) {
+  try {
+    const now = new Date();
+    const lastRun = await getLastCronRunTimestamp(cronJobName);
+    
+    let startTime, windowType, windowDescription;
+    
+    if (lastRun) {
+      // Use last successful run as start time
+      startTime = lastRun;
+      windowType = "dynamic_since_last_run";
+      windowDescription = `Since last successful run at ${lastRun.toISOString()}`;
+    } else {
+      // Fallback to fixed time window
+      startTime = new Date(now.getTime() - (fallbackMinutes * 60 * 1000));
+      windowType = "fallback_fixed_window";
+      windowDescription = `Fallback ${fallbackMinutes}-minute window (no previous run found)`;
+    }
+    
+    const timeWindow = {
+      startTime: startTime.toISOString(),
+      endTime: now.toISOString(),
+      windowType,
+      windowDescription,
+      durationMinutes: Math.round((now - new Date(startTime)) / (1000 * 60)),
+      fallbackMinutes,
+      lastRunFound: !!lastRun,
+      now,
+      startTimeObj: new Date(startTime)
+    };
+    
+    logger.info("Calculated dynamic time window", {
+      cronJobName,
+      ...timeWindow,
+      startTime: timeWindow.startTime,
+      endTime: timeWindow.endTime
+    });
+    
+    return timeWindow;
+    
+  } catch (error) {
+    logger.error("Error calculating dynamic time window", {
+      cronJobName,
+      fallbackMinutes,
+      error: error.message
+    });
+    throw new Error(`Failed to calculate dynamic time window: ${error.message}`);
+  }
+}
+
+/**
  * Close MongoDB connection
  * @returns {Promise<void>}
  */
@@ -1218,5 +1417,10 @@ module.exports = {
   initializeTicketCounter,
   getCurrentTicketCount,
   resetTicketCounter,
+  // Cron tracking functions
+  getLastCronRunTimestamp,
+  updateCronRunTimestamp,
+  getCronJobStats,
+  calculateDynamicTimeWindow,
   closeMongoDB,
 };
