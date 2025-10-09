@@ -2,8 +2,8 @@
  * Complete 3-Stage Pipeline Test with Enhanced Test Transcript
  * 
  * This test script processes the test_transcript.json through the entire
- * 3-stage pipeline including Task Finder, Creator, Updater, and Teams notification.
- * The Teams message will be marked as "THIS IS A TEST RUN".
+ * 3-stage pipeline including Task Finder, Creator, and Updater.
+ * Teams notifications are commented out to avoid sending test messages.
  */
 
 const fs = require("fs");
@@ -206,10 +206,10 @@ async function runCompleteFlowTest() {
   try {
     // Step 1: Load test transcript first
     console.log("📁 Step 1: Loading test transcript...");
-    const transcriptPath = path.join(__dirname, "..", "output", "test_transcript.json");
+    const transcriptPath = path.join(__dirname, "..", "output", "test_transcript_converted.json");
     
     if (!fs.existsSync(transcriptPath)) {
-      throw new Error(`Test transcript not found at: ${transcriptPath}. Please ensure test_transcript.json exists in output/`);
+      throw new Error(`Test transcript not found at: ${transcriptPath}. Please ensure test_transcript_converted.json exists in output/`);
     }
 
     const transcriptData = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
@@ -217,7 +217,7 @@ async function runCompleteFlowTest() {
 
     // Step 2: Generate local embeddings for test transcript (for RAG testing)
     console.log("🔧 Step 2: Setting up local embeddings for RAG testing...");
-    const { storeLocalEmbeddings } = require("../services/localEmbeddingCache");
+    const { storeLocalEmbeddings } = require("../services/storage/localEmbeddingCache");
     const { RecursiveCharacterTextSplitter } = require("@langchain/textsplitters");
     
     try {
@@ -331,7 +331,7 @@ async function runCompleteFlowTest() {
     };
     
     const processingResult = await processTranscriptToTasksWithPipeline(transcriptData, {
-      sourceFile: "test_transcript.json",
+      sourceFile: "test_transcript_converted.json",
       isTestRun: true,
       testDate: new Date().toISOString().split("T")[0],
       testDescription: "3-Stage Pipeline test transcript"
@@ -401,8 +401,10 @@ async function runCompleteFlowTest() {
     }
 
     // Step 8: Send test Teams notification
-    console.log("\n📢 Step 8: Sending test Teams notification...");
+    // console.log("\n📢 Step 8: Sending test Teams notification...");
     
+    // COMMENTED OUT: Teams notification section to avoid sending test messages
+    /*
     try {
       // Generate summary data for Teams
       const { generateSummaryDataFromTaskResult } = require("../services/teamsService");
@@ -427,6 +429,8 @@ async function runCompleteFlowTest() {
     } catch (teamsError) {
       console.error("❌ Teams notification error:", teamsError.message);
     }
+    */
+    console.log("📢 Step 8: Teams notification skipped (commented out for testing)");
 
     // Final Summary
     const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -448,12 +452,12 @@ async function runCompleteFlowTest() {
     console.log("   - ✅ Zod schema validation");
     console.log("   - ✅ Enhanced task similarity matching");
     console.log("");
-    console.log("🧪 THIS WAS A TEST RUN - Check Teams channel for test notification");
+    console.log("🧪 THIS WAS A TEST RUN - Teams notifications were disabled");
 
     // Cleanup: Remove local embeddings generated for testing
     console.log("\n🧹 Cleaning up test embeddings...");
     try {
-      const { clearLocalEmbeddings } = require("../services/localEmbeddingCache");
+      const { clearLocalEmbeddings } = require("../services/storage/localEmbeddingCache");
       clearLocalEmbeddings("test-transcript-123");
       console.log("✅ Test embeddings cleaned up");
     } catch (cleanupError) {
@@ -476,7 +480,7 @@ async function runCompleteFlowTest() {
     // Cleanup: Remove local embeddings even if test failed
     console.log("\n🧹 Cleaning up test embeddings...");
     try {
-      const { clearLocalEmbeddings } = require("../services/localEmbeddingCache");
+      const { clearLocalEmbeddings } = require("../services/storage/localEmbeddingCache");
       clearLocalEmbeddings("test-transcript-123");
       console.log("✅ Test embeddings cleaned up");
     } catch (cleanupError) {
@@ -510,8 +514,8 @@ logger.warn = (...args) => {
 if (require.main === module) {
   console.log("🚀 3-Stage Pipeline Complete System Flow Test");
   console.log("==============================================");
-  console.log("This test validates the entire 3-stage pipeline system using test_transcript.json");
-  console.log("🧪 Teams notification will be marked as 'THIS IS A TEST RUN'");
+  console.log("This test validates the entire 3-stage pipeline system using test_transcript_converted.json");
+  console.log("🧪 Teams notifications are disabled for testing");
   console.log("");
   
   runCompleteFlowTest()
