@@ -139,7 +139,8 @@ function formatTestStandupSummary(summaryData, metadata) {
         newTasks.forEach((task, index) => {
           const taskType = task.type === "Coding" ? "(Coding)" : "(Non-Coding)";
           const futurePlan = task.isFuturePlan ? " 🔮" : "";
-          message += `${index + 1}. ${task.ticketId}: ${task.title} ${taskType}${futurePlan}\n`;
+          const timeInfo = (task.estimatedTime || task.timeSpent) ? ` [${task.timeSpent || 0}h spent, ${task.estimatedTime || 0}h est]` : "";
+          message += `${index + 1}. ${task.ticketId}: ${task.title} ${taskType}${futurePlan}${timeInfo}\n`;
           totalNewTasks++;
           if (task.isFuturePlan) totalFuturePlans++;
         });
@@ -150,7 +151,8 @@ function formatTestStandupSummary(summaryData, metadata) {
         message += "Updated Tasks\n";
         updatedTasks.forEach((task, index) => {
           const taskType = task.type === "Coding" ? "(Coding)" : "(Non-Coding)";
-          message += `${index + 1}. ${task.ticketId}: ${task.title} ${taskType}\n`;
+          const timeInfo = (task.estimatedTime || task.timeSpent) ? ` [${task.timeSpent || 0}h spent, ${task.estimatedTime || 0}h est]` : "";
+          message += `${index + 1}. ${task.ticketId}: ${task.title} ${taskType}${timeInfo}\n`;
           totalUpdatedTasks++;
         });
         message += "\n";
@@ -165,7 +167,8 @@ function formatTestStandupSummary(summaryData, metadata) {
     futurePlansFromSummary.forEach((plan, index) => {
       const taskType = plan.type === "Coding" ? "(Coding)" : "(Non-Coding)";
       const ticketId = plan.ticketId || "SP-??";
-      message += `${index + 1}. ${ticketId}: ${plan.title || plan.description} ${taskType}\n`;
+      const timeInfo = (plan.estimatedTime || plan.timeSpent) ? ` [${plan.timeSpent || 0}h spent, ${plan.estimatedTime || 0}h est]` : "";
+      message += `${index + 1}. ${ticketId}: ${plan.title || plan.description} ${taskType}${timeInfo}\n`;
     });
     message += "\n";
   }
@@ -185,7 +188,8 @@ function formatTestStandupSummary(summaryData, metadata) {
   message += `- ✅ Future plans detection\n`;
   message += `- ✅ Assignee detection (including new participants)\n`;
   message += `- ✅ Zod validation\n`;
-  message += `- ✅ Enhanced task matching\n\n`;
+  message += `- ✅ Enhanced task matching\n`;
+  message += `- ✅ Time tracking (estimated time and time spent)\n\n`;
 
   message += "Please check Admin Panel to see the test results.\n\n";
   message += "🧪 **THIS WAS A TEST RUN - NOT ACTUAL STANDUP DATA** 🧪";
@@ -319,6 +323,7 @@ async function runCompleteFlowTest() {
     console.log("- Admin panel synchronization");
     console.log("- Task similarity matching");
     console.log("- Future plans detection");
+    console.log("- Time tracking (estimated time and time spent)");
 
     // Step 5: Process with 3-Stage Pipeline
     console.log("🚀 Step 5: Processing with 3-Stage Pipeline...");
@@ -377,7 +382,10 @@ async function runCompleteFlowTest() {
           const status = task.status || "To-do";
           const futurePlan = task.isFuturePlan ? " 🔮 FUTURE PLAN" : "";
           const assignee = task.assignee ? ` [Assignee: ${task.assignee}]` : "";
-          console.log(`    ${index + 1}. ${task.description} [${status}]${futurePlan}${assignee}`);
+          const estimatedTime = task.estimatedTime ? ` [Est: ${task.estimatedTime}h]` : "";
+          const timeSpent = task.timeSpent ? ` [Spent: ${task.timeSpent}h]` : "";
+          const timeInfo = estimatedTime || timeSpent ? ` [Time: ${task.timeSpent || 0}h spent, ${task.estimatedTime || 0}h estimated]` : "";
+          console.log(`    ${index + 1}. ${task.description} [${status}]${futurePlan}${assignee}${timeInfo}`);
         });
       }
       
@@ -387,7 +395,10 @@ async function runCompleteFlowTest() {
           const status = task.status || "To-do";
           const futurePlan = task.isFuturePlan ? " 🔮 FUTURE PLAN" : "";
           const assignee = task.assignee ? ` [Assignee: ${task.assignee}]` : "";
-          console.log(`    ${index + 1}. ${task.description} [${status}]${futurePlan}${assignee}`);
+          const estimatedTime = task.estimatedTime ? ` [Est: ${task.estimatedTime}h]` : "";
+          const timeSpent = task.timeSpent ? ` [Spent: ${task.timeSpent}h]` : "";
+          const timeInfo = estimatedTime || timeSpent ? ` [Time: ${task.timeSpent || 0}h spent, ${task.estimatedTime || 0}h estimated]` : "";
+          console.log(`    ${index + 1}. ${task.description} [${status}]${futurePlan}${assignee}${timeInfo}`);
         });
       }
     }
@@ -398,6 +409,32 @@ async function runCompleteFlowTest() {
       processingResult.statusChanges.detected.forEach((change, index) => {
         console.log(`${index + 1}. ${change.taskId}: ${change.newStatus} (by ${change.speaker}, confidence: ${change.confidence})`);
       });
+    }
+
+    // Step 7.5: Time Tracking Summary
+    console.log("\n⏱️  Step 7.5: Time Tracking Summary:");
+    let totalEstimatedTime = 0;
+    let totalTimeSpent = 0;
+    let tasksWithTimeInfo = 0;
+    
+    for (const [participant, tasks] of Object.entries(processingResult.tasks)) {
+      const allTasks = [...(tasks.Coding || []), ...(tasks["Non-Coding"] || [])];
+      const participantEstimated = allTasks.reduce((sum, task) => sum + (task.estimatedTime || 0), 0);
+      const participantSpent = allTasks.reduce((sum, task) => sum + (task.timeSpent || 0), 0);
+      const participantTimeTasks = allTasks.filter(task => (task.estimatedTime || 0) > 0 || (task.timeSpent || 0) > 0).length;
+      
+      if (participantTimeTasks > 0) {
+        console.log(`  ${participant}: ${participantSpent}h spent, ${participantEstimated}h estimated (${participantTimeTasks} tasks with time info)`);
+        totalEstimatedTime += participantEstimated;
+        totalTimeSpent += participantSpent;
+        tasksWithTimeInfo += participantTimeTasks;
+      }
+    }
+    
+    if (tasksWithTimeInfo > 0) {
+      console.log(`  📊 Total: ${totalTimeSpent}h spent, ${totalEstimatedTime}h estimated across ${tasksWithTimeInfo} tasks`);
+    } else {
+      console.log("  📊 No time tracking information found in tasks");
     }
 
     // Step 8: Send test Teams notification
@@ -451,6 +488,7 @@ async function runCompleteFlowTest() {
     console.log("   - ✅ Enhanced assignee detection");
     console.log("   - ✅ Zod schema validation");
     console.log("   - ✅ Enhanced task similarity matching");
+    console.log("   - ✅ Time tracking (estimated time and time spent)");
     console.log("");
     console.log("🧪 THIS WAS A TEST RUN - Teams notifications were disabled");
 

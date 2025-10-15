@@ -1118,8 +1118,8 @@ function convertPipelineResultsToLegacyFormat(newTasks, taskUpdates) {
       title: task.title,
       description: task.description,
       status: "To-do",
-      estimatedTime: 0,
-      timeTaken: 0,
+      estimatedTime: task.estimatedTime || 0,
+      timeTaken: task.timeSpent || 0,
       isFuturePlan: task.isFuturePlan || false,
       taskType: "NEW TASK",
       source: "pipeline_stage_1_2"

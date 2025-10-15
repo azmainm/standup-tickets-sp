@@ -316,14 +316,48 @@ When EXPLICIT future plan language found:
 - Mark as NEW_TASK category
 - Include [IS_FUTURE_PLAN: true] in CONTEXT field
 
-**6. TASK CANCELLATION DETECTION**:
+**6. TIME INFORMATION EXTRACTION**:
+
+**ESTIMATED TIME** - Look for these patterns:
+- "this will take [X] hours/days" 
+- "estimated [X] hours/days"
+- "should be about [X] hours/days"
+- "roughly [X] hours/days"
+- "approximately [X] hours"
+- "I think [X] hours"
+- "probably [X] days to complete"
+- "needs about [X] hours"
+
+**TIME SPENT** - Look for these patterns for EXISTING tasks only (with SP-XXX):
+- "spent [X] hours on SP-XXX"
+- "worked [X] hours/days on SP-XXX"
+- "already put in [X] hours on SP-XXX"
+- "took me [X] hours so far on SP-XXX"
+- "invested [X] hours in SP-XXX"
+- "used [X] hours on SP-XXX"
+- "been working for [X] hours on SP-XXX"
+
+**TIME CONVERSION RULES**:
+- Only extract time when explicitly mentioned in hours or minutes
+- Convert minutes to hours: "30 minutes" = 0.5 hours, "90 minutes" = 1.5 hours
+- Accept word numbers: "two hours" = 2, "three hours" = 3
+- Do NOT convert days, weeks, or other time units to hours
+
+**CRITICAL RULES**:
+- Only extract TIME_SPENT for UPDATE_TASK category (tasks with SP-XXX ticket IDs)
+- For NEW_TASK category, TIME_SPENT should always be 0
+- If no time mentioned, use 0 for both fields
+- Be conservative - only extract when clearly mentioned
+- Context matters: "will take" = ESTIMATED, "spent/worked" = TIME_SPENT
+
+**7. TASK CANCELLATION DETECTION**:
 Scan the ENTIRE transcript for task cancellation patterns:
 - If someone mentions a potential task early in the conversation
 - But later says cancellation phrases like: "actually, let's not", "never mind", "scratch that", "forget about that", "we decided not to", "on second thought", "let's hold off", "maybe later", "not right now", "let's table that"
 - Then DO NOT include that task in the final output
 - Always check the full conversation context before finalizing any task
 
-**6. CONTEXT GATHERING STRATEGY**:
+**8. CONTEXT GATHERING STRATEGY**:
 - Scan the ENTIRE transcript for ALL mentions of each identified task
 - For SP-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
 - For new tasks: Find the initial mention AND any subsequent elaborations or additions
@@ -331,7 +365,7 @@ Scan the ENTIRE transcript for task cancellation patterns:
 - Include all technical details, requirements, and context mentioned anywhere in the transcript
 - Capture task evolution - how requirements or scope might change during discussion
 
-**7. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
+**9. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
 - "for me" / "my task" / "I will" = assign to speaker
 - "for [Name]" / "[Name] will" / "[Name] should" = assign to that person
 - "task for [Name] who isn't here" = assign to that person (not TBD)
@@ -356,6 +390,8 @@ ASSIGNEE: [Person assigned or TBD]
 TYPE: [Coding/Non-Coding]
 CATEGORY: [NEW_TASK or UPDATE_TASK]
 TICKET_ID: [SP-XXX if mentioned for updates, or "NONE" for new tasks]
+ESTIMATED_TIME: [Number in hours - e.g., "3", "16" (2 days), "0" if not mentioned]
+TIME_SPENT: [Number in hours - e.g., "5", "8" (1 day), "0" if not mentioned OR if NEW_TASK]
 EVIDENCE: [ALL specific quotes from transcript related to this task - include quotes from every mention throughout the meeting]
 CONTEXT: [Comprehensive context combining ALL discussions about this task - include initial mention, elaborations, technical details, and any additional requirements. Include [IS_FUTURE_PLAN: true] if this is a future plan]
 URGENCY: [Any timeline mentioned]
@@ -366,6 +402,33 @@ URGENCY: [Any timeline mentioned]
 3. For the TASK field, write ONLY the core deliverable/system/feature name
 4. Examples of GOOD TASK names: "Email notification system", "Mobile expense tracker", "Blue navigation menu"
 5. Examples of BAD TASK names: "NEW_TASK - Email notification system", "Purpose: Implement an email notification", "Create a task for email notifications"
+
+**TIME EXTRACTION EXAMPLES**:
+
+Example 1 - New task with estimate:
+Speaker: "I need to create a new task for the email notification system. It should take about 5 hours."
+→ ESTIMATED_TIME: 5
+→ TIME_SPENT: 0 (because it's a NEW_TASK)
+
+Example 2 - Existing task update with time spent:
+Speaker: "I've been working on SP-25 for the past 3 hours and should need another 2 hours to complete it."
+→ ESTIMATED_TIME: 5 (3 spent + 2 more needed)
+→ TIME_SPENT: 3
+
+Example 3 - Using minutes:
+Speaker: "This will take 90 minutes to complete"
+→ ESTIMATED_TIME: 1.5 (90 minutes = 1.5 hours)
+→ TIME_SPENT: 0
+
+Example 4 - Existing task with work done:
+Speaker: "SP-30 is almost done. I spent about 3 hours on it yesterday."
+→ ESTIMATED_TIME: 0 (not mentioned)
+→ TIME_SPENT: 3
+
+Example 5 - No time mentioned:
+Speaker: "I'll work on the dashboard updates"
+→ ESTIMATED_TIME: 0
+→ TIME_SPENT: 0
 
 **CRITICAL**: Properly classify each item as NEW_TASK or UPDATE_TASK based on whether a ticket number is mentioned.
 
@@ -453,6 +516,8 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
         evidence: "",
         context: "",
         urgency: "",
+        estimatedTime: 0,     // Default to 0 hours
+        timeSpent: 0,         // Default to 0 hours
         isFuturePlan: false, // Default to not a future plan
         source: "task_finder",
         stage: 1
@@ -499,6 +564,12 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
         }
       } else if (trimmed.startsWith('URGENCY:') || trimmed.startsWith('  URGENCY:')) {
         currentTask.urgency = trimmed.replace(/^\s*URGENCY:\s*/, '').trim();
+      } else if (trimmed.startsWith('ESTIMATED_TIME:') || trimmed.startsWith('  ESTIMATED_TIME:')) {
+        const timeStr = trimmed.replace(/^\s*ESTIMATED_TIME:\s*/, '').trim();
+        currentTask.estimatedTime = parseTimeStringToHours(timeStr);
+      } else if (trimmed.startsWith('TIME_SPENT:') || trimmed.startsWith('  TIME_SPENT:')) {
+        const timeStr = trimmed.replace(/^\s*TIME_SPENT:\s*/, '').trim();
+        currentTask.timeSpent = parseTimeStringToHours(timeStr);
       }
     }
   }
@@ -577,6 +648,67 @@ function calculateAverageDescriptionLength(tasks) {
 }
 
 /**
+ * Parse time string to hours (only hours and minutes)
+ * @param {string} timeStr - Time string to parse
+ * @returns {number} Time in hours
+ */
+function parseTimeStringToHours(timeStr) {
+  if (!timeStr || typeof timeStr !== "string") return 0;
+  
+  const str = timeStr.toLowerCase().trim();
+  
+  // Direct hour matches: "3 hours", "2.5 hours", "1 hr"
+  let hourMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:hour|hr)s?/);
+  if (hourMatch) {
+    return parseFloat(hourMatch[1]);
+  }
+  
+  // Minute matches: "30 minutes", "90 mins", "45 min"
+  let minuteMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:minute|min)s?/);
+  if (minuteMatch) {
+    return parseFloat(minuteMatch[1]) / 60; // Convert minutes to hours
+  }
+  
+  // Word numbers for hours only - order matters (longer words first)
+  const wordNumbers = [
+    ["zero", 0], ["one", 1], ["two", 2], ["three", 3], ["four", 4], ["five", 5],
+    ["six", 6], ["seven", 7], ["eight", 8], ["nine", 9], ["ten", 10],
+    ["couple", 2], ["few", 3], ["several", 4], ["half", 0.5], ["an", 1], ["a", 1]
+  ];
+  
+  for (const [word, num] of wordNumbers) {
+    if (str.includes(word)) {
+      if (str.includes("hour") || str.includes("hr")) {
+        return num;
+      }
+      if (str.includes("minute") || str.includes("min")) {
+        return num / 60; // Convert minutes to hours
+      }
+      // Only return word numbers if they're standalone (no time units and no other words)
+      if (!str.includes("hour") && !str.includes("hr") && !str.includes("minute") && !str.includes("min") && 
+          !str.includes("day") && !str.includes("week") && !str.includes("month") && !str.includes("year")) {
+        // Check if the string is just the word number or word number + whitespace
+        const cleanStr = str.replace(/\s+/g, ' ').trim();
+        if (cleanStr === word || cleanStr === word + 's') {
+          return num;
+        }
+      }
+    }
+  }
+  
+  // If it's already a number (and no time unit), return it
+  // But don't convert if it contains day/week/month/year units
+  if (!str.includes("day") && !str.includes("week") && !str.includes("month") && !str.includes("year")) {
+    const directNumber = parseFloat(str);
+    if (!isNaN(directNumber)) {
+      return Math.max(0, directNumber);
+    }
+  }
+  
+  return 0;
+}
+
+/**
  * Test Task Finder service connection
  * @returns {Promise<boolean>} True if service is working
  */
@@ -609,5 +741,6 @@ module.exports = {
   calculateAverageDescriptionLength,
   createTaskFinderSystemPrompt,
   createTaskFindingPrompt,
-  detectAndRemoveCancelledTasks
+  detectAndRemoveCancelledTasks,
+  parseTimeStringToHours
 };

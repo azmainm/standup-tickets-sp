@@ -40,6 +40,7 @@ The system features a **RAG-enhanced 3-stage processing pipeline** with transcri
 - **Explicit ID Matching**: Direct task updates using ticket IDs mentioned in transcripts
 - **Assignee Detection**: Intelligent assignment based on conversation context
 - **Future Plans Detection**: Separate handling of future/TBD tasks
+- **Time Tracking**: Automatic extraction of estimated time and time spent from conversation
 
 ### Flexible Deployment Options
 - **GitHub Actions** (Recommended): Runs every 60 minutes, processes meetings that ended in the last 60 minutes
@@ -142,7 +143,7 @@ Your Azure app needs these Microsoft Graph permissions:
 ```bash
 cd functions
 
-# Test with fake transcript data
+# Test with fake transcript data (includes time tracking)
 npm run test:fake-flow
 
 # Test with real Microsoft Graph data
@@ -151,6 +152,13 @@ npm run test:real-flow
 # Test GitHub Actions cron job locally
 npm run test:github-actions
 ```
+
+### Time Tracking Test
+The `test:fake-flow` script includes comprehensive time tracking testing:
+- Tests time extraction patterns for new tasks
+- Validates time spent tracking for existing tasks
+- Displays time tracking summaries
+- Shows time information in task lists
 
 ### Manual Processing (Firebase Functions)
 ```bash
@@ -173,25 +181,47 @@ curl -X POST "https://your-region-your-project.cloudfunctions.net/fetch-transcri
 2. **Transcript Processing**: 3-stage pipeline for each transcript
 3. **Results**: Comprehensive processing with detailed logging
 
+## ⏱️ Time Tracking Features
+
+The system automatically extracts time information from meeting conversations:
+
+### Estimated Time Detection
+- **Patterns**: "this will take X hours", "estimated X hours", "should be about X hours"
+- **Usage**: Automatically captured for new tasks and future plans
+- **Format**: Stored in hours (converts minutes: 30 minutes = 0.5 hours)
+
+### Time Spent Tracking
+- **Patterns**: "spent X hours on SP-XXX", "took me X hours", "worked X hours on SP-XXX"
+- **Usage**: Captured for existing task updates (requires task ID)
+- **Format**: Stored in hours with task ID association
+
+### Time Display
+- **Task Lists**: Shows `[Time: Xh spent, Yh estimated]` for each task
+- **Summaries**: Participant-level and total time tracking summaries
+- **Teams Notifications**: Time information included in task summaries
+
 ## 📈 Expected Output
 
 ### New Tasks Created
 - Professional titles (3-5 words)
 - Rich, contextual descriptions using RAG
 - Proper assignee detection
-- Estimated time and status
+- Estimated time and time spent tracking
+- Status and task type classification
 
 ### Task Updates
 - Status changes detected from conversation
 - Enhanced descriptions with new context
 - Date-prefixed update history
 - Explicit ID matching for precise updates
+- Time tracking for progress updates
 
 ### Teams Notifications
 - Summary of new tasks and updates
-- Participant breakdown
+- Participant breakdown with time tracking
 - Processing statistics
 - Future plans separately listed
+- Time tracking summaries
 
 ## 🔍 Monitoring
 
@@ -211,6 +241,8 @@ curl -X POST "https://your-region-your-project.cloudfunctions.net/fetch-transcri
 - [System Flow Documentation](Docs/SYSTEM_FLOW_DOCUMENTATION.md) - Technical architecture and data flow
 - [Function Flow Documentation](Docs/FUNCTION_FLOW_DOCUMENTATION.md) - Detailed function explanations
 - [3-Stage Pipeline Guide](Docs/3_STAGE_PIPELINE_GUIDE.md) - Pipeline architecture details
+- [Meeting Participant Guidelines](Docs/MEETING_PARTICIPANT_GUIDELINES.md) - How to communicate for optimal task tracking
+- [Vector Database Implementation](Docs/VECTOR_DATABASE_IMPLEMENTATION.md) - RAG and embedding system details
 
 ## 🛠️ Development
 
