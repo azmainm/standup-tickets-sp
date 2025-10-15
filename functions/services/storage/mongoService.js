@@ -71,7 +71,7 @@ function getDatabase() {
  */
 async function addNewTasksToModernEmbeddings(processedTasksData, assignedTicketIds) {
   try {
-    const { addTaskEmbedding } = require("./mongoEmbeddingService");
+    const { addOrUpdateTaskEmbedding } = require("./mongoEmbeddingService");
     
     let ticketIndex = 0;
     let addedCount = 0;
@@ -88,10 +88,10 @@ async function addNewTasksToModernEmbeddings(processedTasksData, assignedTicketI
               const ticketId = assignedTicketIds[ticketIndex] || `TEMP-${ticketIndex}`;
               ticketIndex++;
 
-              const embeddingResult = await addTaskEmbedding({
-                ticketId: ticketId,
+              const embeddingResult = await addOrUpdateTaskEmbedding(ticketId, {
                 title: task.title || task.description?.substring(0, 50) || "",
                 description: task.description || "",
+                assignee: participantName,
                 participantName: participantName,
                 type: taskType,
                 status: task.status || "To-do",
@@ -100,12 +100,12 @@ async function addNewTasksToModernEmbeddings(processedTasksData, assignedTicketI
                 timeTaken: task.timeTaken || 0
               });
 
-              if (embeddingResult.success) {
+              if (embeddingResult) {
                 addedCount++;
-                console.log(`[DEBUG] Modern embedding created for ${ticketId}: ${embeddingResult.chunksStored} chunks`);
+                console.log(`[DEBUG] Modern embedding created for ${ticketId}`);
               } else {
                 skippedCount++;
-                console.log(`[DEBUG] Skipping embedding for ${ticketId}: ${embeddingResult.reason}`);
+                console.log(`[DEBUG] Skipping embedding for ${ticketId}: Failed to generate embedding`);
               }
 
             } catch (error) {

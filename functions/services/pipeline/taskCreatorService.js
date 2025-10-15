@@ -449,7 +449,7 @@ async function generateDetailedTaskDescription(foundTask, transcript) {
  */
 async function generateEmbeddingsForNewTasks(newTasks) {
   try {
-    const { addTaskEmbedding } = require("../storage/mongoEmbeddingService");
+    const { addOrUpdateTaskEmbedding } = require("../storage/mongoEmbeddingService");
     
     let generated = 0;
     let skipped = 0;
@@ -466,10 +466,10 @@ async function generateEmbeddingsForNewTasks(newTasks) {
           continue;
         }
         
-        const embeddingResult = await addTaskEmbedding({
-          ticketId: task.ticketId,
+        const embeddingResult = await addOrUpdateTaskEmbedding(task.ticketId, {
           title: task.title || task.description.substring(0, 50),
           description: task.description,
+          assignee: task.assignee,
           participantName: task.assignee,
           type: task.type,
           status: task.status || 'To-do',
@@ -478,11 +478,10 @@ async function generateEmbeddingsForNewTasks(newTasks) {
           timeTaken: task.timeTaken || 0
         });
         
-        if (embeddingResult.success) {
+        if (embeddingResult) {
           generated++;
           logger.info("Embedding generated for new task", {
-            taskId: task.ticketId,
-            chunksStored: embeddingResult.chunksStored
+            taskId: task.ticketId
           });
         } else {
           skipped++;
