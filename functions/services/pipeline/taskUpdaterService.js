@@ -146,7 +146,9 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, task
               description: ragResult.updatedDescription,
               participantName: existingTask.participantName,
               type: existingTask.type || 'Non-Coding',
-              status: existingTask.status || 'To-do'
+              status: existingTask.status || 'To-do',
+              estimatedTime: existingTask.estimatedTime || 0,
+              timeTaken: existingTask.timeTaken || 0
             }
           };
 
@@ -184,7 +186,9 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, task
               description: `${existingTask.description || existingTask.text}\n\nUpdate: ${basicUpdate}`,
               participantName: existingTask.participantName,
               type: existingTask.type || 'Non-Coding',
-              status: existingTask.status || 'To-do'
+              status: existingTask.status || 'To-do',
+              estimatedTime: existingTask.estimatedTime || 0,
+              timeTaken: existingTask.timeTaken || 0
             }
           };
 
@@ -224,7 +228,9 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, task
             description: `${existingTask.description || existingTask.text}\n\nUpdate: ${basicUpdate}`,
             participantName: existingTask.participantName,
             type: existingTask.type || 'Non-Coding',
-            status: existingTask.status || 'To-do'
+            status: existingTask.status || 'To-do',
+            estimatedTime: existingTask.estimatedTime || 0,
+            timeTaken: existingTask.timeTaken || 0
           }
         };
 

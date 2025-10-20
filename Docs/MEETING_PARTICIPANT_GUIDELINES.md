@@ -111,22 +111,35 @@ When adding or removing features from existing tasks, always include the task ID
 - "Adding more features" (no task ID, unclear to which task)
 - "For the user authentication task, I need to add two-factor authentication" (no task ID - will be treated as NEW task)
 
-## 📊 Time Tracking Keywords
+## ⏱️ Enhanced Time Tracking
 
-Use these specific phrases to help the system capture time information:
+The system now automatically captures both estimated time and actual time spent. Use these specific phrases to ensure accurate time tracking:
 
-### For Estimates:
+### For New Task Estimates:
 - "will take **X hours**"
 - "estimated **X hours**"
 - "should take about **X hours**"
-- "might need **X days**"
+- "might need **X hours**"
 - "probably **X hours**"
+- "roughly **X hours**"
+- "approximately **X hours**"
+- "needs about **X hours**"
 
-### For Time Spent:
-- "spent **X hours** on..."
-- "took me **X hours**"
-- "worked **X hours** on..."
-- "completed in **X hours**"
+### For Existing Task Time Spent (requires task ID):
+- "spent **X hours** on SP-XXX"
+- "took me **X hours** on SP-XXX"
+- "worked **X hours** on SP-XXX"
+- "completed in **X hours** on SP-XXX"
+- "already put in **X hours** on SP-XXX"
+- "invested **X hours** in SP-XXX"
+- "used **X hours** on SP-XXX"
+- "been working for **X hours** on SP-XXX"
+
+### Time Conversion Rules:
+- **Minutes to Hours**: "30 minutes" = 0.5 hours, "90 minutes" = 1.5 hours
+- **Word Numbers**: "two hours" = 2, "three hours" = 3
+- **Days**: Only extract if explicitly mentioned in hours (e.g., "2 days" = 16 hours)
+- **Format**: All time is stored in hours for consistency
 
 ### For Status:
 - "**completed**", "**finished**", "**done with**"
@@ -141,19 +154,47 @@ Use these specific phrases to help the system capture time information:
 
 ### New Task Example:
 > "I have a **new coding task** to implement the search functionality for the user dashboard. This will involve creating the search API and updating the frontend. I estimate this will take **8 hours** total."
-> *System will assign: SP-36*
+> *System will assign: SP-36 with estimatedTime: 8*
 
 ### Update Example:
 > "**SP-36** - Update on the search functionality task: I've completed the API part which **took 4 hours**, and I'm now working on the frontend integration. The frontend should take another **3 hours**."
+> *System will update SP-36 with timeSpent: 4 and estimatedTime: 3*
 
 ### Completion Example:
 > "**SP-36** - I have **completed** the search functionality task. The total time was **7 hours** instead of the estimated 8. Everything is tested and deployed."
+> *System will update SP-36 with timeSpent: 7 and status: Completed*
 
 ### Status Change Example:
 > "I've **started working on** the new user notification system. This is a **new task** that should take about **6 hours**."
-> *System will assign: SP-37*
+> *System will assign: SP-37 with estimatedTime: 6*
 > 
-> Later: "**SP-37** - Progress update on the user notification system: I've implemented the basic structure and it's going well."
+> Later: "**SP-37** - Progress update on the user notification system: I've implemented the basic structure and it's going well. I **spent 3 hours** on it so far."
+> *System will update SP-37 with timeSpent: 3*
+
+## 🚀 Enhanced System Features
+
+The system now includes several advanced features for better task tracking:
+
+### Time Tracking Integration
+- **Automatic Detection**: Time estimates and spent time are automatically extracted
+- **Visual Display**: Tasks show time information as `[Time: Xh spent, Yh estimated]`
+- **Summary Reports**: Time tracking summaries in Teams notifications and processing reports
+- **Historical Tracking**: Time spent is tracked across multiple updates
+
+### RAG-Enhanced Descriptions
+- **Rich Context**: Task descriptions include comprehensive context from the entire meeting
+- **Professional Titles**: Tasks get professional 3-5 word titles automatically
+- **Detailed Requirements**: Full technical requirements and acceptance criteria included
+
+### Smart Status Detection
+- **Automatic Status Updates**: Status changes are detected and applied automatically
+- **Confidence Scoring**: System provides confidence levels for status changes
+- **Multiple Patterns**: Recognizes various ways of expressing status changes
+
+### Future Plans Management
+- **Separate Tracking**: Future plans are tracked separately from active tasks
+- **TBD Assignment**: Future plans are assigned to "TBD" until someone takes ownership
+- **Roadmap Integration**: Future plans help build project roadmaps
 
 ## ⚠️ Important Notes
 
@@ -165,6 +206,7 @@ Use these specific phrases to help the system capture time information:
 6. **Time Units**: Use "hours" or "days" consistently
 7. **Assignee Clarity**: Make it clear who is responsible for each task
 8. **No Task ID = New Task**: If you don't mention a task ID, the system assumes it's a new task
+9. **Time Tracking**: Always mention time estimates for new tasks and time spent for updates
 
 ## 🔄 Task Lifecycle Communication
 
@@ -190,10 +232,11 @@ Use these specific phrases to help the system capture time information:
 - [ ] **For future plans: Did I use "future plan" language clearly?**
 - [ ] **For existing tasks: Did I start with the task ID (SP-XX)?**
 - [ ] Did I specify if this is a new task or update to existing?
-- [ ] Did I include time estimates for new tasks?
-- [ ] Did I mention actual time spent for progress updates?
+- [ ] **Time Tracking: Did I include time estimates for new tasks?**
+- [ ] **Time Tracking: Did I mention actual time spent for progress updates?**
 - [ ] Did I clearly state any status changes?
 - [ ] Did I mention my name or make it clear who's responsible?
+- [ ] **Enhanced Features: Did I provide enough context for rich descriptions?**
 
 **Remember: No Task ID = New Task! Always use SP-XX for existing tasks.**
 
