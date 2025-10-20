@@ -2,22 +2,52 @@
 
 ## Overview
 
-The Standup Tickets SP system processes Microsoft Teams meeting transcripts using a **RAG-enhanced 3-Stage Pipeline** to extract actionable tasks with comprehensive context. The system supports two deployment options:
+The Standup Tickets SP system processes Microsoft Teams meeting transcripts using a **RAG-enhanced 3-Stage Pipeline** with **Enhanced Duplicate Prevention** and **Extended Calendar Windows** to extract actionable tasks with comprehensive context. The system supports two deployment options:
 
-1. **🚀 GitHub Actions** (Recommended) - Runs every 60 minutes, processes meetings from the last 60 minutes
+1. **🚀 GitHub Actions** (Recommended) - Runs every 60 minutes with enhanced transcript processing
 2. **🔧 Firebase Functions** - HTTP endpoints for manual processing and testing
+
+## 🆕 Enhanced Features (v2.0)
+
+### ✨ Duplicate Prevention System
+- **Processed Transcript Tracking**: MongoDB collection tracks all processed transcripts
+- **Automatic Duplicate Detection**: Prevents reprocessing of already handled transcripts
+- **Fail-Safe Design**: Continues processing even if duplicate check fails
+
+### 📅 Extended Calendar Windows
+- **3-Hour Extension**: Calendar lookup extends 3 hours backwards from processing window
+- **Delayed Transcript Capture**: Catches transcripts created after meeting ends
+- **Smart Filtering**: Processes by transcript creation time, not meeting end time
+
+### ⏰ Dynamic Time Windows
+- **Since Last Success**: Processing window starts from last successful cron run
+- **No Gaps**: Ensures all transcripts are processed without timing gaps
+- **Intelligent Fallback**: Uses 90-minute window if no previous run exists
 
 ## 🏗️ System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Standup Tickets SP System                    │
+│              Enhanced Standup Tickets SP System v2.0           │
 ├─────────────────────────────────────────────────────────────────┤
-│  ⏰ GitHub Actions Cron (Every 60 minutes)                     │
+│  ⏰ GitHub Actions Cron (Every 60 minutes) + Duplicate Prevention│
 │  🔧 Firebase HTTP Endpoints (Manual processing)                │
 ├─────────────────────────────────────────────────────────────────┤
-│  📅 Microsoft Graph API → 🧠 3-Stage Pipeline → 💾 MongoDB     │
+│  📅 Extended Calendar API → 🔍 Duplicate Check → 🧠 3-Stage Pipeline → 💾 MongoDB │
 └─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  📅 Calendar    │───▶│  🔍 Duplicate   │───▶│  🧠 3-Stage     │
+│  Extended       │    │  Prevention     │    │  Pipeline       │
+│  Window (3hrs)  │    │  Check          │    │  Processing     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│Find meetings    │    │Skip already     │    │Process new      │
+│with delayed     │    │processed        │    │transcripts with │
+│transcripts      │    │transcripts      │    │RAG enhancement  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
 
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   🔍 Stage 1    │───▶│   📝 Stage 2    │───▶│   🔄 Stage 3    │
@@ -127,7 +157,7 @@ Enhanced: "[2025-01-15] Completed API integration with third-party services incl
 
 ## 🔄 Complete Processing Flow
 
-### GitHub Actions Flow (Every 60 Minutes)
+### Enhanced GitHub Actions Flow (Every 60 Minutes)
 
 ```
 ┌─────────────────┐
@@ -138,15 +168,32 @@ Enhanced: "[2025-01-15] Completed API integration with third-party services incl
           ▼
 ┌─────────────────┐
 │ 🕐 Calculate    │
-│ Time Window     │
-│ (Last 60 min)   │
+│ Dynamic Window  │
+│ (Since Last Run)│
+│ + 3hr Extension │
 └─────────┬───────┘
           │
           ▼
 ┌─────────────────┐
 │ 📅 Fetch        │
-│ Meetings        │
+│ Extended        │
+│ Calendar Window │
 │ (Graph API)     │
+└─────────┬───────┘
+          │
+          ▼
+┌─────────────────┐
+│ 🔍 Check        │
+│ Duplicate       │
+│ Prevention      │
+│ (MongoDB)       │
+└─────────┬───────┘
+          │
+          ▼
+┌─────────────────┐
+│ ⏱️ Filter by    │
+│ Transcript      │
+│ Creation Time   │
 └─────────┬───────┘
           │
           ▼
@@ -349,11 +396,13 @@ Enhanced: "[2025-01-15] Completed API integration with third-party services incl
 
 ## 🕐 Timing and Scheduling
 
-### GitHub Actions (Recommended)
+### Enhanced GitHub Actions (Recommended)
 - **Frequency**: Every 60 minutes (`0 * * * *`)
-- **Time Window**: Last 60 minutes in Bangladesh time
-- **Meeting Filter**: Both start AND end times within the window
-- **Processing**: Only meetings that occurred entirely within the window
+- **Processing Window**: Since last successful run (dynamic)
+- **Calendar Window**: Processing window + 3 hours backwards (extended)
+- **Filtering**: By transcript creation time (not meeting end time)
+- **Duplicate Prevention**: MongoDB tracking prevents reprocessing
+- **Age Limit**: 72 hours (increased from 24 hours)
 
 ### Firebase Functions (Manual)
 - **Trigger**: HTTP endpoint or manual execution
@@ -377,13 +426,44 @@ Enhanced: "[2025-01-15] Completed API integration with third-party services incl
 - **Transcript Processing**: >98% (robust error handling)
 - **RAG Enhancement**: >90% (fallback to original descriptions)
 
-## 🔍 Monitoring and Logging
+## 🔍 Enhanced Monitoring and Logging
+
+### New Monitoring Tools
+```bash
+# Check processed transcript statistics
+node scripts/transcriptProcessingUtils.js stats
+
+# View cron job statistics and next processing window
+node scripts/transcriptProcessingUtils.js cron
+
+# Test system configuration
+node scripts/transcriptProcessingUtils.js test
+
+# Run all monitoring commands
+node scripts/transcriptProcessingUtils.js all
+
+# Clean up old processed transcript records
+node scripts/transcriptProcessingUtils.js cleanup 90
+```
+
+### New MongoDB Collections
+- **`processed_transcripts`**: Tracks all processed transcripts for duplicate prevention
+- **`cron_tracking`**: Enhanced cron job tracking with dynamic time windows
+- **`sptasks`**: Task storage (existing, enhanced)
+- **`transcripts`**: Raw transcript storage (existing)
 
 ### GitHub Actions Monitoring
-- Detailed logs in Actions tab
+- Detailed logs in Actions tab with enhanced information
+- Extended calendar window and duplicate prevention logs
+- Processing statistics including time windows
 - Success/failure notifications
-- Processing statistics in logs
 - Error artifacts uploaded on failure
+
+### Enhanced Log Information
+- **Calendar Window vs Processing Window**: Separate logging for extended lookup
+- **Duplicate Prevention**: Logs for already processed transcripts
+- **Transcript Creation Time**: Filtering by creation time instead of meeting end
+- **Dynamic Time Windows**: Shows calculated windows and reasoning
 
 ### Firebase Functions Monitoring
 - Real-time logs in Firebase Console

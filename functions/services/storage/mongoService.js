@@ -20,6 +20,7 @@ const COLLECTION_NAME = "sptasks";
 const TRANSCRIPTS_COLLECTION = "transcripts";
 const COUNTERS_COLLECTION = "counters";
 const CRON_TRACKING_COLLECTION = "cron_tracking";
+const PROCESSED_TRANSCRIPTS_COLLECTION = "processed_transcripts";
 
 let client = null;
 let db = null;
@@ -188,11 +189,11 @@ async function _addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketI
                 addedCount++;
                 console.log(`[DEBUG] Generated MongoDB embedding for new task ${ticketId}`);
               } else {
-                logger.warn(`Failed to generate MongoDB embedding for new task ${ticketId}`);
+                logger.warn("Failed to generate MongoDB embedding for new task " + ticketId);
               }
 
             } catch (error) {
-              logger.error(`Error generating MongoDB embedding for task:`, error.message);
+              logger.error("Error generating MongoDB embedding for task:", error.message);
             }
           }
         }
@@ -1226,7 +1227,12 @@ async function getLastCronRunTimestamp(cronJobName = "github_actions_transcript_
  * @param {Object} metadata - Additional metadata about the run
  * @returns {Promise<boolean>} True if successfully updated
  */
-async function updateCronRunTimestamp(cronJobName = "github_actions_transcript_processor", timestamp = new Date(), status = "success", metadata = {}) {
+async function updateCronRunTimestamp(
+  cronJobName = "github_actions_transcript_processor", 
+  timestamp = new Date(), 
+  status = "success", 
+  metadata = {}
+) {
   try {
     await initializeMongoDB();
     
@@ -1324,44 +1330,62 @@ async function getCronJobStats(cronJobName = "github_actions_transcript_processo
  * Calculate the time window for processing based on last successful run
  * @param {string} cronJobName - Name of the cron job
  * @param {number} fallbackMinutes - Fallback window in minutes if no last run (default: 90)
+ * @param {number} calendarExtensionHours - Hours to extend calendar lookup backwards (default: 3)
  * @returns {Promise<Object>} Time window with startTime, endTime, and metadata
  */
-async function calculateDynamicTimeWindow(cronJobName = "github_actions_transcript_processor", fallbackMinutes = 90) {
+async function calculateDynamicTimeWindow(
+  cronJobName = "github_actions_transcript_processor", 
+  fallbackMinutes = 90, 
+  calendarExtensionHours = 3
+) {
   try {
     const now = new Date();
     const lastRun = await getLastCronRunTimestamp(cronJobName);
     
-    let startTime, windowType, windowDescription;
+    let processingStartTime, windowType, windowDescription;
     
     if (lastRun) {
-      // Use last successful run as start time
-      startTime = lastRun;
+      // Use last successful run as start time for transcript processing
+      processingStartTime = lastRun;
       windowType = "dynamic_since_last_run";
       windowDescription = `Since last successful run at ${lastRun.toISOString()}`;
     } else {
-      // Fallback to fixed time window
-      startTime = new Date(now.getTime() - (fallbackMinutes * 60 * 1000));
+      // Fallback to fixed time window for transcript processing
+      processingStartTime = new Date(now.getTime() - (fallbackMinutes * 60 * 1000));
       windowType = "fallback_fixed_window";
       windowDescription = `Fallback ${fallbackMinutes}-minute window (no previous run found)`;
     }
     
+    // Calculate extended calendar lookup window (extends backwards to catch delayed transcripts)
+    const calendarStartTime = new Date(processingStartTime.getTime() - (calendarExtensionHours * 60 * 60 * 1000));
+    
     const timeWindow = {
-      startTime: startTime.toISOString(),
+      // Processing window (for transcript filtering)
+      startTime: processingStartTime.toISOString(),
       endTime: now.toISOString(),
+      // Extended calendar window (for meeting lookup)
+      calendarStartTime: calendarStartTime.toISOString(),
+      calendarEndTime: now.toISOString(),
+      // Metadata
       windowType,
       windowDescription,
-      durationMinutes: Math.round((now - new Date(startTime)) / (1000 * 60)),
+      durationMinutes: Math.round((now - new Date(processingStartTime)) / (1000 * 60)),
+      calendarExtensionHours,
       fallbackMinutes,
       lastRunFound: !!lastRun,
       now,
-      startTimeObj: new Date(startTime)
+      startTimeObj: new Date(processingStartTime),
+      calendarStartTimeObj: new Date(calendarStartTime)
     };
     
-    logger.info("Calculated dynamic time window", {
+    logger.info("Calculated dynamic time window with calendar extension", {
       cronJobName,
-      ...timeWindow,
-      startTime: timeWindow.startTime,
-      endTime: timeWindow.endTime
+      processingWindow: `${timeWindow.startTime} to ${timeWindow.endTime}`,
+      calendarWindow: `${timeWindow.calendarStartTime} to ${timeWindow.calendarEndTime}`,
+      windowType: timeWindow.windowType,
+      durationMinutes: timeWindow.durationMinutes,
+      calendarExtensionHours: timeWindow.calendarExtensionHours,
+      lastRunFound: timeWindow.lastRunFound
     });
     
     return timeWindow;
@@ -1370,9 +1394,171 @@ async function calculateDynamicTimeWindow(cronJobName = "github_actions_transcri
     logger.error("Error calculating dynamic time window", {
       cronJobName,
       fallbackMinutes,
+      calendarExtensionHours,
       error: error.message
     });
     throw new Error(`Failed to calculate dynamic time window: ${error.message}`);
+  }
+}
+
+/**
+ * Check if a transcript has already been processed
+ * @param {string} transcriptId - Microsoft Graph transcript ID
+ * @returns {Promise<boolean>} True if transcript was already processed
+ */
+async function isTranscriptAlreadyProcessed(transcriptId) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(PROCESSED_TRANSCRIPTS_COLLECTION);
+    const existing = await collection.findOne({ transcriptId });
+    
+    const isProcessed = !!existing;
+    
+    if (isProcessed) {
+      logger.info("Transcript already processed", {
+        transcriptId,
+        processedAt: existing.processedAt,
+        meetingId: existing.meetingId
+      });
+    }
+    
+    return isProcessed;
+    
+  } catch (error) {
+    logger.error("Error checking if transcript was processed", {
+      transcriptId,
+      error: error.message
+    });
+    // Return false on error to allow processing (fail-safe)
+    return false;
+  }
+}
+
+/**
+ * Mark a transcript as processed to prevent duplicate processing
+ * @param {string} transcriptId - Microsoft Graph transcript ID
+ * @param {string} meetingId - Meeting ID
+ * @param {string} meetingSubject - Meeting subject for reference
+ * @param {Date} processedAt - When the transcript was processed
+ * @returns {Promise<boolean>} True if successfully marked
+ */
+async function markTranscriptAsProcessed(transcriptId, meetingId, meetingSubject, processedAt = new Date()) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(PROCESSED_TRANSCRIPTS_COLLECTION);
+    
+    const document = {
+      transcriptId,
+      meetingId,
+      meetingSubject,
+      processedAt,
+      createdAt: new Date()
+    };
+    
+    const result = await collection.insertOne(document);
+    
+    logger.info("Transcript marked as processed", {
+      transcriptId,
+      meetingId,
+      meetingSubject,
+      processedAt: processedAt.toISOString(),
+      documentId: result.insertedId
+    });
+    
+    return result.insertedId ? true : false;
+    
+  } catch (error) {
+    logger.error("Error marking transcript as processed", {
+      transcriptId,
+      meetingId,
+      error: error.message
+    });
+    // Don't throw error - processing should continue even if marking fails
+    return false;
+  }
+}
+
+/**
+ * Get statistics about processed transcripts
+ * @param {number} days - Number of days to look back (default: 7)
+ * @returns {Promise<Object>} Statistics about processed transcripts
+ */
+async function getProcessedTranscriptStats(days = 7) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(PROCESSED_TRANSCRIPTS_COLLECTION);
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    
+    const totalProcessed = await collection.countDocuments();
+    const recentProcessed = await collection.countDocuments({
+      processedAt: { $gte: cutoffDate }
+    });
+    
+    const recentTranscripts = await collection.find(
+      { processedAt: { $gte: cutoffDate } },
+      { sort: { processedAt: -1 }, limit: 10 }
+    ).toArray();
+    
+    return {
+      totalProcessed,
+      recentProcessed,
+      daysPeriod: days,
+      recentTranscripts: recentTranscripts.map(t => ({
+        transcriptId: t.transcriptId,
+        meetingSubject: t.meetingSubject,
+        processedAt: t.processedAt
+      }))
+    };
+    
+  } catch (error) {
+    logger.error("Error getting processed transcript stats", {
+      error: error.message
+    });
+    return {
+      totalProcessed: 0,
+      recentProcessed: 0,
+      daysPeriod: days,
+      recentTranscripts: [],
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Clean up old processed transcript records (optional maintenance)
+ * @param {number} daysToKeep - Number of days of records to keep (default: 90)
+ * @returns {Promise<number>} Number of records deleted
+ */
+async function cleanupOldProcessedTranscripts(daysToKeep = 90) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(PROCESSED_TRANSCRIPTS_COLLECTION);
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+    
+    const result = await collection.deleteMany({
+      processedAt: { $lt: cutoffDate }
+    });
+    
+    logger.info("Cleaned up old processed transcript records", {
+      deletedCount: result.deletedCount,
+      daysToKeep,
+      cutoffDate: cutoffDate.toISOString()
+    });
+    
+    return result.deletedCount;
+    
+  } catch (error) {
+    logger.error("Error cleaning up old processed transcripts", {
+      error: error.message,
+      daysToKeep
+    });
+    return 0;
   }
 }
 
@@ -1422,5 +1608,10 @@ module.exports = {
   updateCronRunTimestamp,
   getCronJobStats,
   calculateDynamicTimeWindow,
+  // Processed transcript tracking functions
+  isTranscriptAlreadyProcessed,
+  markTranscriptAsProcessed,
+  getProcessedTranscriptStats,
+  cleanupOldProcessedTranscripts,
   closeMongoDB,
 };

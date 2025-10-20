@@ -14,6 +14,7 @@ const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const { logger } = require("firebase-functions");
+const { isTranscriptAlreadyProcessed, markTranscriptAsProcessed } = require("../storage/mongoService");
 
 // Load environment variables
 require("dotenv").config();
@@ -116,6 +117,14 @@ async function fetchCalendarEvents(accessToken, userId, targetDate) {
     if (typeof targetDate === "object" && targetDate.startDateTime && targetDate.endDateTime) {
       startDateTime = targetDate.startDateTime;
       endDateTime = targetDate.endDateTime;
+      
+      // Log the window type for debugging
+      if (targetDate.processingStartDateTime) {
+        logger.info("Using extended calendar window with separate processing window", {
+          calendarWindow: `${startDateTime} to ${endDateTime}`,
+          processingWindow: `${targetDate.processingStartDateTime} to ${targetDate.processingEndDateTime}`
+        });
+      }
     } else {
       // Original behavior for daily processing
       startDateTime = `${targetDate}T00:00:00Z`;
@@ -225,7 +234,7 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
     const processingResult = {
       eventIndex: i + 1,
       subject: event.subject,
-      status: 'processing',
+      status: "processing",
       reason: null,
       error: null,
       meetingId: null,
@@ -237,13 +246,13 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
       eventIndex: i + 1,
       subject: event.subject,
       startTime: event.start?.dateTime,
-      organizer: event.organizer?.emailAddress?.name || 'Unknown',
+      organizer: event.organizer?.emailAddress?.name || "Unknown",
     });
 
     const onlineMeeting = event.onlineMeeting;
     if (!onlineMeeting || !onlineMeeting.joinUrl) {
-      processingResult.status = 'skipped';
-      processingResult.reason = 'No join URL found in calendar event';
+      processingResult.status = "skipped";
+      processingResult.reason = "No join URL found in calendar event";
       processingResults.push(processingResult);
       
       logger.warn(`❌ Skipping event ${i + 1} - no join URL found`, {
@@ -308,20 +317,20 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
         });
 
         if (transcripts.length === 0) {
-          processingResult.status = 'no_transcripts';
-          processingResult.reason = 'Meeting found but no transcripts available';
+          processingResult.status = "no_transcripts";
+          processingResult.reason = "Meeting found but no transcripts available";
           logger.warn(`⚠️ Meeting found for event ${i + 1} but no transcripts available`, {
             meetingId: meetingObject.id,
             meetingSubject: meetingObject.subject,
           });
         } else {
-          processingResult.status = 'success';
+          processingResult.status = "success";
           processingResult.reason = `Found ${transcripts.length} transcript(s)`;
         }
         
       } else {
-        processingResult.status = 'no_meeting_match';
-        processingResult.reason = 'Calendar event join URL did not match any online meeting';
+        processingResult.status = "no_meeting_match";
+        processingResult.reason = "Calendar event join URL did not match any online meeting";
         
         logger.warn(`❌ No matching online meeting found for event ${i + 1}`, {
           joinUrlPrefix: joinWebUrl.substring(0, 80) + "...",
@@ -332,7 +341,7 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
       }
 
     } catch (error) {
-      processingResult.status = 'error';
+      processingResult.status = "error";
       processingResult.error = error.message;
       processingResult.reason = `API error: ${error.message}`;
       
@@ -376,7 +385,7 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
       logger.warn(`❌ Meeting ${i + 1} not added to results`, {
         hasMeetingObject: !!meetingObject,
         transcriptCount: transcripts.length,
-        reason: !meetingObject ? 'No meeting object found' : 'No transcripts available',
+        reason: !meetingObject ? "No meeting object found" : "No transcripts available",
       });
     }
   }
@@ -390,18 +399,18 @@ async function fetchOnlineMeetingsWithTranscripts(accessToken, userId, events, t
 
   // Log detailed breakdown
   const summary = {
-    success: processingResults.filter(r => r.status === 'success').length,
-    skipped_no_joinurl: processingResults.filter(r => r.status === 'skipped').length,
-    no_meeting_match: processingResults.filter(r => r.status === 'no_meeting_match').length,
-    no_transcripts: processingResults.filter(r => r.status === 'no_transcripts').length,
-    errors: processingResults.filter(r => r.status === 'error').length,
+    success: processingResults.filter(r => r.status === "success").length,
+    skipped_no_joinurl: processingResults.filter(r => r.status === "skipped").length,
+    no_meeting_match: processingResults.filter(r => r.status === "no_meeting_match").length,
+    no_transcripts: processingResults.filter(r => r.status === "no_transcripts").length,
+    errors: processingResults.filter(r => r.status === "error").length,
   };
 
   logger.info("📈 Processing breakdown", summary);
 
   // Log each meeting's result for debugging
   processingResults.forEach((result, index) => {
-    const logLevel = result.status === 'success' ? 'info' : 'warn';
+    const logLevel = result.status === "success" ? "info" : "warn";
     logger[logLevel](`Meeting ${result.eventIndex}: ${result.subject}`, {
       status: result.status,
       reason: result.reason,
@@ -462,10 +471,17 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
   // Handle both date strings and custom time window objects
   let targetDateStart, targetDateEnd;
   
-  if (typeof targetDate === 'object' && targetDate.customTimeWindow) {
-    // Custom time window from GitHub Actions
-    targetDateStart = new Date(targetDate.startDateTime);
-    targetDateEnd = new Date(targetDate.endDateTime);
+  if (typeof targetDate === "object" && targetDate.customTimeWindow) {
+    // For GitHub Actions cron with extended calendar window
+    if (targetDate.processingStartDateTime && targetDate.processingEndDateTime) {
+      // Use the processing window for transcript filtering (not the calendar window)
+      targetDateStart = new Date(targetDate.processingStartDateTime);
+      targetDateEnd = new Date(targetDate.processingEndDateTime);
+    } else {
+      // Fallback to original logic
+      targetDateStart = new Date(targetDate.startDateTime);
+      targetDateEnd = new Date(targetDate.endDateTime);
+    }
   } else {
     // Regular date string
     targetDateStart = new Date(targetDate);
@@ -489,8 +505,9 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
     targetDateEnd: targetDateEnd.toISOString(),
     meetingSubject: onlineMeeting.subject,
     meetingEndTime: meetingEndTime?.toISOString(),
-    isCustomTimeWindow: typeof targetDate === 'object' && targetDate.customTimeWindow,
-    filteringLogic: "Will filter based on meeting END time, not transcript creation time"
+    isCustomTimeWindow: typeof targetDate === "object" && targetDate.customTimeWindow,
+    hasProcessingWindow: !!(targetDate.processingStartDateTime && targetDate.processingEndDateTime),
+    filteringLogic: "Will filter based on TRANSCRIPT CREATION time with duplicate prevention"
   });
 
   const transcriptProcessingResults = [];
@@ -501,7 +518,7 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
       transcriptIndex: i + 1,
       transcriptId: transcript.id,
       createdDateTime: transcript.createdDateTime,
-      status: 'processing',
+      status: "processing",
       reason: null,
       error: null,
     };
@@ -509,46 +526,62 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
     // Convert the transcript's created date to a Date object
     const transcriptDate = new Date(transcript.createdDateTime);
 
-    // Determine if this transcript should be processed
+    // FIXED: Always filter by transcript creation time (not meeting end time)
     let shouldProcess = false;
     let filterReason = "";
     
-    if (typeof targetDate === 'object' && targetDate.customTimeWindow && meetingEndTime) {
-      // For GitHub Actions cron: check if meeting ended in window (transcript timing doesn't matter)
-      const meetingInWindow = meetingEndTime >= targetDateStart && meetingEndTime <= targetDateEnd;
-      
-      shouldProcess = meetingInWindow;
-      
-      if (shouldProcess) {
-        filterReason = `Meeting ended within target window (meeting: ${meetingEndTime.toISOString()}, transcript: ${transcriptDate.toISOString()})`;
-      } else {
-        filterReason = `Meeting ended outside target window (${meetingEndTime.toISOString()})`;
-      }
+    // Check if transcript was created within the processing window
+    const transcriptInWindow = transcriptDate >= targetDateStart && transcriptDate <= targetDateEnd;
+    
+    if (transcriptInWindow) {
+      shouldProcess = true;
+      filterReason = `Transcript created within processing window (${transcriptDate.toISOString()})`;
     } else {
-      // For regular daily processing: use transcript creation date
-      shouldProcess = transcriptDate >= targetDateStart && transcriptDate < targetDateEnd;
-      filterReason = shouldProcess ?
-        `Transcript created within target date (${transcriptDate.toISOString()})` :
-        `Transcript created outside target date (${transcriptDate.toISOString()})`;
+      shouldProcess = false;
+      filterReason = `Transcript created outside processing window (${transcriptDate.toISOString()})`;
     }
 
-    // Additional 24-hour age check for transcript safety
+    // Duplicate prevention check
+    if (shouldProcess) {
+      try {
+        const alreadyProcessed = await isTranscriptAlreadyProcessed(transcript.id);
+        if (alreadyProcessed) {
+          shouldProcess = false;
+          filterReason = "Transcript already processed in previous run";
+          
+          logger.info("🔄 Skipping duplicate transcript", {
+            transcriptId: transcript.id,
+            meetingSubject: onlineMeeting.subject,
+            transcriptDate: transcriptDate.toISOString(),
+            reason: "Already processed - duplicate prevention"
+          });
+        }
+      } catch (duplicateCheckError) {
+        // Log error but continue processing (fail-safe)
+        logger.warn("⚠️ Error checking duplicate status, proceeding with processing", {
+          transcriptId: transcript.id,
+          error: duplicateCheckError.message
+        });
+      }
+    }
+
+    // Extended age check for transcript safety (increased from 24 to 72 hours)
     if (shouldProcess) {
       const now = new Date();
       const transcriptAge = (now - transcriptDate) / (1000 * 60 * 60); // Age in hours
-      const maxTranscriptAgeHours = 24;
+      const maxTranscriptAgeHours = 72; // Increased to 72 hours
 
       if (transcriptAge > maxTranscriptAgeHours) {
         shouldProcess = false;
         filterReason = `Transcript too old (${transcriptAge.toFixed(1)} hours, max: ${maxTranscriptAgeHours} hours)`;
         
-        logger.warn(`⏰ Skipping old transcript`, {
+        logger.warn("⏰ Skipping old transcript`", {
           transcriptId: transcript.id,
           transcriptAge: transcriptAge.toFixed(1) + " hours",
           maxAge: maxTranscriptAgeHours + " hours",
           transcriptDate: transcriptDate.toISOString(),
           meetingSubject: onlineMeeting.subject,
-          reason: "Transcript exceeds 24-hour age limit"
+          reason: "Transcript exceeds 72-hour age limit"
         });
       }
     }
@@ -562,12 +595,13 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
       meetingSubject: onlineMeeting.subject,
       shouldProcess,
       filterReason,
-      filteringBy: typeof targetDate === 'object' && targetDate.customTimeWindow ? 'meeting_end_time' : 'transcript_creation_time'
+      filteringBy: "transcript_creation_time_with_duplicate_prevention",
+      processingWindow: `${targetDateStart.toISOString()} to ${targetDateEnd.toISOString()}`
     });
 
     // Filter by date with detailed logging
     if (shouldProcess) {
-      processingResult.status = 'downloading';
+      processingResult.status = "downloading";
       
       logger.info(`⬇️ Downloading transcript ${i + 1} (passes date filter)`, {
         transcriptIndex: i + 1,
@@ -621,8 +655,29 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
         // Save transcript to file (for debugging and backup)
         fs.writeFileSync(filePath, JSON.stringify(transcriptJson, null, 2));
         
-        processingResult.status = 'success';
+        processingResult.status = "success";
         processingResult.reason = `Successfully downloaded and processed ${transcriptJson.length} entries`;
+        
+        // Mark transcript as processed to prevent future duplicates
+        try {
+          await markTranscriptAsProcessed(
+            transcript.id, 
+            onlineMeeting.id, 
+            onlineMeeting.subject, 
+            new Date()
+          );
+          logger.info(`✅ Transcript ${i + 1} processed and marked as processed`, {
+            transcriptId: transcript.id,
+            meetingId: onlineMeeting.id,
+            meetingSubject: onlineMeeting.subject
+          });
+        } catch (markError) {
+          // Log error but don't fail processing
+          logger.warn("⚠️ Failed to mark transcript as processed (processing succeeded)", {
+            transcriptId: transcript.id,
+            error: markError.message
+          });
+        }
         
         logger.info(`✅ Transcript ${i + 1} processed successfully`, {
           filename,
@@ -650,7 +705,7 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
         });
         
       } catch (downloadError) {
-        processingResult.status = 'error';
+        processingResult.status = "error";
         processingResult.error = downloadError.message;
         processingResult.reason = `Download failed: ${downloadError.message}`;
         
@@ -671,7 +726,7 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
         }
       }
     } else {
-      processingResult.status = 'filtered_out';
+      processingResult.status = "filtered_out";
       processingResult.reason = filterReason;
       
       logger.warn(`⏭️ Skipping transcript ${i + 1} - ${filterReason}`, {
@@ -693,9 +748,9 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
   // Summary logging for transcript processing
   const summary = {
     total: transcripts.length,
-    success: transcriptProcessingResults.filter(r => r.status === 'success').length,
-    filtered_out: transcriptProcessingResults.filter(r => r.status === 'filtered_out').length,
-    errors: transcriptProcessingResults.filter(r => r.status === 'error').length,
+    success: transcriptProcessingResults.filter(r => r.status === "success").length,
+    filtered_out: transcriptProcessingResults.filter(r => r.status === "filtered_out").length,
+    errors: transcriptProcessingResults.filter(r => r.status === "error").length,
   };
 
   logger.info("📊 Transcript processing completed", {
@@ -708,7 +763,7 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
 
   // Log each transcript result
   transcriptProcessingResults.forEach((result) => {
-    const logLevel = result.status === 'success' ? 'info' : 'warn';
+    const logLevel = result.status === "success" ? "info" : "warn";
     logger[logLevel](`Transcript ${result.transcriptIndex} result`, {
       transcriptId: result.transcriptId,
       status: result.status,
@@ -769,7 +824,7 @@ async function fetchAllMeetingsForUser(userId, targetDate) {
     
     // Support custom time windows for GitHub Actions cron
     let calendarQuery = targetDate;
-    if (typeof targetDate === 'object' && targetDate.customTimeWindow) {
+    if (typeof targetDate === "object" && targetDate.customTimeWindow) {
       calendarQuery = {
         startDateTime: targetDate.startDateTime,
         endDateTime: targetDate.endDateTime
