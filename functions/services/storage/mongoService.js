@@ -1335,8 +1335,8 @@ async function getCronJobStats(cronJobName = "github_actions_transcript_processo
  */
 async function calculateDynamicTimeWindow(
   cronJobName = "github_actions_transcript_processor", 
-  fallbackMinutes = 90, 
-  calendarExtensionHours = 3
+  fallbackMinutes = 120, 
+  calendarExtensionHours = 4 
 ) {
   try {
     const now = new Date();
