@@ -170,11 +170,14 @@ curl -X POST "https://your-region-your-project.cloudfunctions.net/fetch-transcri
 
 ## 📊 Processing Flow
 
-### GitHub Actions Flow (Every 60 Minutes)
-1. **Time Window Calculation**: Last 60 minutes in Bangladesh time
-2. **Meeting Fetch**: Get meetings that ENDED within the window (catches long meetings)
-3. **Transcript Processing**: 3-stage pipeline for each meeting with transcripts
-4. **Results**: Tasks created/updated, status changes applied, Teams notification sent
+### Enhanced GitHub Actions Flow (Every 60 Minutes)
+1. **Dynamic Time Window Calculation**: Since last successful run (with 3-hour calendar extension)
+2. **Extended Meeting Fetch**: Get meetings from extended calendar window to catch delayed transcripts
+3. **Smart Transcript Filtering**: Filter by transcript creation time (not meeting end time)
+4. **Duplicate Prevention**: Check processed transcript database to prevent reprocessing
+5. **3-Stage Pipeline Processing**: Task Finder → Creator → Updater with RAG enhancement
+6. **Results**: Tasks created/updated, status changes applied, Teams notification sent
+7. **Tracking**: Mark processed transcripts to prevent future duplicates
 
 ### Manual Processing Flow
 1. **Meeting Fetch**: Get all meetings for specified date/user
@@ -225,11 +228,30 @@ The system automatically extracts time information from meeting conversations:
 
 ## 🔍 Monitoring
 
+### Enhanced Monitoring Tools
+```bash
+# Check processed transcript statistics
+node scripts/transcriptProcessingUtils.js stats
+
+# View cron job statistics and next processing window
+node scripts/transcriptProcessingUtils.js cron
+
+# Test system configuration
+node scripts/transcriptProcessingUtils.js test
+
+# Run all monitoring commands
+node scripts/transcriptProcessingUtils.js all
+
+# Clean up old processed transcript records (optional)
+node scripts/transcriptProcessingUtils.js cleanup 90
+```
+
 ### GitHub Actions
 - Go to repository → Actions tab
 - View detailed logs for each run
 - Monitor success/failure rates
 - Check processing statistics
+- View extended calendar window and duplicate prevention logs
 
 ### Firebase Functions
 - Firebase Console → Functions → Logs
@@ -269,10 +291,16 @@ standup-tickets-sp/
 
 ### Common Issues
 
-**No Meetings Found**
+**No Transcripts Found**
 - Check `TARGET_USER_ID` is correct
-- Verify user has meetings in the time window
+- Verify user has meetings with transcripts in the extended calendar window
 - Ensure Azure permissions are granted
+- Run `node scripts/transcriptProcessingUtils.js cron` to check time windows
+
+**Duplicate Processing**
+- Check processed transcript database: `node scripts/transcriptProcessingUtils.js stats`
+- Verify duplicate prevention is working in logs
+- Clean up old records if needed: `node scripts/transcriptProcessingUtils.js cleanup`
 
 **Authentication Errors**
 - Verify Azure credentials
@@ -288,9 +316,22 @@ standup-tickets-sp/
 - Verify connection string
 - Check network access permissions
 - Ensure database exists
+- Test MongoDB functions: `node scripts/transcriptProcessingUtils.js test`
 
-### Debug Mode
+### Enhanced Debug Mode
 Set `TEST_MODE=true` to run without saving to MongoDB for debugging.
+
+### New Features Troubleshooting
+
+**Extended Calendar Window Issues**
+- Check logs for "extended calendar window" messages
+- Verify 3-hour extension is working: processing window vs calendar window
+- Monitor for meetings found outside processing window
+
+**Transcript Creation Time Filtering**
+- Look for "transcript_creation_time_with_duplicate_prevention" in logs
+- Verify transcripts are filtered by creation time, not meeting end time
+- Check processing window calculations
 
 ## 📝 License
 

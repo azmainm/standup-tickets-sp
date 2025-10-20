@@ -109,14 +109,19 @@ async function runTranscriptProcessor() {
     console.log("   Benefit: No transcript gaps - processes ALL since last successful run");
     console.log(`   Test Mode: ${isTestMode}`);
     
-    // Fetch meetings for the target user within the dynamic time window
-    console.log(`📅 Fetching meetings from ${timeWindow.windowDescription.toLowerCase()}...`);
+    // Fetch meetings for the target user within the extended calendar window
+    console.log(`📅 Fetching meetings from extended calendar window...`);
+    console.log(`   Calendar Window: ${timeWindow.calendarStartTime} to ${timeWindow.calendarEndTime}`);
+    console.log(`   Processing Window: ${timeWindow.startTime} to ${timeWindow.endTime}`);
+    console.log(`   Extension: ${timeWindow.calendarExtensionHours} hours backwards for delayed transcripts`);
     
     const allTranscripts = await fetchAllMeetingsForUser(
       process.env.TARGET_USER_ID,
       {
-        startDateTime: timeWindow.startTime,
-        endDateTime: timeWindow.endTime,
+        startDateTime: timeWindow.calendarStartTime, // Use extended calendar window
+        endDateTime: timeWindow.calendarEndTime,
+        processingStartDateTime: timeWindow.startTime, // Pass processing window for filtering
+        processingEndDateTime: timeWindow.endTime,
         customTimeWindow: true
       }
     );
