@@ -499,6 +499,13 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
     meetingEndTime = new Date(cleanDateTimeString);
   }
 
+  // Determine if we should skip time-based filtering for this meeting
+  // If meeting is found in the calendar window, we should process ALL its transcripts
+  // (unless already processed - duplicate prevention)
+  const isInExtendedCalendarWindow = typeof targetDate === "object" && 
+                                      targetDate.customTimeWindow && 
+                                      targetDate.processingStartDateTime;
+
   logger.info("📅 Date filtering setup", {
     targetDate,
     targetDateStart: targetDateStart.toISOString(),
@@ -507,7 +514,10 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
     meetingEndTime: meetingEndTime?.toISOString(),
     isCustomTimeWindow: typeof targetDate === "object" && targetDate.customTimeWindow,
     hasProcessingWindow: !!(targetDate.processingStartDateTime && targetDate.processingEndDateTime),
-    filteringLogic: "Will filter based on TRANSCRIPT CREATION time with duplicate prevention"
+    isInExtendedCalendarWindow,
+    filteringLogic: isInExtendedCalendarWindow 
+      ? "Process ALL transcripts for meetings in calendar window (duplicate prevention only)"
+      : "Filter based on transcript creation time with duplicate prevention"
   });
 
   const transcriptProcessingResults = [];
@@ -526,22 +536,30 @@ async function downloadAndProcessTranscripts(accessToken, userId, meetingData, t
     // Convert the transcript's created date to a Date object
     const transcriptDate = new Date(transcript.createdDateTime);
 
-    // FIXED: Always filter by transcript creation time (not meeting end time)
+    // FIXED: For meetings found in extended calendar window, process ALL transcripts
+    // Only filter by creation time if NOT using extended calendar window
     let shouldProcess = false;
     let filterReason = "";
     
-    // Check if transcript was created within the processing window
-    const transcriptInWindow = transcriptDate >= targetDateStart && transcriptDate <= targetDateEnd;
-    
-    if (transcriptInWindow) {
+    if (isInExtendedCalendarWindow) {
+      // Meeting was found in calendar window - process all its transcripts
+      // (duplicate prevention check below will handle already-processed ones)
       shouldProcess = true;
-      filterReason = `Transcript created within processing window (${transcriptDate.toISOString()})`;
+      filterReason = `Meeting found in calendar window - processing all transcripts (${transcriptDate.toISOString()})`;
     } else {
-      shouldProcess = false;
-      filterReason = `Transcript created outside processing window (${transcriptDate.toISOString()})`;
+      // Legacy mode: Check if transcript was created within the processing window
+      const transcriptInWindow = transcriptDate >= targetDateStart && transcriptDate <= targetDateEnd;
+      
+      if (transcriptInWindow) {
+        shouldProcess = true;
+        filterReason = `Transcript created within processing window (${transcriptDate.toISOString()})`;
+      } else {
+        shouldProcess = false;
+        filterReason = `Transcript created outside processing window (${transcriptDate.toISOString()})`;
+      }
     }
 
-    // Duplicate prevention check
+    // Duplicate prevention check (applies in all modes)
     if (shouldProcess) {
       try {
         const alreadyProcessed = await isTranscriptAlreadyProcessed(transcript.id);

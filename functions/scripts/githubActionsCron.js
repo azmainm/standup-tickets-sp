@@ -105,15 +105,15 @@ async function runTranscriptProcessor() {
     console.log(`   Window End: ${timeWindow.endTime}`);
     console.log(`   Duration: ${timeWindow.durationMinutes} minutes`);
     console.log(`   Last Run Found: ${timeWindow.lastRunFound ? "✅ Yes" : "❌ No (using fallback)"}`);
-    console.log("   Logic: Processing meetings that ENDED in this window");
-    console.log("   Benefit: No transcript gaps - processes ALL since last successful run");
+    console.log("   Logic: Find meetings in calendar window → Process ALL their transcripts");
+    console.log("   Benefit: No transcript gaps - processes ALL transcripts for meetings found");
     console.log(`   Test Mode: ${isTestMode}`);
     
     // Fetch meetings for the target user within the extended calendar window
     console.log(`📅 Fetching meetings from extended calendar window...`);
     console.log(`   Calendar Window: ${timeWindow.calendarStartTime} to ${timeWindow.calendarEndTime}`);
-    console.log(`   Processing Window: ${timeWindow.startTime} to ${timeWindow.endTime}`);
-    console.log(`   Extension: ${timeWindow.calendarExtensionHours} hours backwards for delayed transcripts`);
+    console.log(`   Lookback: ${timeWindow.calendarExtensionHours} hours to catch meetings with delayed/early transcripts`);
+    console.log(`   Transcript Filtering: Process ALL transcripts (duplicate prevention only)`);
     
     const allTranscripts = await fetchAllMeetingsForUser(
       process.env.TARGET_USER_ID,
