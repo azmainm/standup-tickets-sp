@@ -55,28 +55,50 @@ You are a Task Creator assistant for a Scrum team. Your role is to create concis
 - Examples of BAD titles: "NEW_TASK - Email notification", "Create a new task to", "BackgroundContext: During", "Purpose: Implement an email notification"
 
 **DESCRIPTION REQUIREMENTS**:
-1. **PROFESSIONAL FORMATTING**:
-   - Start directly with the task purpose - no "BackgroundContext:" or similar prefixes
-   - Write in clear, professional language suitable for stakeholders
-   - Structure: Purpose → Requirements → Technical details → Acceptance criteria
+1. **SCRUM-ALIGNED FORMATTING**:
+   - Use the following structured format for all task descriptions
+   - Follow Scrum best practices for user story definition
+   - Include clear acceptance criteria and sprint information
 
-2. **RICH CONTENT GENERATION**:
-   - Use the provided transcript context to create comprehensive descriptions
-   - Include background information, requirements, and technical details mentioned
-   - Preserve conversation flow and reasoning from the transcripts
-   - Add context about WHY the task is needed (if mentioned)
-   - Include any dependencies, constraints, or timeline information
+2. **REQUIRED STRUCTURE**:
+   Use this exact format for the description:
+
+   **User Story:**
+   As a [user/persona], I want to [goal/action] so that [benefit/value].
+
+   **Acceptance Criteria:**
+   - [List 2–3 specific testable outcomes based on transcript context]
+   - [E.g., "Error message appears below input field", "Logs captured in system"]
+
+   **Sprint Info:**
+   - Priority: [High/Medium/Low] (extract from transcript context or leave blank if not mentioned)
+   - Estimation: [use estimatedTime from task info or leave blank]
+
+   **EXAMPLE FORMAT**:
+   **User Story:**
+   As a project manager, I want to receive email notifications for task updates so that I can stay informed about project progress without constantly checking the system.
+
+   **Acceptance Criteria:**
+   - Email notifications are sent within 5 minutes of task status changes
+   - Users can customize notification preferences in their profile settings
+   - Unsubscribe functionality is available in all notification emails
+
+   **Sprint Info:**
+   - Priority: High
+   - Estimation: 8 hours
 
 3. **CONTEXT INTEGRATION**:
-   - Weave in relevant details from the transcript context naturally
-   - Don't just append context - integrate it meaningfully
-   - Preserve technical details, names, and specific requirements mentioned
-   - Include any clarifications or additional requirements discussed
+   - Extract user persona from transcript context (developer, user, admin, etc.)
+   - Derive goal/action from the task description and evidence
+   - Identify benefit/value from the conversation context
+   - Create specific, testable acceptance criteria based on technical details mentioned
+   - Extract priority if mentioned in discussions
+   - Use provided estimatedTime for estimation field
 
 **OUTPUT FORMAT**:
 Return your response as a valid JSON object with these exact fields:
 - title: A SHORT, professional title (3-5 words maximum, NO prefixes or artifacts)
-- description: Rich, detailed description in professional language (NO "BackgroundContext" or similar prefixes)
+- description: Rich, detailed description following the EXACT Scrum format above (User Story + Acceptance Criteria + Sprint Info)
 - confidence: "high", "medium", or "low"
 - sources_used: Array of brief descriptions of sources used
 - reasoning: Brief explanation of how context was integrated
@@ -93,8 +115,9 @@ IMPORTANT: Return ONLY the JSON object, no additional text or explanations.
 - Type: {taskType}
 - Evidence from transcript: {evidence}
 - Additional Context: {additionalContext}
+- Estimated Time: {estimatedTime} hours
 
-Please create a rich, detailed task using the transcript context provided above.
+Please create a rich, detailed task using the Scrum-aligned format and transcript context provided above.
 `)
     ]);
 
@@ -106,6 +129,7 @@ Please create a rich, detailed task using the transcript context provided above.
         taskType: (input) => input.taskType,
         evidence: (input) => input.evidence,
         additionalContext: (input) => input.additionalContext,
+        estimatedTime: (input) => input.estimatedTime || 0,
       },
       chatPrompt,
       this.llm,
@@ -254,7 +278,8 @@ Please PRESERVE the existing task description completely and APPEND the new info
         assignee: taskInfo.assignee || 'Unknown',
         taskType: taskInfo.type || 'Non-Coding',
         evidence: taskInfo.evidence || '',
-        additionalContext: taskInfo.context || ''
+        additionalContext: taskInfo.context || '',
+        estimatedTime: taskInfo.estimatedTime || 0
       });
 
       // Parse JSON response
