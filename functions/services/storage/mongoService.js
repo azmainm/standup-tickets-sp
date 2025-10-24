@@ -384,8 +384,11 @@ async function storeTranscript(transcriptData, metadata = {}) {
     const collection = db.collection(TRANSCRIPTS_COLLECTION);
     
     // Get the date from metadata or use current date
-    const transcriptDate = metadata.fetchedAt ? new Date(metadata.fetchedAt) : new Date();
-    const dateString = transcriptDate.toISOString().split("T")[0]; // YYYY-MM-DD format
+    // Prioritize meetingStartTime (actual meeting date) over fetchedAt (script execution time)
+    const transcriptDate = metadata.meetingStartTime 
+      ? new Date(metadata.meetingStartTime)  // Use actual meeting start time
+      : (metadata.fetchedAt ? new Date(metadata.fetchedAt) : new Date());
+    const dateString = transcriptDate.toISOString(); // Full ISO format (YYYY-MM-DDTHH:mm:ss.sssZ)
     
     // Compress transcript data for storage efficiency
     // Convert to compact JSON string to save space
