@@ -2,15 +2,16 @@
 
 This project automatically processes Microsoft Teams meeting transcripts using a **3-Stage Pipeline** to extract actionable tasks with enhanced context and stores the results in MongoDB. The system can run as **GitHub Actions cron jobs**.
 
-## 🚀 3-Stage Pipeline Architecture
+## 🚀 Enhanced 3-Stage Pipeline Architecture
 
-The system features a **RAG-enhanced 3-stage processing pipeline** with transcript embeddings and intelligent context retrieval:
+The system features a **RAG-enhanced 3-stage processing pipeline** with transcript embeddings, intelligent context retrieval, and comprehensive meeting analysis:
 
 ### Stage 1: Task Finder 🔍
 - **Purpose**: Extract actionable tasks with comprehensive context gathering
 - **Role**: Analytical task detection with evidence-based extraction
 - **Output**: Structured arrays of `tasksToBeCreated` and `tasksToBeUpdated` with rich context
 - **Enhancement**: Gathers ALL related information from the entire transcript for each task
+- **🆕 Attendees Extraction**: Automatically identifies and extracts meeting attendees' initials from transcript
 
 ### Stage 2: Task Creator 📝
 - **Purpose**: RAG-enhanced task creation with rich descriptions and professional titles
@@ -27,6 +28,15 @@ The system features a **RAG-enhanced 3-stage processing pipeline** with transcri
   - Date-prefixed descriptions for better history tracking
   - Intelligent status change detection and application
 
+### 🆕 Stage 4: Meeting Notes Generation 📝
+- **Purpose**: Generate comprehensive meeting notes using AI
+- **Intelligence**: LLM-powered summarization of discussions, decisions, and outcomes
+- **Features**:
+  - Structured meeting notes with clear sections
+  - Task creation and update summaries
+  - Key discussion points and decisions made
+  - Next steps and action items identification
+
 ## 🎯 Key Features
 
 ### RAG-Enhanced Processing
@@ -41,6 +51,8 @@ The system features a **RAG-enhanced 3-stage processing pipeline** with transcri
 - **Assignee Detection**: Intelligent assignment based on conversation context
 - **Future Plans Detection**: Separate handling of future/TBD tasks
 - **Time Tracking**: Automatic extraction of estimated time and time spent from conversation
+- **🆕 Attendees Tracking**: Automatic extraction of meeting participants' initials
+- **🆕 Meeting Documentation**: AI-generated comprehensive meeting notes and summaries
 
 ### Flexible Deployment Options
 - **GitHub Actions** (Recommended): Runs every 60 minutes, processes meetings that ended in the last 60 minutes
@@ -54,9 +66,10 @@ functions/services/
 ├── core/
 │   └── taskProcessor.js          # Main orchestrator
 ├── pipeline/
-│   ├── taskFinderService.js      # Stage 1: Task extraction
+│   ├── taskFinderService.js      # Stage 1: Task extraction + attendees
 │   ├── taskCreatorService.js     # Stage 2: Task creation with RAG
 │   ├── taskUpdaterService.js     # Stage 3: Task updates with RAG
+│   ├── meetingNotesService.js    # Stage 4: Meeting notes generation
 │   └── taskMatcher.js            # Task matching logic
 ├── integrations/
 │   ├── allMeetingsService.js     # Microsoft Graph API integration
@@ -175,14 +188,19 @@ curl -X POST "https://your-region-your-project.cloudfunctions.net/fetch-transcri
 2. **Extended Meeting Fetch**: Get meetings from extended calendar window to catch delayed transcripts
 3. **Smart Transcript Filtering**: Filter by transcript creation time (not meeting end time)
 4. **Duplicate Prevention**: Check processed transcript database to prevent reprocessing
-5. **3-Stage Pipeline Processing**: Task Finder → Creator → Updater with RAG enhancement
-6. **Results**: Tasks created/updated, status changes applied, Teams notification sent
-7. **Tracking**: Mark processed transcripts to prevent future duplicates
+5. **Enhanced 4-Stage Pipeline Processing**: 
+   - Stage 1: Task Finder + Attendees Extraction
+   - Stage 2: Task Creator with RAG enhancement
+   - Stage 3: Task Updater with RAG enhancement
+   - Stage 4: Meeting Notes Generation
+6. **Results**: Tasks created/updated, status changes applied, meeting notes generated, attendees tracked
+7. **Teams Notification**: Comprehensive summary with test run indicators
+8. **Tracking**: Mark processed transcripts to prevent future duplicates
 
 ### Manual Processing Flow
 1. **Meeting Fetch**: Get all meetings for specified date/user
-2. **Transcript Processing**: 3-stage pipeline for each transcript
-3. **Results**: Comprehensive processing with detailed logging
+2. **Transcript Processing**: Enhanced 4-stage pipeline for each transcript
+3. **Results**: Comprehensive processing with detailed logging, meeting notes, and attendees tracking
 
 ## ⏱️ Time Tracking Features
 
@@ -225,6 +243,8 @@ The system automatically extracts time information from meeting conversations:
 - Processing statistics
 - Future plans separately listed
 - Time tracking summaries
+- 🆕 Meeting attendees information
+- 🆕 Test run indicators for debugging
 
 ## 🔍 Monitoring
 

@@ -1001,9 +1001,39 @@ async function processTranscriptToTasksWithPipeline(
     try {
       const { generateMeetingNotes } = require("../pipeline/meetingNotesService");
       
+      // console.log("[DEBUG] About to generate meeting notes with attendees:", pipelineResult.attendees);
+      // console.log("[DEBUG] mongoResult structure:", Object.keys(mongoResult));
+      // console.log("[DEBUG] mongoResult.assignedTicketIds:", mongoResult.assignedTicketIds);
+      
+      // Build the created tasks array with proper ticket IDs and titles
+      const createdTasks = [];
+      if (mongoResult.assignedTicketIds && pipelineResult.tasks) {
+        let ticketIndex = 0;
+        for (const [participantName, participantTasks] of Object.entries(pipelineResult.tasks)) {
+          for (const taskType of ["Coding", "Non-Coding"]) {
+            if (participantTasks[taskType] && Array.isArray(participantTasks[taskType])) {
+              for (const task of participantTasks[taskType]) {
+                const ticketId = mongoResult.assignedTicketIds[ticketIndex];
+                if (ticketId) {
+                  createdTasks.push({
+                    ticketId: ticketId,
+                    title: task.title || task.description?.substring(0, 50) || "Untitled Task",
+                    description: task.description || "",
+                    assignee: participantName
+                  });
+                }
+                ticketIndex++;
+              }
+            }
+          }
+        }
+      }
+      
+      // console.log("[DEBUG] Created tasks for meeting notes:", createdTasks);
+      
       meetingNotesResult = await generateMeetingNotes(
         transcript,
-        mongoResult.newTasks || [],
+        createdTasks,
         taskUpdateResults.filter(result => result.success).map(result => ({ taskId: result.taskId })) || [],
         pipelineResult.attendees || ""
       );
@@ -1011,6 +1041,14 @@ async function processTranscriptToTasksWithPipeline(
       if (meetingNotesResult.success) {
         // Store meeting notes and attendees in the transcript document (including test mode)
         const { updateTranscriptWithNotesAndAttendees } = require("../storage/mongoService");
+        
+        // console.log("[DEBUG] About to store meeting notes and attendees:", {
+        //   transcriptId: transcriptStorageResult.documentId.toString(),
+        //   notesLength: meetingNotesResult.meetingNotes.length,
+        //   attendees: pipelineResult.attendees || "",
+        //   hasNotes: !!meetingNotesResult.meetingNotes,
+        //   hasAttendees: !!(pipelineResult.attendees || "")
+        // });
         
         await updateTranscriptWithNotesAndAttendees(
           transcriptStorageResult.documentId.toString(),

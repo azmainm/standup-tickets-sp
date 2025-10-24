@@ -2,12 +2,12 @@
 
 ## Overview
 
-The Standup Tickets SP system processes Microsoft Teams meeting transcripts using a **RAG-enhanced 3-Stage Pipeline** with **Enhanced Duplicate Prevention** and **Extended Calendar Windows** to extract actionable tasks with comprehensive context. The system supports two deployment options:
+The Standup Tickets SP system processes Microsoft Teams meeting transcripts using a **RAG-enhanced 4-Stage Pipeline** with **Enhanced Duplicate Prevention**, **Extended Calendar Windows**, **Attendees Extraction**, and **AI-Generated Meeting Notes** to extract actionable tasks with comprehensive context and documentation. The system supports two deployment options:
 
 1. **🚀 GitHub Actions** (Recommended) - Runs every 60 minutes with enhanced transcript processing
 2. **🔧 Firebase Functions** - HTTP endpoints for manual processing and testing
 
-## 🆕 Enhanced Features (v2.0)
+## 🆕 Enhanced Features (v2.1)
 
 ### ✨ Duplicate Prevention System
 - **Processed Transcript Tracking**: MongoDB collection tracks all processed transcripts
@@ -23,6 +23,12 @@ The Standup Tickets SP system processes Microsoft Teams meeting transcripts usin
 - **Since Last Success**: Processing window starts from last successful cron run
 - **No Gaps**: Ensures all transcripts are processed without timing gaps
 - **Intelligent Fallback**: Uses 90-minute window if no previous run exists
+
+### 🆕 Meeting Analysis & Documentation
+- **Attendees Extraction**: Automatically identifies and extracts meeting participants' initials
+- **AI-Generated Meeting Notes**: Comprehensive meeting summaries with structured sections
+- **Enhanced Admin Panel**: Displays attendees and provides meeting notes access
+- **Test Mode Support**: Full functionality with test indicators for debugging
 
 ## 🏗️ System Architecture
 
@@ -49,29 +55,31 @@ The Standup Tickets SP system processes Microsoft Teams meeting transcripts usin
 │transcripts      │    │transcripts      │    │RAG enhancement  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   🔍 Stage 1    │───▶│   📝 Stage 2    │───▶│   🔄 Stage 3    │
-│  Task Finder    │    │  Task Creator   │    │  Task Updater   │
-│                 │    │   (RAG-Enhanced)│    │  (RAG-Enhanced) │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│Extract tasks    │    │Create new tasks │    │Update existing  │
-│with full context│    │with RAG context │    │tasks with RAG   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   🔍 Stage 1    │───▶│   📝 Stage 2    │───▶│   🔄 Stage 3    │───▶│   📋 Stage 4    │
+│  Task Finder    │    │  Task Creator   │    │  Task Updater   │    │ Meeting Notes   │
+│  + Attendees    │    │   (RAG-Enhanced)│    │  (RAG-Enhanced) │    │   Generator     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │                       │
+         ▼                       ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│Extract tasks +  │    │Create new tasks │    │Update existing  │    │Generate meeting │
+│attendees with   │    │with RAG context │    │tasks with RAG   │    │notes & store    │
+│full context     │    │                 │    │                 │    │with attendees   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## 🚀 3-Stage Pipeline Architecture
+## 🚀 Enhanced 4-Stage Pipeline Architecture
 
-### Stage 1: Task Finder 🔍
-**Purpose**: Extract actionable tasks with comprehensive context gathering
+### Stage 1: Task Finder 🔍 + Attendees Extraction
+**Purpose**: Extract actionable tasks with comprehensive context gathering and identify meeting participants
 
 **Process**:
 1. **Context Analysis**: Analyzes the entire transcript for task-related conversations
 2. **Evidence Gathering**: Collects ALL related information for each identified task
 3. **Structured Output**: Returns `tasksToBeCreated` and `tasksToBeUpdated` arrays
 4. **Status Detection**: Identifies status changes mentioned in conversation
+5. **🆕 Attendees Extraction**: Identifies meeting participants and extracts their initials
 
 **Output Format**:
 ```javascript
@@ -95,7 +103,8 @@ The Standup Tickets SP system processes Microsoft Teams meeting transcripts usin
       evidence: "Jane: I finished the API docs...",
       updateType: "completion"
     }
-  ]
+  ],
+  attendees: "JD, JS, AM" // 🆕 Extracted attendees initials
 }
 ```
 
@@ -155,6 +164,33 @@ Original: "Working on API integration"
 Enhanced: "[2025-01-15] Completed API integration with third-party services including authentication, data validation, and error handling. Implemented retry logic and rate limiting as discussed in architecture review."
 ```
 
+### 🆕 Stage 4: Meeting Notes Generation 📋
+**Purpose**: Generate comprehensive meeting notes using AI and store with attendees information
+
+**Process**:
+1. **Content Analysis**: Analyzes transcript, created tasks, and updated tasks
+2. **AI Summarization**: Uses LLM to generate structured meeting notes
+3. **Structured Sections**: Creates organized notes with clear sections
+4. **Database Storage**: Stores notes and attendees in transcript document
+
+**Generated Sections**:
+- Meeting Summary
+- Key Discussion Points  
+- Decisions Made
+- Tasks Created (with ticket IDs and titles)
+- Tasks Updated (with ticket IDs)
+- Next Steps/Action Items
+
+**Storage**:
+```javascript
+// Added to transcript document in MongoDB
+{
+  meeting_notes: "MEETING NOTES\n\n1) MEETING SUMMARY...",
+  attendees: "JD, JS, AM",
+  notes_generated_at: "2025-01-15T10:30:00.000Z"
+}
+```
+
 ## 🔄 Complete Processing Flow
 
 ### Enhanced GitHub Actions Flow (Every 60 Minutes)
@@ -207,20 +243,24 @@ Enhanced: "[2025-01-15] Completed API integration with third-party services incl
 ┌─────────────────┐
 │ 🧠 Process      │
 │ Each Transcript │
-│ (3-Stage)       │
+│ (4-Stage +      │
+│ Meeting Notes)  │
 └─────────┬───────┘
           │
           ▼
 ┌─────────────────┐
 │ 💾 Store        │
-│ Results         │
-│ (MongoDB)       │
+│ Results +       │
+│ Notes +         │
+│ Attendees       │
 └─────────┬───────┘
           │
           ▼
 ┌─────────────────┐
 │ 📢 Send Teams   │
 │ Notification    │
+│ (with test      │
+│ indicators)     │
 └─────────────────┘
 ```
 
@@ -243,13 +283,16 @@ Enhanced: "[2025-01-15] Completed API integration with third-party services incl
 ┌─────────────────┐
 │ 🧠 Process      │
 │ All Transcripts │
-│ (3-Stage)       │
+│ (4-Stage +      │
+│ Meeting Notes)  │
 └─────────┬───────┘
           │
           ▼
 ┌─────────────────┐
 │ 💾 Store &      │
 │ Return Results  │
+│ + Notes +       │
+│ Attendees       │
 └─────────────────┘
 ```
 

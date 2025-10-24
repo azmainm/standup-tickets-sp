@@ -1597,6 +1597,14 @@ async function closeMongoDB() {
  */
 async function updateTranscriptWithNotesAndAttendees(transcriptId, meetingNotes, attendees) {
   try {
+    // console.log("[DEBUG] updateTranscriptWithNotesAndAttendees called with:", {
+    //   transcriptId,
+    //   meetingNotesLength: meetingNotes?.length || 0,
+    //   attendees,
+    //   hasNotes: !!meetingNotes,
+    //   hasAttendees: !!attendees
+    // });
+    
     await initializeMongoDB();
     
     const collection = db.collection(TRANSCRIPTS_COLLECTION);

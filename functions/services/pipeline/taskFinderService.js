@@ -101,6 +101,9 @@ async function findTasksFromTranscript(transcript, context = {}) {
     // Extract attendees from the GPT response
     const attendees = extractAttendeesFromResponse(gptResponse);
     
+    // Debug: Log the end of the GPT response to see if MEETING ATTENDEES section exists
+    // console.log("[DEBUG] GPT Response ending (last 500 chars):", gptResponse.slice(-500));
+    
     // Apply task cancellation detection
     const finalTasks = detectAndRemoveCancelledTasks(foundTasks, transcriptText);
     
@@ -146,6 +149,8 @@ async function findTasksFromTranscript(transcript, context = {}) {
       urgency: task.urgency
     }));
 
+    // console.log("[DEBUG] Task Finder returning attendees:", attendees);
+    
     return {
       success: true,
       stage: 1,
@@ -749,8 +754,12 @@ async function testTaskFinderService() {
  */
 function extractAttendeesFromResponse(response) {
   try {
+    console.log("[DEBUG] Searching for MEETING ATTENDEES in response...");
+    
     // Look for the MEETING ATTENDEES section in the response
     const attendeesMatch = response.match(/MEETING ATTENDEES:\s*([^.\n\r]+)/i);
+    
+    console.log("[DEBUG] Attendees regex match result:", attendeesMatch);
     
     if (attendeesMatch && attendeesMatch[1]) {
       // Clean up the attendees string - remove extra spaces, brackets, quotes
@@ -765,6 +774,11 @@ function extractAttendeesFromResponse(response) {
         .filter(initial => initial.length > 0 && initial.length <= 5) // Basic validation
         .join(', ');
       
+      console.log("[DEBUG] Extracted attendees:", {
+        raw: attendeesMatch[1],
+        cleaned: initials
+      });
+      
       logger.info("Extracted meeting attendees", {
         raw: attendeesMatch[1],
         cleaned: initials
@@ -773,10 +787,12 @@ function extractAttendeesFromResponse(response) {
       return initials;
     }
     
+    console.log("[DEBUG] No MEETING ATTENDEES section found in response");
     logger.warn("No MEETING ATTENDEES section found in response");
     return "";
     
   } catch (error) {
+    console.log("[DEBUG] Error extracting attendees:", error.message);
     logger.error("Error extracting attendees from response", {
       error: error.message
     });
