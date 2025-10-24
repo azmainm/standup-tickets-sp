@@ -794,19 +794,18 @@ async function processTranscriptToTasksWithPipeline(
       timestamp: new Date().toISOString(),
     });
 
-    // Step 1: Store the raw transcript in MongoDB (skip for test mode)
+    // Step 1: Store the raw transcript in MongoDB (including test mode with test markers)
     let transcriptStorageResult;
     if (isTestMode) {
-      logger.info("🧪 Step 1: Skipping transcript storage (TEST MODE)");
-      transcriptStorageResult = {
-        success: true,
-        documentId: "test-mode-skip",
-        timestamp: new Date(),
-        message: "Transcript storage skipped - test mode",
-        dataSize: JSON.stringify(transcript).length,
-        entryCount: transcript.length,
-        isTestMode: true
+      logger.info("🧪 Step 1: Storing test transcript in MongoDB (TEST MODE)");
+      // Store transcript even in test mode, but mark it as a test
+      const testMetadata = {
+        ...transcriptMetadata,
+        isTestRun: true,
+        testDescription: "🧪 TEST RUN - " + (transcriptMetadata.testDescription || "Test transcript"),
+        sourceFile: transcriptMetadata.sourceFile || "test_transcript.json"
       };
+      transcriptStorageResult = await storeTranscript(transcript, testMetadata);
     } else {
       logger.info("📁 Step 1: Storing raw transcript in MongoDB");
       transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
@@ -995,8 +994,89 @@ async function processTranscriptToTasksWithPipeline(
       }
     }
 
-    // Step 5: Send Teams notification
-    logger.info("📢 Step 5: Sending pipeline summary to Teams");
+    // Step 5: Generate meeting notes and store them with attendees
+    logger.info("📝 Step 5: Generating meeting notes");
+    let meetingNotesResult = null;
+    
+    try {
+      const { generateMeetingNotes } = require("../pipeline/meetingNotesService");
+      
+      // console.log("[DEBUG] About to generate meeting notes with attendees:", pipelineResult.attendees);
+      // console.log("[DEBUG] mongoResult structure:", Object.keys(mongoResult));
+      // console.log("[DEBUG] mongoResult.assignedTicketIds:", mongoResult.assignedTicketIds);
+      
+      // Build the created tasks array with proper ticket IDs and titles
+      const createdTasks = [];
+      if (mongoResult.assignedTicketIds && pipelineResult.tasks) {
+        let ticketIndex = 0;
+        for (const [participantName, participantTasks] of Object.entries(pipelineResult.tasks)) {
+          for (const taskType of ["Coding", "Non-Coding"]) {
+            if (participantTasks[taskType] && Array.isArray(participantTasks[taskType])) {
+              for (const task of participantTasks[taskType]) {
+                const ticketId = mongoResult.assignedTicketIds[ticketIndex];
+                if (ticketId) {
+                  createdTasks.push({
+                    ticketId: ticketId,
+                    title: task.title || task.description?.substring(0, 50) || "Untitled Task",
+                    description: task.description || "",
+                    assignee: participantName
+                  });
+                }
+                ticketIndex++;
+              }
+            }
+          }
+        }
+      }
+      
+      // console.log("[DEBUG] Created tasks for meeting notes:", createdTasks);
+      
+      meetingNotesResult = await generateMeetingNotes(
+        transcript,
+        createdTasks,
+        taskUpdateResults.filter(result => result.success).map(result => ({ taskId: result.taskId })) || [],
+        pipelineResult.attendees || ""
+      );
+      
+      if (meetingNotesResult.success) {
+        // Store meeting notes and attendees in the transcript document (including test mode)
+        const { updateTranscriptWithNotesAndAttendees } = require("../storage/mongoService");
+        
+        // console.log("[DEBUG] About to store meeting notes and attendees:", {
+        //   transcriptId: transcriptStorageResult.documentId.toString(),
+        //   notesLength: meetingNotesResult.meetingNotes.length,
+        //   attendees: pipelineResult.attendees || "",
+        //   hasNotes: !!meetingNotesResult.meetingNotes,
+        //   hasAttendees: !!(pipelineResult.attendees || "")
+        // });
+        
+        await updateTranscriptWithNotesAndAttendees(
+          transcriptStorageResult.documentId.toString(),
+          meetingNotesResult.meetingNotes,
+          pipelineResult.attendees || ""
+        );
+        
+        logger.info("Meeting notes and attendees stored successfully", {
+          transcriptId: transcriptStorageResult.documentId.toString(),
+          notesLength: meetingNotesResult.meetingNotes.length,
+          attendees: pipelineResult.attendees || "",
+          isTestMode: isTestMode
+        });
+      }
+    } catch (notesError) {
+      logger.error("Meeting notes generation failed", {
+        error: notesError.message
+      });
+      
+      meetingNotesResult = {
+        success: false,
+        error: notesError.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // Step 6: Send Teams notification
+    logger.info("📢 Step 6: Sending pipeline summary to Teams");
     let teamsResult = null;
     
     try {
@@ -1025,8 +1105,8 @@ async function processTranscriptToTasksWithPipeline(
       };
     }
 
-    // Step 6: Clean up local embeddings after Teams notification
-    logger.info("🧹 Step 6: Cleaning up local embeddings");
+    // Step 7: Clean up local embeddings after Teams notification
+    logger.info("🧹 Step 7: Cleaning up local embeddings");
     try {
       const { clearLocalEmbeddings } = require("../storage/localEmbeddingCache");
       const cleanupResult = clearLocalEmbeddings(transcriptStorageResult.documentId.toString());

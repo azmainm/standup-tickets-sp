@@ -2,7 +2,7 @@
 
 ## Complete Function Flow: From Inception to Conclusion
 
-This document traces the exact function call sequence from start to finish in the RAG-enhanced 3-Stage Pipeline system.
+This document traces the exact function call sequence from start to finish in the RAG-enhanced 4-Stage Pipeline system with attendees extraction and meeting notes generation.
 
 ---
 
@@ -42,13 +42,13 @@ This document traces the exact function call sequence from start to finish in th
 
 ---
 
-## Phase 2: RAG-Enhanced 3-Stage Pipeline Processing
+## Phase 2: RAG-Enhanced 4-Stage Pipeline Processing
 
 ### Main Orchestrator: `processTranscriptToTasksWithPipeline()`
 **File**: `functions/services/core/taskProcessor.js`
-**Purpose**: Complete RAG-enhanced 3-stage pipeline processing
+**Purpose**: Complete RAG-enhanced 4-stage pipeline processing with attendees extraction and meeting notes generation
 **Input**: Single transcript + metadata
-**Output**: Processing result with tasks, updates, and RAG enhancements
+**Output**: Processing result with tasks, updates, RAG enhancements, attendees, and meeting notes
 
 #### Sequential Function Flow:
 
@@ -74,17 +74,18 @@ This document traces the exact function call sequence from start to finish in th
 
 ---
 
-## Phase 3: 3-Stage Pipeline Execution
+## Phase 3: Enhanced 4-Stage Pipeline Execution
 
-### Stage 1: Task Finder 🔍
+### Stage 1: Task Finder 🔍 + Attendees Extraction
 **Entry**: `processTranscriptForTasksWithPipeline()`
 **File**: `functions/services/integrations/openaiService.js`
 
 #### Function Chain:
-1. **`findTasksFromTranscript()`** - Extract tasks with context
+1. **`findTasksFromTranscript()`** - Extract tasks with context and attendees
    - **File**: `functions/services/pipeline/taskFinderService.js`
-   - **Purpose**: Comprehensive task extraction with evidence gathering
-   - **Output**: `tasksToBeCreated` and `tasksToBeUpdated` arrays
+   - **Purpose**: Comprehensive task extraction with evidence gathering and attendees identification
+   - **Output**: `tasksToBeCreated`, `tasksToBeUpdated` arrays, and `attendees` string
+   - **🆕 Attendees Processing**: `extractAttendeesFromResponse()` extracts participant initials
 
 2. **`detectStatusChangesFromTranscript()`** - Find status changes
    - **File**: `functions/services/utilities/statusChangeDetectionService.js`
@@ -148,6 +149,22 @@ This document traces the exact function call sequence from start to finish in th
 
 ---
 
+## Phase 4: Meeting Notes Generation & Storage
+
+### 🆕 Stage 4: Meeting Notes Generation 📋
+1. **`generateMeetingNotes()`** - Generate comprehensive meeting notes
+   - **File**: `functions/services/pipeline/meetingNotesService.js`
+   - **Purpose**: AI-powered meeting summarization with structured sections
+   - **Input**: Transcript, created tasks, updated tasks, attendees
+   - **Output**: Structured meeting notes with sections for summary, discussions, decisions, tasks
+
+2. **`updateTranscriptWithNotesAndAttendees()`** - Store notes and attendees
+   - **File**: `functions/services/storage/mongoService.js`
+   - **Purpose**: Update transcript document with meeting notes and attendees information
+   - **Storage**: Adds `meeting_notes`, `attendees`, and `notes_generated_at` fields
+
+---
+
 ## Phase 5: Notification & Cleanup
 
 ### Teams Notification
@@ -157,7 +174,8 @@ This document traces the exact function call sequence from start to finish in th
 
 2. **`sendStandupSummaryToTeams()`** - Send notification
    - **File**: `functions/services/integrations/teamsService.js`
-   - **Content**: New tasks, updates, status changes, participants
+   - **Content**: New tasks, updates, status changes, participants, attendees
+   - **🆕 Test Mode Support**: Includes test run indicators when in test mode
 
 ### Cleanup
 3. **`clearLocalEmbeddings()`** - Clean temporary cache
@@ -183,9 +201,10 @@ processingOptions: Object
   success: boolean,
   tasks: Object,              // New tasks by participant
   pipelineResults: {
-    stage1: { foundTasks, statusChanges },
+    stage1: { foundTasks, statusChanges, attendees },
     stage2: { newTasks, ragEnhancements },
-    stage3: { taskUpdates, ragEnhancements }
+    stage3: { taskUpdates, ragEnhancements },
+    stage4: { meetingNotes, notesMetadata }
   },
   summary: {
     newTasksCreated: number,

@@ -130,6 +130,7 @@ async function processTranscriptForTasksWithPipeline(transcript, existingTasks =
     return {
       success: true,
       tasks: structuredTasks,
+      attendees: taskFinderResult.attendees, // Add attendees from stage 1
       statusChanges: taskUpdaterResult.statusChanges,
       pipelineResults: {
         stage1: taskFinderResult,

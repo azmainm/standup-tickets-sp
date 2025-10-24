@@ -43,7 +43,7 @@ async function generateTaskEmbedding(text, context = {}) {
     const enhancedText = createEnhancedTextForEmbedding(text, context);
     
     const response = await openai.embeddings.create({
-      model: "text-embedding-ada-002",
+      model: "text-embedding-3-small",
       input: enhancedText,
       encoding_format: "float",
     });
@@ -149,7 +149,7 @@ async function addOrUpdateTaskEmbedding(ticketId, taskData) {
     
     // Create embedding metadata
     const embeddingMetadata = {
-      model: "text-embedding-ada-002",
+      model: "text-embedding-3-small",
       generatedAt: new Date().toISOString(),
       textHash: textHash,
       lastUpdated: new Date().toISOString(),
