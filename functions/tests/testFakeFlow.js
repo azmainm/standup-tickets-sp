@@ -187,6 +187,8 @@ function formatTestStandupSummary(summaryData, metadata) {
   message += `- ✅ Task description updates\n`;
   message += `- ✅ Future plans detection\n`;
   message += `- ✅ Assignee detection (including new participants)\n`;
+  message += `- ✅ Attendees extraction (NEW FEATURE)\n`;
+  message += `- ✅ Meeting notes generation (NEW FEATURE)\n`;
   message += `- ✅ Zod validation\n`;
   message += `- ✅ Enhanced task matching\n`;
   message += `- ✅ Time tracking (estimated time and time spent)\n\n`;
@@ -210,10 +212,10 @@ async function runCompleteFlowTest() {
   try {
     // Step 1: Load test transcript first
     console.log("📁 Step 1: Loading test transcript...");
-    const transcriptPath = path.join(__dirname, "..", "output", "test_transcript_converted.json");
+    const transcriptPath = path.join(__dirname, "..", "output", "test_transcript.json");
     
     if (!fs.existsSync(transcriptPath)) {
-      throw new Error(`Test transcript not found at: ${transcriptPath}. Please ensure test_transcript_converted.json exists in output/`);
+      throw new Error(`Test transcript not found at: ${transcriptPath}. Please ensure test_transcript.json exists in output/`);
     }
 
     const transcriptData = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
@@ -319,6 +321,8 @@ async function runCompleteFlowTest() {
     console.log("- Enhanced OpenAI prompting");
     console.log("- Status change detection");
     console.log("- Assignee detection");
+    console.log("- Attendees extraction (NEW FEATURE)");
+    console.log("- Meeting notes generation (NEW FEATURE)");
     console.log("- Vector similarity search (if available) + GPT fallback");
     console.log("- Admin panel synchronization");
     console.log("- Task similarity matching");
@@ -336,13 +340,14 @@ async function runCompleteFlowTest() {
     };
     
     const processingResult = await processTranscriptToTasksWithPipeline(transcriptData, {
-      sourceFile: "test_transcript_converted.json",
-      isTestRun: true,
-      testDate: new Date().toISOString().split("T")[0],
-      testDescription: "3-Stage Pipeline test transcript"
+      sourceFile: "test_transcript.json",
+      fetchedAt: new Date().toISOString(),
+      meetingId: `test-meeting-${Date.now()}`,
+      transcriptId: `test-transcript-${Date.now()}`,
+      testDescription: "🧪 TEST RUN - 3-Stage Pipeline test transcript"
     }, processingContext, { testMode: true });
     
-    console.log("🧪 Test mode activated - transcript NOT saved to MongoDB transcripts collection");
+    console.log("💾 Test mode activated - transcript, meeting notes, and attendees WILL be saved to MongoDB with TEST indicators");
 
     if (!processingResult.success) {
       throw new Error("Transcript processing failed");
@@ -360,6 +365,17 @@ async function runCompleteFlowTest() {
     console.log(`🔄 Existing tasks updated: ${summary.existingTasksUpdated}`);
     console.log(`🔄 Status changes detected: ${summary.statusChangesDetected || 0}`);
     console.log(`✅ Status changes applied: ${summary.statusChangesApplied || 0}`);
+    
+    // Show new features results
+    if (processingResult.attendees) {
+      console.log(`👥 Attendees extracted: ${processingResult.attendees}`);
+    }
+    if (processingResult.meetingNotes) {
+      console.log(`📝 Meeting notes generated: ${processingResult.meetingNotes.success ? 'Yes' : 'No'}`);
+      if (processingResult.meetingNotes.success) {
+        console.log(`   Notes length: ${processingResult.meetingNotes.meetingNotes?.length || 0} characters`);
+      }
+    }
 
     // Step 5: Check validation results
     console.log("\n✅ Step 5: Validation Results:");
@@ -438,36 +454,27 @@ async function runCompleteFlowTest() {
     }
 
     // Step 8: Send test Teams notification
-    // console.log("\n📢 Step 8: Sending test Teams notification...");
+    console.log("\n📢 Step 8: Sending test Teams notification...");
     
-    // COMMENTED OUT: Teams notification section to avoid sending test messages
-    /*
     try {
-      // Generate summary data for Teams
-      const { generateSummaryDataFromTaskResult } = require("../services/teamsService");
-      const summaryData = generateSummaryDataFromTaskResult({
-        taskMatching: processingResult.taskMatching,
-        jira: processingResult.jira,
-        tasks: processingResult.tasks
-      }, processingResult.storage);
-
-      const processingDuration = ((Date.now() - startTime) / 1000).toFixed(2);
-      
-      // Teams notification already sent by main processing flow
-      const teamsResult = { success: true, skipped: true, reason: "Teams notification handled by main flow" };
-
-      if (teamsResult.success) {
-        console.log("✅ Test Teams notification sent successfully");
-      } else if (teamsResult.skipped) {
-        console.log("⚠️  Teams notification skipped (webhook not configured)");
+      // Check if Teams notification was already sent by the main processing flow
+      if (processingResult.teams && processingResult.teams.success) {
+        console.log("✅ Teams notification already sent by main processing flow");
+        console.log(`   Status: ${processingResult.teams.status || 'Success'}`);
+        console.log(`   Message length: ${processingResult.teams.messageLength || 'N/A'} characters`);
+      } else if (processingResult.teams && processingResult.teams.skipped) {
+        console.log("⚠️  Teams notification was skipped by main flow (webhook not configured)");
       } else {
-        console.log("❌ Teams notification failed:", teamsResult.error);
+        console.log("⚠️  Teams notification status unknown from main flow");
       }
+      
+      // Additional verification - the notification should have been sent automatically
+      // by the processTranscriptToTasksWithPipeline function as part of Step 6
+      console.log("📋 Teams notification is handled automatically by the main pipeline");
+      
     } catch (teamsError) {
       console.error("❌ Teams notification error:", teamsError.message);
     }
-    */
-    console.log("📢 Step 8: Teams notification skipped (commented out for testing)");
 
     // Final Summary
     const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -486,11 +493,13 @@ async function runCompleteFlowTest() {
     console.log("   - ✅ Task description updates");
     console.log("   - ✅ Future plans detection");
     console.log("   - ✅ Enhanced assignee detection");
+    console.log("   - ✅ Attendees extraction (NEW FEATURE)");
+    console.log("   - ✅ Meeting notes generation (NEW FEATURE)");
     console.log("   - ✅ Zod schema validation");
     console.log("   - ✅ Enhanced task similarity matching");
     console.log("   - ✅ Time tracking (estimated time and time spent)");
     console.log("");
-    console.log("🧪 THIS WAS A TEST RUN - Teams notifications were disabled");
+    console.log("🧪 THIS WAS A TEST RUN - All data saved to database and Teams notification sent");
 
     // Cleanup: Remove local embeddings generated for testing
     console.log("\n🧹 Cleaning up test embeddings...");
@@ -552,8 +561,8 @@ logger.warn = (...args) => {
 if (require.main === module) {
   console.log("🚀 3-Stage Pipeline Complete System Flow Test");
   console.log("==============================================");
-  console.log("This test validates the entire 3-stage pipeline system using test_transcript_converted.json");
-  console.log("🧪 Teams notifications are disabled for testing");
+  console.log("This test validates the entire 3-stage pipeline system using test_transcript.json");
+  console.log("🧪 This is a REAL test run - data will be saved to database and Teams notification sent");
   console.log("");
   
   runCompleteFlowTest()

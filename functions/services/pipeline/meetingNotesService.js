@@ -13,9 +13,9 @@ require("dotenv").config();
 
 // Initialize OpenAI client using LangChain (same as other services)
 const llm = new ChatOpenAI({
-  modelName: 'gpt-4o-mini',
+  modelName: "gpt-5-nano",
   max_output_tokens: 2000,
-  reasoning: { effort: 'medium' },
+  reasoning: { effort: "medium" },
   verbosity: "medium",
 });
 
@@ -59,7 +59,7 @@ async function generateMeetingNotes(transcript, createdTasks = [], updatedTasks 
 
     logger.info("Meeting notes generated successfully", {
       notesLength: meetingNotes.length,
-      tokensUsed: response.usage_metadata?.total_tokens || 'unknown'
+      tokensUsed: response.usage_metadata?.total_tokens || "unknown"
     });
 
     return {
@@ -67,7 +67,7 @@ async function generateMeetingNotes(transcript, createdTasks = [], updatedTasks 
       meetingNotes,
       metadata: {
         notesLength: meetingNotes.length,
-        tokensUsed: response.usage_metadata?.total_tokens || 'unknown',
+        tokensUsed: response.usage_metadata?.total_tokens || "unknown",
         generatedAt: new Date().toISOString(),
         transcriptEntries: transcript.length,
         tasksProcessed: createdTasks.length + updatedTasks.length
@@ -90,19 +90,18 @@ async function generateMeetingNotes(transcript, createdTasks = [], updatedTasks 
  * @returns {string} System prompt
  */
 function createMeetingNotesSystemPrompt() {
-  return `You are a professional meeting notes generator. Your role is to create comprehensive, well-structured meeting notes that capture the essence of the discussion and outcomes.
-
-**Your Expertise**:
-- Meeting documentation and summarization
-- Professional communication
-- Task and decision tracking
-- Clear, actionable writing
-
-**Your Approach**:
-- Analytical and thorough
-- Structured and organized  
-- Professional tone
-- Focus on outcomes and decisions`;
+  return "You are a professional meeting notes generator. Your role is to create comprehensive, " +
+    "well-structured meeting notes that capture the essence of the discussion and outcomes.\n\n" +
+    "**Your Expertise**:\n" +
+    "- Meeting documentation and summarization\n" +
+    "- Professional communication\n" +
+    "- Task and decision tracking\n" +
+    "- Clear, actionable writing\n\n" +
+    "**Your Approach**:\n" +
+    "- Analytical and thorough\n" +
+    "- Structured and organized\n" +
+    "- Professional tone\n" +
+    "- Focus on outcomes and decisions";
 }
 
 /**
@@ -117,79 +116,63 @@ function createMeetingNotesPrompt(transcriptText, createdTasks, updatedTasks, at
   // Format created tasks for the prompt
   const createdTasksText = createdTasks.length > 0 ? 
     createdTasks.map((task, index) => {
-      const ticketId = task.ticketId || task.ticket_id || `SP-${task.id || 'NEW'}`;
-      return `${index + 1}. ${ticketId}: ${task.title || task.description}`;
-    }).join('\n') : 'No new tasks were created.';
+      const ticketId = task.ticketId || task.ticket_id || ("SP-" + (task.id || "NEW"));
+      return (index + 1) + ". " + ticketId + ": " + (task.title || task.description);
+    }).join("\n") : "No new tasks were created.";
 
   // Format updated tasks for the prompt  
   const updatedTasksText = updatedTasks.length > 0 ?
     updatedTasks.map((task, index) => {
-      const ticketId = task.ticketId || task.ticket_id || task.taskId || 'Unknown';
-      return `${index + 1}. ${ticketId}`;
-    }).join('\n') : 'No existing tasks were updated.';
+      const ticketId = task.ticketId || task.ticket_id || task.taskId || "Unknown";
+      return (index + 1) + ". " + ticketId;
+    }).join("\n") : "No existing tasks were updated.";
 
-  return `**OBJECTIVE**: Generate comprehensive meeting notes from this transcript and task processing results.
-
-**MEETING NOTES REQUIREMENTS**:
-
-**1. STRUCTURE**: Create well-organized meeting notes with clear sections:
-   - Meeting Summary
-   - Key Discussion Points  
-   - Decisions Made
-   - Tasks Created
-   - Tasks Updated
-   - Next Steps/Action Items
-
-**2. MEETING SUMMARY**: 
-   - Provide a concise 2-3 sentence overview of the meeting's main purpose and outcomes
-   - Capture the overall theme and key achievements
-
-**3. KEY DISCUSSION POINTS**:
-   - Summarize the main topics discussed during the meeting
-   - Include important technical details, requirements, or concerns raised
-   - Organize by topic or theme where appropriate
-   - Focus on substantive discussions, not casual conversation
-
-**4. DECISIONS MADE**:
-   - List any explicit decisions, approvals, or conclusions reached
-   - Include context for why decisions were made
-   - Note any alternatives that were considered and rejected
-
-**5. TASKS CREATED**:
-   - List all new tasks that were created with their ticket IDs and titles
-   - Include brief context about why each task was needed
-   - Format: "SP-XXX: Task Title - Brief context"
-
-**6. TASKS UPDATED**:
-   - List all existing tasks that were updated with their ticket IDs
-   - Note what type of updates were made (progress, completion, modifications)
-   - Format: "SP-XXX - Update type/status"
-
-**7. NEXT STEPS/ACTION ITEMS**:
-   - Identify any follow-up actions or future plans discussed
-   - Include timelines or deadlines if mentioned
-   - Note any dependencies or blockers
-
-**WRITING GUIDELINES**:
-- Use professional, clear language
-- Write in past tense (this meeting already happened)
-- Be concise but comprehensive
-- Use bullet points and numbered lists for clarity
-- Avoid verbatim quotes unless they capture important decisions
-- Focus on outcomes and actionable information
-
-**MEETING TRANSCRIPT**:
-${transcriptText}
-
-**TASKS CREATED DURING PROCESSING**:
-${createdTasksText}
-
-**TASKS UPDATED DURING PROCESSING**:
-${updatedTasksText}
-
-**MEETING ATTENDEES**: ${attendees || 'Not specified'}
-
-**YOUR RESPONSE**: Generate comprehensive meeting notes following the structure and requirements above. Make the notes professional, actionable, and valuable for future reference.`;
+  return "**OBJECTIVE**: Generate comprehensive meeting notes from this transcript and task processing results.\n\n" +
+    "**MEETING NOTES REQUIREMENTS**:\n\n" +
+    "**1. STRUCTURE**: Create well-organized meeting notes with clear sections:\n" +
+    "   - Meeting Summary\n" +
+    "   - Key Discussion Points\n" +
+    "   - Decisions Made\n" +
+    "   - Tasks Created\n" +
+    "   - Tasks Updated\n" +
+    "   - Next Steps/Action Items\n\n" +
+    "**2. MEETING SUMMARY**:\n" +
+    "   - Provide a concise 2-3 sentence overview of the meeting's main purpose and outcomes\n" +
+    "   - Capture the overall theme and key achievements\n\n" +
+    "**3. KEY DISCUSSION POINTS**:\n" +
+    "   - Summarize the main topics discussed during the meeting\n" +
+    "   - Include important technical details, requirements, or concerns raised\n" +
+    "   - Organize by topic or theme where appropriate\n" +
+    "   - Focus on substantive discussions, not casual conversation\n\n" +
+    "**4. DECISIONS MADE**:\n" +
+    "   - List any explicit decisions, approvals, or conclusions reached\n" +
+    "   - Include context for why decisions were made\n" +
+    "   - Note any alternatives that were considered and rejected\n\n" +
+    "**5. TASKS CREATED**:\n" +
+    "   - List all new tasks that were created with their ticket IDs and titles\n" +
+    "   - Include brief context about why each task was needed\n" +
+    "   - Format: \"SP-XXX: Task Title - Brief context\"\n\n" +
+    "**6. TASKS UPDATED**:\n" +
+    "   - List all existing tasks that were updated with their ticket IDs\n" +
+    "   - Note what type of updates were made (progress, completion, modifications)\n" +
+    "   - Format: \"SP-XXX - Update type/status\"\n\n" +
+    "**7. NEXT STEPS/ACTION ITEMS**:\n" +
+    "   - Identify any follow-up actions or future plans discussed\n" +
+    "   - Include timelines or deadlines if mentioned\n" +
+    "   - Note any dependencies or blockers\n\n" +
+    "**WRITING GUIDELINES**:\n" +
+    "- Use professional, clear language\n" +
+    "- Write in past tense (this meeting already happened)\n" +
+    "- Be concise but comprehensive\n" +
+    "- Use bullet points and numbered lists for clarity\n" +
+    "- Avoid verbatim quotes unless they capture important decisions\n" +
+    "- Focus on outcomes and actionable information\n\n" +
+    "**MEETING TRANSCRIPT**:\n" + transcriptText + "\n\n" +
+    "**TASKS CREATED DURING PROCESSING**:\n" + createdTasksText + "\n\n" +
+    "**TASKS UPDATED DURING PROCESSING**:\n" + updatedTasksText + "\n\n" +
+    "**MEETING ATTENDEES**: " + (attendees || "Not specified") + "\n\n" +
+    "**YOUR RESPONSE**: Generate comprehensive meeting notes following the structure and requirements above. " +
+    "Make the notes professional, actionable, and valuable for future reference.";
 }
 
 /**
@@ -228,7 +211,7 @@ function formatTranscriptForNotes(transcript) {
       
       // Only return meaningful entries
       if (text.length > 0) {
-        return `${speaker}: ${text}`;
+        return speaker + ": " + text;
       }
       return "";
     })

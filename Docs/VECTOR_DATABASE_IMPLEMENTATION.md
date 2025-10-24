@@ -2,7 +2,7 @@
 
 ## Overview
 
-The standup-tickets-sp system has been enhanced with a **hybrid vector database architecture** that provides ultra-fast task similarity search while maintaining 100% reliability through intelligent fallback mechanisms. This implementation uses **FAISS (Facebook AI Similarity Search)** for local vector storage and **OpenAI text-embedding-ada-002** for embedding generation.
+The standup-tickets-sp system has been enhanced with a **hybrid vector database architecture** that provides ultra-fast task similarity search while maintaining 100% reliability through intelligent fallback mechanisms. This implementation uses **FAISS (Facebook AI Similarity Search)** for local vector storage and **OpenAI text-embedding-3-small** for embedding generation.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ The standup-tickets-sp system has been enhanced with a **hybrid vector database 
 │                    Vector Database Architecture                 │
 ├─────────────────────────────────────────────────────────────────┤
 │  1. 🔄 Admin Panel Sync (Check last 2 days for changes)        │
-│  2. 🧮 Generate Embeddings (OpenAI text-embedding-ada-002)     │
+│  2. 🧮 Generate Embeddings (OpenAI text-embedding-3-small)     │
 │  3. 🚀 FAISS Vector Search (Cosine similarity, <1ms search)    │
 │  4. 📊 Smart Filtering (Same assignee + type compatibility)    │
 │  5. ✅ High Confidence Matches (Threshold: 0.75)              │

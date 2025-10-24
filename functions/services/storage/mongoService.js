@@ -15,7 +15,14 @@ require("dotenv").config();
 
 // MongoDB configuration
 const MONGODB_URI = process.env.MONGODB_URI;
-const DATABASE_NAME = "standuptickets";
+// Extract database name from URI or use default
+const DATABASE_NAME = (() => {
+  if (MONGODB_URI) {
+    const match = MONGODB_URI.match(/\/([^/?]+)(\?|$)/);
+    return match ? match[1] : "standuptickets";
+  }
+  return "standuptickets";
+})();
 const COLLECTION_NAME = "sptasks";
 const TRANSCRIPTS_COLLECTION = "transcripts";
 const COUNTERS_COLLECTION = "counters";

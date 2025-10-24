@@ -794,19 +794,18 @@ async function processTranscriptToTasksWithPipeline(
       timestamp: new Date().toISOString(),
     });
 
-    // Step 1: Store the raw transcript in MongoDB (skip for test mode)
+    // Step 1: Store the raw transcript in MongoDB (including test mode with test markers)
     let transcriptStorageResult;
     if (isTestMode) {
-      logger.info("🧪 Step 1: Skipping transcript storage (TEST MODE)");
-      transcriptStorageResult = {
-        success: true,
-        documentId: "test-mode-skip",
-        timestamp: new Date(),
-        message: "Transcript storage skipped - test mode",
-        dataSize: JSON.stringify(transcript).length,
-        entryCount: transcript.length,
-        isTestMode: true
+      logger.info("🧪 Step 1: Storing test transcript in MongoDB (TEST MODE)");
+      // Store transcript even in test mode, but mark it as a test
+      const testMetadata = {
+        ...transcriptMetadata,
+        isTestRun: true,
+        testDescription: "🧪 TEST RUN - " + (transcriptMetadata.testDescription || "Test transcript"),
+        sourceFile: transcriptMetadata.sourceFile || "test_transcript.json"
       };
+      transcriptStorageResult = await storeTranscript(transcript, testMetadata);
     } else {
       logger.info("📁 Step 1: Storing raw transcript in MongoDB");
       transcriptStorageResult = await storeTranscript(transcript, transcriptMetadata);
@@ -1009,8 +1008,8 @@ async function processTranscriptToTasksWithPipeline(
         pipelineResult.attendees || ""
       );
       
-      if (meetingNotesResult.success && !isTestMode) {
-        // Store meeting notes and attendees in the transcript document
+      if (meetingNotesResult.success) {
+        // Store meeting notes and attendees in the transcript document (including test mode)
         const { updateTranscriptWithNotesAndAttendees } = require("../storage/mongoService");
         
         await updateTranscriptWithNotesAndAttendees(
@@ -1022,7 +1021,8 @@ async function processTranscriptToTasksWithPipeline(
         logger.info("Meeting notes and attendees stored successfully", {
           transcriptId: transcriptStorageResult.documentId.toString(),
           notesLength: meetingNotesResult.meetingNotes.length,
-          attendees: pipelineResult.attendees || ""
+          attendees: pipelineResult.attendees || "",
+          isTestMode: isTestMode
         });
       }
     } catch (notesError) {
