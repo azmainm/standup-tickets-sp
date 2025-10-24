@@ -51,8 +51,8 @@ async function storeTestTranscript() {
     // Prepare the document to store
     const transcriptDocument = {
       _id: new ObjectId(),
-      timestamp: new Date("2025-10-14T14:00:00.000Z"), // October 8th, 2025 at 2 PM UTC
-      date: "2025-10-14",
+      timestamp: new Date("2025-10-20T14:00:00.000Z"), // October 8th, 2025 at 2 PM UTC
+      date: "2025-10-20",
       transcript_data: JSON.stringify(transcriptData), // Store as JSON string, not array
       entry_count: transcriptData.length,
       meeting_id: "test-meeting-converted-transcript",

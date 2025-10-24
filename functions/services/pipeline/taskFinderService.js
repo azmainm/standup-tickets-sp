@@ -98,6 +98,9 @@ async function findTasksFromTranscript(transcript, context = {}) {
     // Parse the response into structured tasks with participant matching
     const foundTasks = parseTaskFinderResponse(gptResponse, participantsInMeeting);
     
+    // Extract attendees from the GPT response
+    const attendees = extractAttendeesFromResponse(gptResponse);
+    
     // Apply task cancellation detection
     const finalTasks = detectAndRemoveCancelledTasks(foundTasks, transcriptText);
     
@@ -149,6 +152,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
       foundTasks: finalTasks, // Keep original for backward compatibility
       tasksToBeCreated,
       tasksToBeUpdated,
+      attendees, // Add attendees to the response
       metadata: {
         totalTasks,
         tasksToBeCreated: tasksToBeCreated.length,
@@ -435,7 +439,12 @@ Speaker: "I'll work on the dashboard updates"
 **MEETING TRANSCRIPT**:${participantsList}
 ${transcriptText}
 
-**YOUR RESPONSE**: Extract ALL actionable work items with maximum detail and context. Remember to use EXACT participant names from the meeting participant list above when assigning tasks.`;
+**YOUR RESPONSE**: Extract ALL actionable work items with maximum detail and context. Remember to use EXACT participant names from the meeting participant list above when assigning tasks.
+
+**AFTER EXTRACTING ALL TASKS**: At the very end of your response, provide a section titled "MEETING ATTENDEES" that lists ONLY the initials of all meeting participants who spoke during this meeting. Extract initials from the participant names found in the transcript timestamps.
+
+Format:
+MEETING ATTENDEES: [comma-separated list of initials, e.g., "JD, AS, MR"]`;
 }
 
 /**
@@ -733,6 +742,48 @@ async function testTaskFinderService() {
   }
 }
 
+/**
+ * Extract attendees initials from GPT response
+ * @param {string} response - GPT response containing tasks and attendees
+ * @returns {string} Comma-separated list of attendee initials
+ */
+function extractAttendeesFromResponse(response) {
+  try {
+    // Look for the MEETING ATTENDEES section in the response
+    const attendeesMatch = response.match(/MEETING ATTENDEES:\s*([^.\n\r]+)/i);
+    
+    if (attendeesMatch && attendeesMatch[1]) {
+      // Clean up the attendees string - remove extra spaces, brackets, quotes
+      const attendeesStr = attendeesMatch[1]
+        .replace(/[\[\]"']/g, '') // Remove brackets and quotes
+        .trim();
+      
+      // Split by comma and clean each initial
+      const initials = attendeesStr
+        .split(',')
+        .map(initial => initial.trim())
+        .filter(initial => initial.length > 0 && initial.length <= 5) // Basic validation
+        .join(', ');
+      
+      logger.info("Extracted meeting attendees", {
+        raw: attendeesMatch[1],
+        cleaned: initials
+      });
+      
+      return initials;
+    }
+    
+    logger.warn("No MEETING ATTENDEES section found in response");
+    return "";
+    
+  } catch (error) {
+    logger.error("Error extracting attendees from response", {
+      error: error.message
+    });
+    return "";
+  }
+}
+
 module.exports = {
   findTasksFromTranscript,
   testTaskFinderService,
@@ -742,5 +793,6 @@ module.exports = {
   createTaskFinderSystemPrompt,
   createTaskFindingPrompt,
   detectAndRemoveCancelledTasks,
-  parseTimeStringToHours
+  parseTimeStringToHours,
+  extractAttendeesFromResponse
 };

@@ -995,8 +995,50 @@ async function processTranscriptToTasksWithPipeline(
       }
     }
 
-    // Step 5: Send Teams notification
-    logger.info("📢 Step 5: Sending pipeline summary to Teams");
+    // Step 5: Generate meeting notes and store them with attendees
+    logger.info("📝 Step 5: Generating meeting notes");
+    let meetingNotesResult = null;
+    
+    try {
+      const { generateMeetingNotes } = require("../pipeline/meetingNotesService");
+      
+      meetingNotesResult = await generateMeetingNotes(
+        transcript,
+        mongoResult.newTasks || [],
+        taskUpdateResults.filter(result => result.success).map(result => ({ taskId: result.taskId })) || [],
+        pipelineResult.attendees || ""
+      );
+      
+      if (meetingNotesResult.success && !isTestMode) {
+        // Store meeting notes and attendees in the transcript document
+        const { updateTranscriptWithNotesAndAttendees } = require("../storage/mongoService");
+        
+        await updateTranscriptWithNotesAndAttendees(
+          transcriptStorageResult.documentId.toString(),
+          meetingNotesResult.meetingNotes,
+          pipelineResult.attendees || ""
+        );
+        
+        logger.info("Meeting notes and attendees stored successfully", {
+          transcriptId: transcriptStorageResult.documentId.toString(),
+          notesLength: meetingNotesResult.meetingNotes.length,
+          attendees: pipelineResult.attendees || ""
+        });
+      }
+    } catch (notesError) {
+      logger.error("Meeting notes generation failed", {
+        error: notesError.message
+      });
+      
+      meetingNotesResult = {
+        success: false,
+        error: notesError.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // Step 6: Send Teams notification
+    logger.info("📢 Step 6: Sending pipeline summary to Teams");
     let teamsResult = null;
     
     try {
@@ -1025,8 +1067,8 @@ async function processTranscriptToTasksWithPipeline(
       };
     }
 
-    // Step 6: Clean up local embeddings after Teams notification
-    logger.info("🧹 Step 6: Cleaning up local embeddings");
+    // Step 7: Clean up local embeddings after Teams notification
+    logger.info("🧹 Step 7: Cleaning up local embeddings");
     try {
       const { clearLocalEmbeddings } = require("../storage/localEmbeddingCache");
       const cleanupResult = clearLocalEmbeddings(transcriptStorageResult.documentId.toString());

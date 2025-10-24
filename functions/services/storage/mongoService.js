@@ -1581,6 +1581,72 @@ async function closeMongoDB() {
   }
 }
 
+/**
+ * Update transcript document with meeting notes and attendees
+ * @param {string} transcriptId - MongoDB document ID of the transcript
+ * @param {string} meetingNotes - Generated meeting notes
+ * @param {string} attendees - Comma-separated list of attendee initials
+ * @returns {Promise<Object>} Update result
+ */
+async function updateTranscriptWithNotesAndAttendees(transcriptId, meetingNotes, attendees) {
+  try {
+    await initializeMongoDB();
+    
+    const collection = db.collection(TRANSCRIPTS_COLLECTION);
+    
+    // Convert string ID to ObjectId
+    const { ObjectId } = require("mongodb");
+    const objectId = new ObjectId(transcriptId);
+    
+    // Update the document with meeting notes and attendees
+    const updateResult = await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          meeting_notes: meetingNotes,
+          attendees: attendees,
+          notes_generated_at: new Date()
+        }
+      }
+    );
+    
+    if (updateResult.matchedCount === 0) {
+      throw new Error(`No transcript found with ID: ${transcriptId}`);
+    }
+    
+    if (updateResult.modifiedCount === 0) {
+      logger.warn("Transcript update matched but no changes made", {
+        transcriptId,
+        matchedCount: updateResult.matchedCount
+      });
+    }
+    
+    logger.info("Transcript updated with meeting notes and attendees", {
+      transcriptId,
+      notesLength: meetingNotes.length,
+      attendees,
+      matchedCount: updateResult.matchedCount,
+      modifiedCount: updateResult.modifiedCount
+    });
+    
+    return {
+      success: true,
+      transcriptId,
+      matchedCount: updateResult.matchedCount,
+      modifiedCount: updateResult.modifiedCount,
+      updatedAt: new Date().toISOString()
+    };
+    
+  } catch (error) {
+    logger.error("Error updating transcript with notes and attendees", {
+      transcriptId,
+      error: error.message,
+      stack: error.stack
+    });
+    throw new Error(`Failed to update transcript: ${error.message}`);
+  }
+}
+
 module.exports = {
   initializeMongoDB,
   getDatabase,
@@ -1614,4 +1680,5 @@ module.exports = {
   getProcessedTranscriptStats,
   cleanupOldProcessedTranscripts,
   closeMongoDB,
+  updateTranscriptWithNotesAndAttendees,
 };
