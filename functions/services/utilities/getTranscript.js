@@ -180,6 +180,7 @@ async function getMeetingTranscript(meetingUrl, targetDate = null) {
         meetingId: onlineMeeting.id,
         transcriptId: latestTranscript.id,
         fetchedAt: new Date().toISOString(),
+        meetingStartTime: onlineMeeting.startDateTime,
         entryCount: transcriptJson.length,
         savedToFile: filePath,
       },
