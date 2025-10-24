@@ -78,7 +78,8 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
           assignee: taskToCreate.assignee,
           type: taskToCreate.type,
           evidence: taskToCreate.evidence,
-          context: taskToCreate.context
+          context: taskToCreate.context,
+          estimatedTime: taskToCreate.estimatedTime || 0
         }, {
           topK: 5,
           scoreThreshold: 0.7
