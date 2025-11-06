@@ -97,12 +97,239 @@ async function getProjectInfo(projectKey) {
 }
 
 /**
- * Create a Jira issue for a coding task
- * @param {Object} taskData - Task data containing title, description, and assignee
+ * Check if a ticketId is a Jira ticket by matching against JIRA_PROJECT_KEY
+ * @param {string} ticketId - The ticket ID to check (e.g., "TRADES-123", "SP-456")
+ * @returns {boolean} True if the ticketId is a Jira ticket
+ */
+function isJiraTicket(ticketId) {
+  if (!ticketId) return false;
+  
+  const { JIRA_PROJECT_KEY } = process.env;
+  if (!JIRA_PROJECT_KEY) return false;
+  
+  // Check if ticketId starts with the JIRA_PROJECT_KEY (case-insensitive)
+  const normalizedTicketId = ticketId.toString().toUpperCase();
+  const normalizedProjectKey = JIRA_PROJECT_KEY.toString().toUpperCase();
+  
+  return normalizedTicketId.startsWith(normalizedProjectKey + "-");
+}
+
+/**
+ * Update Jira issue description
+ * @param {string} issueKey - The issue key (e.g., "TRADES-123")
+ * @param {string} description - The new description (complete replacement)
+ * @returns {Promise<boolean>} True if update successful
+ */
+async function updateJiraIssueDescription(issueKey, description) {
+  try {
+    const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
+    
+    if (!JIRA_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) {
+      logger.error("Missing required Jira environment variables for description update");
+      return false;
+    }
+
+    const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
+    
+    // Update the issue description
+    await axios.put(
+      `${JIRA_URL}/rest/api/2/issue/${issueKey}`,
+      {
+        fields: {
+          description: description || "",
+        },
+      },
+      {
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        timeout: 10000,
+      }
+    );
+    
+    logger.info("Jira issue description updated successfully", {
+      issueKey,
+      descriptionLength: description ? description.length : 0,
+    });
+    
+    return true;
+    
+  } catch (error) {
+    logger.error("Failed to update Jira issue description", {
+      issueKey,
+      error: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      responseData: error.response?.data,
+    });
+    return false;
+  }
+}
+
+/**
+ * Transition a Jira issue to move it from backlog to board
+ * This function attempts to move the issue to the board's active "To Do" column
+ * Enhanced to support "in-progress" and "done" statuses
+ * @param {string} issueKey - The issue key (e.g., "PROJ-123")
+ * @param {string} targetStatusName - The target status name (default: "To Do")
+ * @returns {Promise<boolean>} True if transition successful
+ */
+async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
+  try {
+    const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
+    const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
+    
+    // Get current issue status
+    const issueResponse = await axios.get(
+      `${JIRA_URL}/rest/api/2/issue/${issueKey}?fields=status`,
+      {
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Accept": "application/json",
+        },
+        timeout: 10000,
+      }
+    );
+    
+    const currentStatus = issueResponse.data.fields.status.name;
+    
+    // Get available transitions for the issue
+    const transitionsResponse = await axios.get(
+      `${JIRA_URL}/rest/api/2/issue/${issueKey}/transitions`,
+      {
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Accept": "application/json",
+        },
+        timeout: 10000,
+      }
+    );
+    
+    const availableTransitions = transitionsResponse.data.transitions || [];
+    
+    // Priority order for transitions to move to board:
+    // 1. Look for transitions that explicitly go to "To Do" status
+    // 2. Look for "Start Progress" or "Move to Board" type transitions
+    // 3. Look for any transition that moves to the target status
+    
+    let targetTransition = null;
+    
+    // First, try to find exact match to target status
+    targetTransition = availableTransitions.find(transition => {
+      const transitionToStatus = transition.to?.name?.toLowerCase();
+      return transitionToStatus === targetStatusName.toLowerCase();
+    });
+    
+    // If not found, look for common board transition names
+    if (!targetTransition) {
+      const commonBoardTransitions = ["start progress", "move to board", "begin work", "move to sprint"];
+      targetTransition = availableTransitions.find(transition => {
+        const transitionName = transition.name?.toLowerCase();
+        return commonBoardTransitions.some(commonName => transitionName.includes(commonName));
+      });
+    }
+    
+    // If target is "in-progress", look for specific in-progress transitions
+    if (!targetTransition && targetStatusName.toLowerCase() === "in-progress") {
+      const inProgressTransitions = ["start progress", "in progress", "begin work", "work in progress"];
+      targetTransition = availableTransitions.find(transition => {
+        const transitionName = transition.name?.toLowerCase();
+        const toStatus = transition.to?.name?.toLowerCase();
+        return inProgressTransitions.some(progressName => 
+          transitionName.includes(progressName) || toStatus.includes("progress")
+        );
+      });
+    }
+    
+    // If target is "done", look for specific done/complete transitions
+    if (!targetTransition && targetStatusName.toLowerCase() === "done") {
+      const doneTransitions = ["done", "complete", "close", "resolve"];
+      targetTransition = availableTransitions.find(transition => {
+        const transitionName = transition.name?.toLowerCase();
+        const toStatus = transition.to?.name?.toLowerCase();
+        return doneTransitions.some(doneName => 
+          transitionName.includes(doneName) || toStatus.includes(doneName)
+        );
+      });
+    }
+    
+    // If still not found, try to find any transition that's not "Backlog" or "Closed"
+    if (!targetTransition) {
+      targetTransition = availableTransitions.find(transition => {
+        const toStatus = transition.to?.name?.toLowerCase();
+        return toStatus !== "backlog" && toStatus !== "closed" && toStatus !== "done";
+      });
+    }
+    
+    if (!targetTransition) {
+      logger.warn("Could not find suitable transition to move issue to board", {
+        issueKey,
+        currentStatus,
+        targetStatusName,
+        availableTransitions: availableTransitions.map(t => ({
+          id: t.id,
+          name: t.name,
+          toStatus: t.to?.name,
+        })),
+      });
+      return false;
+    }
+    
+    // Execute the transition
+    await axios.post(
+      `${JIRA_URL}/rest/api/2/issue/${issueKey}/transitions`,
+      {
+        transition: {
+          id: targetTransition.id,
+        },
+      },
+      {
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        timeout: 10000,
+      }
+    );
+    
+    logger.info("Issue transitioned successfully", {
+      issueKey,
+      currentStatus,
+      transitionName: targetTransition.name,
+      transitionToStatus: targetTransition.to?.name,
+      transitionId: targetTransition.id,
+    });
+    
+    return true;
+    
+  } catch (error) {
+    logger.error("Failed to transition issue", {
+      issueKey,
+      targetStatusName,
+      error: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      responseData: error.response?.data,
+    });
+    return false;
+  }
+}
+
+/**
+ * Create a Jira issue for a task (Coding or Non-Coding)
+ * @param {Object} taskData - Task data containing title, description, assignee, type, and labels
  * @param {string} taskData.title - Issue title (summary)
  * @param {string} taskData.description - Issue description
- * @param {string} taskData.assignee - Assignee name/email
+ * @param {string} taskData.assignee - Assignee name/email (null/undefined for future tasks)
  * @param {string} taskData.participant - Original participant name from transcript
+ * @param {string} taskData.type - Task type: "Coding" or "Non-Coding"
+ * @param {boolean} taskData.isFuturePlan - Whether this is a future plan task (no assignee)
+ * @param {Array<string>} taskData.labels - Optional labels to add to the issue
+ * @param {string} taskData.priority - Priority value (Highest/High/Medium/Low/Lowest), defaults to Medium if not provided
+ * @param {number} taskData.estimatedTime - Estimated time in hours, will be converted to seconds for Jira
  * @returns {Promise<Object>} Jira issue creation result
  */
 async function createJiraIssue(taskData) {
@@ -114,6 +341,21 @@ async function createJiraIssue(taskData) {
     }
 
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
+    
+    // Build labels array
+    const labels = [];
+    if (taskData.type === "Coding") {
+      labels.push("coding");
+    } else if (taskData.type === "Non-Coding") {
+      labels.push("non-coding");
+    }
+    if (taskData.isFuturePlan) {
+      labels.push("future-plan");
+    }
+    // Add any additional labels from taskData
+    if (taskData.labels && Array.isArray(taskData.labels)) {
+      labels.push(...taskData.labels);
+    }
     
     // Prepare the issue data
     const issueData = {
@@ -128,58 +370,96 @@ async function createJiraIssue(taskData) {
         },
       },
     };
+    
+    // Add labels if any
+    if (labels.length > 0) {
+      issueData.fields.labels = labels;
+    }
+
+    // Add priority field with fallback to Medium
+    const validPriorities = ["Highest", "High", "Medium", "Low", "Lowest"];
+    let priority = taskData.priority || null;
+    
+    // Validate and normalize priority
+    if (priority) {
+      // Normalize: trim whitespace, handle case variations
+      priority = String(priority).trim();
+      const lowerPriority = priority.toLowerCase();
+      
+      // Map common variations to standard values
+      if (lowerPriority === "highest" || lowerPriority === "highest priority") {
+        priority = "Highest";
+      } else if (lowerPriority === "high" || lowerPriority === "high priority") {
+        priority = "High";
+      } else if (lowerPriority === "medium" || lowerPriority === "medium priority" || lowerPriority === "normal" || lowerPriority === "standard") {
+        priority = "Medium";
+      } else if (lowerPriority === "low" || lowerPriority === "low priority") {
+        priority = "Low";
+      } else if (lowerPriority === "lowest" || lowerPriority === "lowest priority" || lowerPriority === "minimal") {
+        priority = "Lowest";
+      } else {
+        // Try exact match with case normalization
+        priority = priority.charAt(0).toUpperCase() + priority.slice(1).toLowerCase();
+      }
+      
+      // Final validation
+      if (!validPriorities.includes(priority)) {
+        logger.warn("Invalid priority value, defaulting to Medium", {
+          providedPriority: taskData.priority,
+          normalizedPriority: priority,
+        });
+        priority = "Medium";
+      }
+    } else {
+      // Default to Medium if not provided
+      priority = "Medium";
+    }
+    
+    // Set priority in issue data
+    issueData.fields.priority = {
+      name: priority,
+    };
+
+    // Add estimated time (timetracking) if provided
+    // Jira expects time in format like "1h" or "3600s"
+    const estimatedTimeHours = taskData.estimatedTime || 0;
+    if (estimatedTimeHours > 0) {
+      // Format as "Xh" (hours) or "Xs" (seconds) - Jira prefers hours format
+      const timeString = estimatedTimeHours >= 1 
+        ? `${Math.round(estimatedTimeHours)}h` 
+        : `${Math.round(estimatedTimeHours * 60)}m`;
+      
+      issueData.fields.timetracking = {
+        originalEstimate: timeString
+      };
+      
+      logger.info("Added estimated time to Jira issue", {
+        estimatedTimeHours: estimatedTimeHours,
+        timeString: timeString,
+        participant: taskData.participant,
+        title: taskData.title,
+      });
+    } else {
+      logger.info("No estimated time provided for Jira issue", {
+        participant: taskData.participant,
+        title: taskData.title,
+        estimatedTimeHours: estimatedTimeHours,
+      });
+    }
 
     // Try to assign the issue using the participant mapping
-    if (taskData.assignee) {
-      try {
-        // Search for user by email/username
-        const userSearchResponse = await axios.get(
-          `${JIRA_URL}/rest/api/2/user/search?query=${encodeURIComponent(taskData.assignee)}`,
-          {
-            headers: {
-              "Authorization": `Basic ${auth}`,
-              "Accept": "application/json",
-            },
-            timeout: 5000,
-          }
-        );
-        
-        if (userSearchResponse.data && userSearchResponse.data.length > 0) {
-          // Find exact match by email or accountId
-          const exactMatch = userSearchResponse.data.find(user => 
-            user.emailAddress?.toLowerCase() === taskData.assignee.toLowerCase() ||
-            user.name?.toLowerCase() === taskData.assignee.toLowerCase()
-          );
-          
-          const userToAssign = exactMatch || userSearchResponse.data[0];
-          
-          issueData.fields.assignee = {
-            accountId: userToAssign.accountId,
-          };
-          
-          logger.info("Found and assigned Jira user", {
-            participantName: taskData.participant,
-            assigneeEmail: taskData.assignee,
-            jiraAccountId: userToAssign.accountId,
-            jiraDisplayName: userToAssign.displayName,
-            jiraEmail: userToAssign.emailAddress,
-            exactMatch: !!exactMatch,
-          });
-        } else {
-          logger.warn("No Jira user found for assignee", {
-            participantName: taskData.participant,
-            assigneeEmail: taskData.assignee,
-          });
-        }
-      } catch (assigneeError) {
-        logger.warn("Could not search for assignee in Jira", {
-          participantName: taskData.participant,
-          assigneeEmail: taskData.assignee,
-          error: assigneeError.message,
-          status: assigneeError.response?.status,
-        });
-        // Continue creating the issue without assignee
-      }
+    // Skip assignee for future plans
+    // taskData.assignee now contains the Jira accountId directly from mapping
+    // No need to search via API - use it directly
+    if (taskData.assignee && !taskData.isFuturePlan) {
+      issueData.fields.assignee = {
+        accountId: taskData.assignee,
+      };
+      
+      logger.info("Assigned Jira issue using accountId from mapping", {
+        participantName: taskData.participant,
+        jiraAccountId: taskData.assignee,
+      });
     }
 
     // Create the issue
@@ -194,12 +474,39 @@ async function createJiraIssue(taskData) {
 
     const createdIssue = response.data;
     
+    // Transition non-future tasks to board's "To Do" column
+    // Future tasks stay in backlog's "To Do" (default location)
+    let transitioned = false;
+    if (!taskData.isFuturePlan) {
+      try {
+        transitioned = await transitionIssueToStatus(createdIssue.key, "To Do");
+        if (transitioned) {
+          logger.info("Issue transitioned to board's To Do", {
+            issueKey: createdIssue.key,
+          });
+        }
+      } catch (transitionError) {
+        // Log but don't fail the issue creation if transition fails
+        logger.warn("Failed to transition issue to board To Do (non-critical)", {
+          issueKey: createdIssue.key,
+          error: transitionError.message,
+        });
+      }
+    }
+    
     logger.info("Jira issue created successfully", {
       issueKey: createdIssue.key,
       issueId: createdIssue.id,
       title: taskData.title,
       participant: taskData.participant,
       assignee: taskData.assignee || "Unassigned",
+      type: taskData.type,
+      isFuturePlan: taskData.isFuturePlan,
+      priority: priority,
+      estimatedTimeHours: estimatedTimeHours,
+      estimatedTimeSeconds: estimatedTimeHours > 0 ? Math.round(estimatedTimeHours * 3600) : 0,
+      labels: labels,
+      transitionedToBoard: transitioned,
     });
 
     return {
@@ -210,6 +517,12 @@ async function createJiraIssue(taskData) {
       title: taskData.title,
       participant: taskData.participant,
       assignee: taskData.assignee,
+      type: taskData.type,
+      isFuturePlan: taskData.isFuturePlan,
+      priority: priority,
+      estimatedTimeHours: estimatedTimeHours,
+      labels: labels,
+      transitionedToBoard: transitioned,
     };
 
   } catch (error) {
@@ -232,66 +545,88 @@ async function createJiraIssue(taskData) {
 }
 
 /**
- * Create multiple Jira issues for coding tasks from all participants
+ * Create multiple Jira issues for tasks (both Coding and Non-Coding) from all participants
  * @param {Object} tasksData - Structured task data organized by participant
- * @returns {Promise<Object>} Results of issue creation for all coding tasks
+ * @returns {Promise<Object>} Results of issue creation for all tasks
  */
 async function createJiraIssuesForCodingTasks(tasksData) {
   const startTime = Date.now();
   
   try {
-    logger.info("Starting Jira issue creation for coding tasks", {
+    logger.info("Starting Jira issue creation for tasks", {
       participantCount: Object.keys(tasksData).length,
       timestamp: new Date().toISOString(),
     });
 
     const results = {
       success: true,
+      totalTasks: 0,
       totalCodingTasks: 0,
+      totalNonCodingTasks: 0,
       createdIssues: [],
       failedIssues: [],
       participants: [],
     };
 
-    // Process each participant's coding tasks
+    // Process each participant's tasks
     for (const [participant, participantTasks] of Object.entries(tasksData)) {
       const codingTasks = participantTasks.Coding || [];
+      const nonCodingTasks = participantTasks["Non-Coding"] || [];
+      const totalTasksForParticipant = codingTasks.length + nonCodingTasks.length;
       
-      if (codingTasks.length === 0) {
-        logger.info("No coding tasks found for participant", { participant });
+      if (totalTasksForParticipant === 0) {
+        logger.info("No tasks found for participant", { participant });
         continue;
       }
 
-      logger.info("Processing coding tasks for participant", {
+      logger.info("Processing tasks for participant", {
         participant,
         codingTaskCount: codingTasks.length,
+        nonCodingTaskCount: nonCodingTasks.length,
       });
 
       const participantResults = {
         participant,
         codingTaskCount: codingTasks.length,
+        nonCodingTaskCount: nonCodingTasks.length,
         createdIssues: [],
         failedIssues: [],
       };
 
-      // Process each coding task for this participant
+      // Process Coding tasks
       for (let i = 0; i < codingTasks.length; i++) {
         const task = codingTasks[i];
         const taskDescription = typeof task === "string" ? task : task.description;
+        const isFuturePlan = typeof task === "object" ? Boolean(task.isFuturePlan) : false;
+        const priority = typeof task === "object" ? (task.priority || null) : null;
+        const estimatedTime = typeof task === "object" ? (task.estimatedTime || 0) : 0;
         
+        logger.info("Extracting task data for Jira issue creation (Coding)", {
+          participant,
+          taskIndex: i,
+          priority: priority,
+          estimatedTimeHours: estimatedTime,
+          hasTitle: typeof task === "object" && !!task.title,
+          taskKeys: typeof task === "object" ? Object.keys(task) : "string task",
+        });
+
         try {
-          // First, generate a title for the task using GPT
-          const taskTitle = await generateTaskTitle(taskDescription);
+          // Use existing title if available (from pipeline), otherwise generate fallback
+          const taskTitle = task.title || taskDescription.substring(0, 50).replace(/[^\w\s]/g, "").trim() || "Untitled Task";
           
-          // Get the appropriate Jira assignee for this participant
-          const jiraAssignee = getJiraAssigneeForParticipant(participant);
+          // Get the appropriate Jira assignee for this participant (null for future plans)
+          const jiraAssignee = isFuturePlan ? null : getJiraAssigneeForParticipant(participant);
           
           // Create the Jira issue
           const issueResult = await createJiraIssue({
             title: taskTitle,
             description: taskDescription,
             participant: participant,
-            assignee: jiraAssignee, // Use mapped email/username for assignment
+            assignee: jiraAssignee,
+            type: "Coding",
+            isFuturePlan: isFuturePlan,
+            priority: priority,
+            estimatedTime: estimatedTime,
           });
 
           if (issueResult.success) {
@@ -302,6 +637,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
             results.failedIssues.push(issueResult);
           }
 
+          results.totalTasks++;
           results.totalCodingTasks++;
 
         } catch (taskError) {
@@ -316,12 +652,84 @@ async function createJiraIssuesForCodingTasks(tasksData) {
             success: false,
             error: taskError.message,
             participant,
+            type: "Coding",
             description: taskDescription,
           };
 
           participantResults.failedIssues.push(failedIssue);
           results.failedIssues.push(failedIssue);
+          results.totalTasks++;
           results.totalCodingTasks++;
+        }
+      }
+
+      // Process Non-Coding tasks
+      for (let i = 0; i < nonCodingTasks.length; i++) {
+        const task = nonCodingTasks[i];
+        const taskDescription = typeof task === "string" ? task : task.description;
+        const isFuturePlan = typeof task === "object" ? Boolean(task.isFuturePlan) : false;
+        const priority = typeof task === "object" ? (task.priority || null) : null;
+        const estimatedTime = typeof task === "object" ? (task.estimatedTime || 0) : 0;
+        
+        logger.info("Extracting task data for Jira issue creation (Non-Coding)", {
+          participant,
+          taskIndex: i,
+          priority: priority,
+          estimatedTimeHours: estimatedTime,
+          hasTitle: typeof task === "object" && !!task.title,
+          taskKeys: typeof task === "object" ? Object.keys(task) : "string task",
+        });
+        
+        try {
+          // Use existing title if available (from pipeline), otherwise generate fallback
+          const taskTitle = task.title || taskDescription.substring(0, 50).replace(/[^\w\s]/g, "").trim() || "Untitled Task";
+          
+          // Get the appropriate Jira assignee for this participant (null for future plans)
+          const jiraAssignee = isFuturePlan ? null : getJiraAssigneeForParticipant(participant);
+          
+          // Create the Jira issue
+          const issueResult = await createJiraIssue({
+            title: taskTitle,
+            description: taskDescription,
+            participant: participant,
+            assignee: jiraAssignee,
+            type: "Non-Coding",
+            isFuturePlan: isFuturePlan,
+            priority: priority,
+            estimatedTime: estimatedTime,
+          });
+
+          if (issueResult.success) {
+            participantResults.createdIssues.push(issueResult);
+            results.createdIssues.push(issueResult);
+          } else {
+            participantResults.failedIssues.push(issueResult);
+            results.failedIssues.push(issueResult);
+          }
+
+          results.totalTasks++;
+          results.totalNonCodingTasks++;
+
+        } catch (taskError) {
+          logger.error("Error processing individual non-coding task", {
+            participant,
+            taskIndex: i,
+            taskDescription: taskDescription.substring(0, 100),
+            error: taskError.message,
+          });
+
+          const failedIssue = {
+            success: false,
+            error: taskError.message,
+            participant,
+            type: "Non-Coding",
+            description: taskDescription,
+          };
+
+          participantResults.failedIssues.push(failedIssue);
+          results.failedIssues.push(failedIssue);
+          results.totalTasks++;
+          results.totalNonCodingTasks++;
         }
       }
 
@@ -334,14 +742,18 @@ async function createJiraIssuesForCodingTasks(tasksData) {
     results.success = results.failedIssues.length === 0;
     results.processingTime = `${duration.toFixed(2)}s`;
     results.summary = {
+      totalTasks: results.totalTasks,
       totalCodingTasks: results.totalCodingTasks,
+      totalNonCodingTasks: results.totalNonCodingTasks,
       successfulIssues: results.createdIssues.length,
       failedIssues: results.failedIssues.length,
       participantCount: results.participants.length,
     };
 
     logger.info("Jira issue creation completed", {
+      totalTasks: results.totalTasks,
       totalCodingTasks: results.totalCodingTasks,
+      totalNonCodingTasks: results.totalNonCodingTasks,
       successfulIssues: results.createdIssues.length,
       failedIssues: results.failedIssues.length,
       participantCount: results.participants.length,
@@ -364,7 +776,9 @@ async function createJiraIssuesForCodingTasks(tasksData) {
       success: false,
       error: error.message,
       processingTime: `${duration.toFixed(2)}s`,
+      totalTasks: 0,
       totalCodingTasks: 0,
+      totalNonCodingTasks: 0,
       createdIssues: [],
       failedIssues: [],
       participants: [],
@@ -373,96 +787,82 @@ async function createJiraIssuesForCodingTasks(tasksData) {
 }
 
 /**
- * Generate a concise title for a task using GPT
- * @param {string} taskDescription - The full task description
- * @returns {Promise<string>} Generated title (max 5 words)
+ * Update a Jira issue (both status and description)
+ * @param {string} issueKey - The issue key (e.g., "TRADES-123")
+ * @param {Object} updateData - Update data containing status and/or description
+ * @param {string} updateData.status - New status (optional, will be mapped: "In-progress" → "in-progress", "Completed" → "done")
+ * @param {string} updateData.description - New description (optional, complete replacement)
+ * @returns {Promise<Object>} Update result with success status for each operation
  */
-async function generateTaskTitle(taskDescription) {
-  const { processTranscriptForTasks } = require("./openaiService");
-  const OpenAI = require("openai");
+async function updateJiraIssue(issueKey, updateData) {
+  const result = {
+    success: true,
+    issueKey,
+    statusUpdated: false,
+    descriptionUpdated: false,
+    errors: [],
+  };
   
   try {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-
-    const prompt = `Generate a concise title (maximum 5 words) for this coding task:
-
-Task Description: ${taskDescription}
-
-Requirements:
-- Maximum 5 words
-- Should capture the essence of the task
-- Use simple, clear language
-- Focus on the main action/outcome
-- No special characters or punctuation
-
-Examples:
-- "Build user authentication system" → "Build Authentication System"
-- "Implement payment processing feature" → "Implement Payment Processing"
-- "Fix database connection bug" → "Fix Database Connection"
-
-Title:`;
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "You are a project management assistant that creates concise, clear titles for coding tasks. Always respond with exactly what is requested - just the title, nothing else."
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.3,
-      max_tokens: 50,
-    });
-
-    let title = response.choices[0].message.content.trim();
+    // Map MongoDB status to Jira status
+    const statusMapping = {
+      "In-progress": "in-progress",
+      "Completed": "done",
+    };
     
-    // Clean up the title - remove quotes, extra punctuation
-    title = title.replace(/^["']|["']$/g, ""); // Remove quotes
-    title = title.replace(/[.!?]*$/, ""); // Remove trailing punctuation
-    
-    // Ensure it's not longer than 5 words
-    const words = title.split(" ");
-    if (words.length > 5) {
-      title = words.slice(0, 5).join(" ");
+    // Update status if provided
+    if (updateData.status !== undefined) {
+      const jiraStatus = statusMapping[updateData.status] || updateData.status;
+      const statusSuccess = await transitionIssueToStatus(issueKey, jiraStatus);
+      result.statusUpdated = statusSuccess;
+      
+      if (!statusSuccess) {
+        result.success = false;
+        result.errors.push(`Failed to update status to ${jiraStatus}`);
+      }
     }
-
-    logger.info("Generated task title using GPT", {
-      originalDescription: taskDescription.substring(0, 100),
-      generatedTitle: title,
-      tokensUsed: response.usage.total_tokens,
-    });
-
-    return title;
-
-  } catch (error) {
-    logger.error("Failed to generate task title with GPT", {
-      taskDescription: taskDescription.substring(0, 100),
-      error: error.message,
-    });
-
-    // Fallback: create a simple title from the description
-    const words = taskDescription.split(" ").slice(0, 5);
-    const fallbackTitle = words.join(" ").replace(/[^\w\s]/g, "");
     
-    logger.info("Using fallback title generation", {
-      originalDescription: taskDescription.substring(0, 100),
-      fallbackTitle,
+    // Update description if provided
+    if (updateData.description !== undefined) {
+      const descriptionSuccess = await updateJiraIssueDescription(issueKey, updateData.description);
+      result.descriptionUpdated = descriptionSuccess;
+      
+      if (!descriptionSuccess) {
+        result.success = false;
+        result.errors.push("Failed to update description");
+      }
+    }
+    
+    logger.info("Jira issue update completed", {
+      issueKey,
+      statusUpdated: result.statusUpdated,
+      descriptionUpdated: result.descriptionUpdated,
+      success: result.success,
     });
-
-    return fallbackTitle;
+    
+    return result;
+    
+  } catch (error) {
+    logger.error("Failed to update Jira issue", {
+      issueKey,
+      updateData,
+      error: error.message,
+      stack: error.stack,
+    });
+    
+    result.success = false;
+    result.errors.push(error.message);
+    return result;
   }
 }
 
 module.exports = {
   testJiraConnection,
   getProjectInfo,
+  transitionIssueToStatus,
   createJiraIssue,
   createJiraIssuesForCodingTasks,
-  generateTaskTitle,
+  isJiraTicket,
+  updateJiraIssueDescription,
+  updateJiraIssue,
 };

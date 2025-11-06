@@ -137,6 +137,9 @@ async function findTasksFromTranscript(transcript, context = {}) {
       evidence: task.evidence,
       context: task.context,
       urgency: task.urgency,
+      priority: task.priority,
+      estimatedTime: task.estimatedTime || 0,
+      timeSpent: task.timeSpent || 0,
       isFuturePlan: task.isFuturePlan
     }));
 
@@ -146,7 +149,10 @@ async function findTasksFromTranscript(transcript, context = {}) {
       ticketId: task.ticketId,
       evidence: task.evidence,
       context: task.context,
-      urgency: task.urgency
+      urgency: task.urgency,
+      priority: task.priority,
+      estimatedTime: task.estimatedTime || 0,
+      timeSpent: task.timeSpent || 0,
     }));
 
     // console.log("[DEBUG] Task Finder returning attendees:", attendees);
@@ -359,14 +365,41 @@ When EXPLICIT future plan language found:
 - Be conservative - only extract when clearly mentioned
 - Context matters: "will take" = ESTIMATED, "spent/worked" = TIME_SPENT
 
-**7. TASK CANCELLATION DETECTION**:
+**7. PRIORITY EXTRACTION**:
+
+**PRIORITY PATTERNS** - Look for these patterns to extract task priority:
+- "high priority" / "high-priority" / "highly prioritized" → Highest or High
+- "urgent" / "urgently" / "asap" / "as soon as possible" → Highest or High
+- "critical" / "critically important" / "critical priority" → Highest
+- "low priority" / "low-priority" / "not urgent" / "not a priority" → Low or Lowest
+- "medium priority" / "normal priority" / "standard priority" → Medium
+- "highest priority" / "top priority" / "maximum priority" → Highest
+- "lowest priority" / "minimal priority" / "nice to have" → Lowest
+- Context clues: "blocking", "blocker", "must have" → High or Highest
+- Context clues: "can wait", "whenever", "backlog" → Low or Lowest
+
+**PRIORITY VALUES** (Jira standard):
+- Highest: For critical, blocking, or urgent tasks that must be done immediately
+- High: For important tasks that need attention soon
+- Medium: Default priority for most tasks (use if not mentioned)
+- Low: For tasks that can be deferred
+- Lowest: For nice-to-have or optional tasks
+
+**PRIORITY EXTRACTION RULES**:
+- Extract priority from explicit mentions in the conversation
+- Consider urgency context and timeline information
+- If priority is not mentioned, leave PRIORITY field blank (will default to Medium later)
+- Use context to infer priority when explicit language is used
+- Be conservative - only extract when clearly indicated
+
+**8. TASK CANCELLATION DETECTION**:
 Scan the ENTIRE transcript for task cancellation patterns:
 - If someone mentions a potential task early in the conversation
 - But later says cancellation phrases like: "actually, let's not", "never mind", "scratch that", "forget about that", "we decided not to", "on second thought", "let's hold off", "maybe later", "not right now", "let's table that"
 - Then DO NOT include that task in the final output
 - Always check the full conversation context before finalizing any task
 
-**8. CONTEXT GATHERING STRATEGY**:
+**9. CONTEXT GATHERING STRATEGY**:
 - Scan the ENTIRE transcript for ALL mentions of each identified task
 - For SP-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
 - For new tasks: Find the initial mention AND any subsequent elaborations or additions
@@ -374,7 +407,7 @@ Scan the ENTIRE transcript for task cancellation patterns:
 - Include all technical details, requirements, and context mentioned anywhere in the transcript
 - Capture task evolution - how requirements or scope might change during discussion
 
-**9. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
+**10. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
 - "for me" / "my task" / "I will" = assign to speaker
 - "for [Name]" / "[Name] will" / "[Name] should" = assign to that person
 - "task for [Name] who isn't here" = assign to that person (not TBD)
@@ -401,6 +434,7 @@ CATEGORY: [NEW_TASK or UPDATE_TASK]
 TICKET_ID: [SP-XXX if mentioned for updates, or "NONE" for new tasks]
 ESTIMATED_TIME: [Number in hours - e.g., "3", "16" (2 days), "0" if not mentioned]
 TIME_SPENT: [Number in hours - e.g., "5", "8" (1 day), "0" if not mentioned OR if NEW_TASK]
+PRIORITY: [Highest/High/Medium/Low/Lowest - extract from transcript context, or leave blank if not mentioned]
 EVIDENCE: [ALL specific quotes from transcript related to this task - include quotes from every mention throughout the meeting]
 CONTEXT: [Comprehensive context combining ALL discussions about this task - include initial mention, elaborations, technical details, and any additional requirements. Include [IS_FUTURE_PLAN: true] if this is a future plan]
 URGENCY: [Any timeline mentioned]
@@ -412,32 +446,7 @@ URGENCY: [Any timeline mentioned]
 4. Examples of GOOD TASK names: "Email notification system", "Mobile expense tracker", "Blue navigation menu"
 5. Examples of BAD TASK names: "NEW_TASK - Email notification system", "Purpose: Implement an email notification", "Create a task for email notifications"
 
-**TIME EXTRACTION EXAMPLES**:
 
-Example 1 - New task with estimate:
-Speaker: "I need to create a new task for the email notification system. It should take about 5 hours."
-→ ESTIMATED_TIME: 5
-→ TIME_SPENT: 0 (because it's a NEW_TASK)
-
-Example 2 - Existing task update with time spent:
-Speaker: "I've been working on SP-25 for the past 3 hours and should need another 2 hours to complete it."
-→ ESTIMATED_TIME: 5 (3 spent + 2 more needed)
-→ TIME_SPENT: 3
-
-Example 3 - Using minutes:
-Speaker: "This will take 90 minutes to complete"
-→ ESTIMATED_TIME: 1.5 (90 minutes = 1.5 hours)
-→ TIME_SPENT: 0
-
-Example 4 - Existing task with work done:
-Speaker: "SP-30 is almost done. I spent about 3 hours on it yesterday."
-→ ESTIMATED_TIME: 0 (not mentioned)
-→ TIME_SPENT: 3
-
-Example 5 - No time mentioned:
-Speaker: "I'll work on the dashboard updates"
-→ ESTIMATED_TIME: 0
-→ TIME_SPENT: 0
 
 **CRITICAL**: Properly classify each item as NEW_TASK or UPDATE_TASK based on whether a ticket number is mentioned.
 
@@ -532,6 +541,7 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
         urgency: "",
         estimatedTime: 0,     // Default to 0 hours
         timeSpent: 0,         // Default to 0 hours
+        priority: null,       // Default to null (will default to Medium in Jira)
         isFuturePlan: false, // Default to not a future plan
         source: "task_finder",
         stage: 1
@@ -584,6 +594,13 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
       } else if (trimmed.startsWith('TIME_SPENT:') || trimmed.startsWith('  TIME_SPENT:')) {
         const timeStr = trimmed.replace(/^\s*TIME_SPENT:\s*/, '').trim();
         currentTask.timeSpent = parseTimeStringToHours(timeStr);
+      } else if (trimmed.startsWith('PRIORITY:') || trimmed.startsWith('  PRIORITY:')) {
+        const priorityStr = trimmed.replace(/^\s*PRIORITY:\s*/, '').trim();
+        // Normalize priority to Jira standard values
+        if (priorityStr && priorityStr.length > 0) {
+          const normalizedPriority = normalizePriority(priorityStr);
+          currentTask.priority = normalizedPriority;
+        }
       }
     }
   }
@@ -659,6 +676,38 @@ function calculateAverageDescriptionLength(tasks) {
   
   const totalLength = tasks.reduce((sum, task) => sum + (task.description?.length || 0), 0);
   return Math.round(totalLength / tasks.length);
+}
+
+/**
+ * Normalize priority string to Jira standard values
+ * @param {string} priorityStr - Priority string from LLM response
+ * @returns {string|null} Normalized priority (Highest/High/Medium/Low/Lowest) or null if invalid
+ */
+function normalizePriority(priorityStr) {
+  if (!priorityStr || typeof priorityStr !== "string") return null;
+  
+  const normalized = priorityStr.trim();
+  const lower = normalized.toLowerCase();
+  
+  // Map to Jira standard values
+  if (lower === "highest" || lower === "highest priority") {
+    return "Highest";
+  }
+  if (lower === "high" || lower === "high priority") {
+    return "High";
+  }
+  if (lower === "medium" || lower === "medium priority" || lower === "normal" || lower === "standard") {
+    return "Medium";
+  }
+  if (lower === "low" || lower === "low priority") {
+    return "Low";
+  }
+  if (lower === "lowest" || lower === "lowest priority" || lower === "minimal") {
+    return "Lowest";
+  }
+  
+  // If it doesn't match, return null (will default to Medium in Jira)
+  return null;
 }
 
 /**

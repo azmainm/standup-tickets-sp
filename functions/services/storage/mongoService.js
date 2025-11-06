@@ -236,7 +236,8 @@ async function _addNewTasksToMongoEmbeddings(processedTasksData, assignedTicketI
  * Store processed tasks in MongoDB with unique ticket IDs and titles for each task
  * FIXED: Now merges with existing active tasks instead of creating separate documents
  * @param {Object} tasksData - Structured task data organized by participant
- * @param {Object} metadata - Additional metadata about the processing
+ * @param {Object} metadata - Additional metadata about the processing, including jiraTicketIdMap
+ * @param {Object} metadata.jiraTicketIdMap - Map of task keys to Jira ticketIds (format: "participant:Coding:index" -> "JIRA-123")
  * @returns {Promise<Object>} MongoDB insert result with document ID and ticket IDs
  */
 async function storeTasks(tasksData, _metadata = {}) {
@@ -251,6 +252,9 @@ async function storeTasks(tasksData, _metadata = {}) {
     // Import title generation function
     const { generateTaskTitlesInBatch } = require("../integrations/openaiService");
     
+    // Extract Jira ticketId map from metadata
+    const jiraTicketIdMap = _metadata.jiraTicketIdMap || {};
+    
     // Process NEW tasks and assign ticket IDs and titles
     const processedTasksData = {};
     const assignedTicketIds = [];
@@ -263,7 +267,8 @@ async function storeTasks(tasksData, _metadata = {}) {
         participant: name,
         codingTasks: tasks.Coding?.length || 0,
         nonCodingTasks: tasks["Non-Coding"]?.length || 0
-      }))
+      })),
+      jiraTicketIdsAvailable: Object.keys(jiraTicketIdMap).length
     });
     
     for (const [participantName, participantTasks] of Object.entries(tasksData)) {
@@ -289,8 +294,31 @@ async function storeTasks(tasksData, _metadata = {}) {
           participantTasks.Coding : 
           await generateTaskTitlesInBatch(participantTasks.Coding);
         
-        for (const task of tasksWithTitles) {
-          const ticketId = await getNextTicketId();
+        for (let codingIndex = 0; codingIndex < tasksWithTitles.length; codingIndex++) {
+          const task = tasksWithTitles[codingIndex];
+          
+          // Try to get Jira ticketId from map, fallback to SP-XXX format
+          // Use the original participantName (before cleaning) for mapping key
+          const taskKey = `${participantName}:Coding:${codingIndex}`;
+          let ticketId = jiraTicketIdMap[taskKey];
+          
+          if (!ticketId) {
+            // No Jira ticketId available, generate SP-XXX format
+            ticketId = await getNextTicketId();
+            logger.info("Using SP-XXX ticketId for Coding task (no Jira ID)", {
+              participant: participantName,
+              taskIndex: codingIndex,
+              taskKey,
+              ticketId
+            });
+          } else {
+            logger.info("Using Jira ticketId for Coding task", {
+              participant: participantName,
+              taskIndex: codingIndex,
+              taskKey,
+              ticketId
+            });
+          }
           
           // CRITICAL FIX: If participant is TBD, this is definitely a future plan
           const isFuturePlan = (participantName === "TBD") ? true : Boolean(task.isFuturePlan);
@@ -311,15 +339,38 @@ async function storeTasks(tasksData, _metadata = {}) {
         }
       }
       
-      // Process Non-Coding tasks
+      // Process Non-Coding tasks (now also use Jira ticketIds when available)
       if (participantTasks["Non-Coding"] && Array.isArray(participantTasks["Non-Coding"])) {
         // Use existing titles if available (from RAG), otherwise generate them
         const tasksWithTitles = participantTasks["Non-Coding"].some(task => task.title) ? 
           participantTasks["Non-Coding"] : 
           await generateTaskTitlesInBatch(participantTasks["Non-Coding"]);
         
-        for (const task of tasksWithTitles) {
-          const ticketId = await getNextTicketId();
+        for (let nonCodingIndex = 0; nonCodingIndex < tasksWithTitles.length; nonCodingIndex++) {
+          const task = tasksWithTitles[nonCodingIndex];
+          
+          // Try to get Jira ticketId from map, fallback to SP-XXX format
+          // Use the original participantName (before cleaning) for mapping key
+          const taskKey = `${participantName}:Non-Coding:${nonCodingIndex}`;
+          let ticketId = jiraTicketIdMap[taskKey];
+          
+          if (!ticketId) {
+            // No Jira ticketId available, generate SP-XXX format
+            ticketId = await getNextTicketId();
+            logger.info("Using SP-XXX ticketId for Non-Coding task (no Jira ID)", {
+              participant: participantName,
+              taskIndex: nonCodingIndex,
+              taskKey,
+              ticketId
+            });
+          } else {
+            logger.info("Using Jira ticketId for Non-Coding task", {
+              participant: participantName,
+              taskIndex: nonCodingIndex,
+              taskKey,
+              ticketId
+            });
+          }
           
           // CRITICAL FIX: If participant is TBD, this is definitely a future plan
           const isFuturePlan = (participantName === "TBD") ? true : Boolean(task.isFuturePlan);
@@ -798,13 +849,57 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 result: result.modifiedCount > 0 ? "success" : "no_changes"
               });
               
+              // Update Jira issue if this is a Jira ticket and MongoDB update was successful
+              let jiraUpdateResult = null;
+              if (result.modifiedCount > 0) {
+                try {
+                  const { isJiraTicket, updateJiraIssue } = require("../integrations/jiraService");
+                  
+                  if (isJiraTicket(ticketId)) {
+                    // Prepare update data for Jira (only include fields being updated)
+                    const jiraUpdateData = {};
+                    if (updateData.status !== undefined) {
+                      jiraUpdateData.status = updateData.status;
+                    }
+                    if (updateData.description !== undefined) {
+                      jiraUpdateData.description = updateData.description;
+                    }
+                    
+                    // Only update Jira if there's something to update
+                    if (Object.keys(jiraUpdateData).length > 0) {
+                      jiraUpdateResult = await updateJiraIssue(ticketId, jiraUpdateData);
+                      
+                      if (!jiraUpdateResult.success) {
+                        logger.warn("Jira update failed but MongoDB update succeeded", {
+                          ticketId,
+                          jiraErrors: jiraUpdateResult.errors,
+                        });
+                      } else {
+                        logger.info("Jira issue updated successfully", {
+                          ticketId,
+                          statusUpdated: jiraUpdateResult.statusUpdated,
+                          descriptionUpdated: jiraUpdateResult.descriptionUpdated,
+                        });
+                      }
+                    }
+                  }
+                } catch (jiraError) {
+                  // Log but don't fail MongoDB update
+                  logger.warn("Error updating Jira issue (non-blocking)", {
+                    ticketId,
+                    error: jiraError.message,
+                  });
+                }
+              }
+              
               return {
                 success: result.modifiedCount > 0,
                 documentId: doc._id,
                 participantName,
                 taskType: "Coding",
                 taskIndex: i,
-                modifiedCount: result.modifiedCount
+                modifiedCount: result.modifiedCount,
+                jiraUpdate: jiraUpdateResult
               };
             }
           }
@@ -871,13 +966,57 @@ async function updateTaskByTicketId(ticketId, updateData) {
                 result: result.modifiedCount > 0 ? "success" : "no_changes"
               });
               
+              // Update Jira issue if this is a Jira ticket and MongoDB update was successful
+              let jiraUpdateResult = null;
+              if (result.modifiedCount > 0) {
+                try {
+                  const { isJiraTicket, updateJiraIssue } = require("../integrations/jiraService");
+                  
+                  if (isJiraTicket(ticketId)) {
+                    // Prepare update data for Jira (only include fields being updated)
+                    const jiraUpdateData = {};
+                    if (updateData.status !== undefined) {
+                      jiraUpdateData.status = updateData.status;
+                    }
+                    if (updateData.description !== undefined) {
+                      jiraUpdateData.description = updateData.description;
+                    }
+                    
+                    // Only update Jira if there's something to update
+                    if (Object.keys(jiraUpdateData).length > 0) {
+                      jiraUpdateResult = await updateJiraIssue(ticketId, jiraUpdateData);
+                      
+                      if (!jiraUpdateResult.success) {
+                        logger.warn("Jira update failed but MongoDB update succeeded", {
+                          ticketId,
+                          jiraErrors: jiraUpdateResult.errors,
+                        });
+                      } else {
+                        logger.info("Jira issue updated successfully", {
+                          ticketId,
+                          statusUpdated: jiraUpdateResult.statusUpdated,
+                          descriptionUpdated: jiraUpdateResult.descriptionUpdated,
+                        });
+                      }
+                    }
+                  }
+                } catch (jiraError) {
+                  // Log but don't fail MongoDB update
+                  logger.warn("Error updating Jira issue (non-blocking)", {
+                    ticketId,
+                    error: jiraError.message,
+                  });
+                }
+              }
+              
               return {
                 success: result.modifiedCount > 0,
                 documentId: doc._id,
                 participantName,
                 taskType: "Non-Coding",
                 taskIndex: i,
-                modifiedCount: result.modifiedCount
+                modifiedCount: result.modifiedCount,
+                jiraUpdate: jiraUpdateResult
               };
             }
           }
@@ -922,6 +1061,31 @@ async function updateTask(documentId, taskPath, updateData) {
     
     const collection = db.collection(COLLECTION_NAME);
     
+    // Get the document to extract ticketId for Jira updates
+    const doc = await collection.findOne({ _id: documentId });
+    let ticketId = null;
+    
+    if (doc) {
+      // Extract ticketId from taskPath (e.g., "Azmain.Coding.0")
+      const pathParts = taskPath.split(".");
+      if (pathParts.length >= 3) {
+        const participantName = pathParts[0];
+        const taskType = pathParts[1];
+        const taskIndex = parseInt(pathParts[2], 10);
+        
+        if (doc[participantName] && doc[participantName][taskType] && 
+            Array.isArray(doc[participantName][taskType]) && 
+            doc[participantName][taskType][taskIndex]) {
+          ticketId = doc[participantName][taskType][taskIndex].ticketId;
+        }
+      }
+      
+      // Fallback to updateData.ticketId if available
+      if (!ticketId && updateData.ticketId) {
+        ticketId = updateData.ticketId;
+      }
+    }
+    
     // Prepare update object
     const updateObj = {};
     
@@ -952,12 +1116,13 @@ async function updateTask(documentId, taskPath, updateData) {
     });
     
     // Update embedding if task was successfully updated and has ticket ID
-    if (result.modifiedCount > 0 && updateData.ticketId) {
+    const ticketIdForEmbedding = ticketId || updateData.ticketId;
+    if (result.modifiedCount > 0 && ticketIdForEmbedding) {
       try {
         const { updateTaskEmbedding } = require("./mongoEmbeddingService");
         
-        await updateTaskEmbedding(updateData.ticketId, {
-          ticketId: updateData.ticketId,
+        await updateTaskEmbedding(ticketIdForEmbedding, {
+          ticketId: ticketIdForEmbedding,
           title: updateData.title || updateData.description?.substring(0, 50) || "",
           description: updateData.description || "",
           participantName: updateData.participantName || "Unknown",
@@ -968,10 +1133,53 @@ async function updateTask(documentId, taskPath, updateData) {
           timeTaken: updateData.timeTaken || 0
         });
         
-        console.log(`[DEBUG] Updated embedding for task ${updateData.ticketId}`);
+        console.log(`[DEBUG] Updated embedding for task ${ticketIdForEmbedding}`);
       } catch (embeddingError) {
-        console.log(`[DEBUG] Error updating embedding for ${updateData.ticketId}: ${embeddingError.message}`);
+        console.log(`[DEBUG] Error updating embedding for ${ticketIdForEmbedding}: ${embeddingError.message}`);
         // Don't fail the main update if embedding update fails
+      }
+    }
+    
+    // Update Jira issue if this is a Jira ticket and MongoDB update was successful
+    let jiraUpdateResult = null;
+    if (result.modifiedCount > 0 && ticketId) {
+      try {
+        const { isJiraTicket, updateJiraIssue } = require("../integrations/jiraService");
+        
+        if (isJiraTicket(ticketId)) {
+          // Prepare update data for Jira (only include fields being updated)
+          const jiraUpdateData = {};
+          if (updateData.status !== undefined) {
+            jiraUpdateData.status = updateData.status;
+          }
+          if (updateData.description !== undefined) {
+            jiraUpdateData.description = updateData.description;
+          }
+          
+          // Only update Jira if there's something to update
+          if (Object.keys(jiraUpdateData).length > 0) {
+            jiraUpdateResult = await updateJiraIssue(ticketId, jiraUpdateData);
+            
+            if (!jiraUpdateResult.success) {
+              logger.warn("Jira update failed but MongoDB update succeeded", {
+                ticketId,
+                jiraErrors: jiraUpdateResult.errors,
+              });
+            } else {
+              logger.info("Jira issue updated successfully", {
+                ticketId,
+                statusUpdated: jiraUpdateResult.statusUpdated,
+                descriptionUpdated: jiraUpdateResult.descriptionUpdated,
+              });
+            }
+          }
+        }
+      } catch (jiraError) {
+        // Log but don't fail MongoDB update
+        logger.warn("Error updating Jira issue (non-blocking)", {
+          ticketId,
+          error: jiraError.message,
+        });
       }
     }
     
@@ -979,6 +1187,7 @@ async function updateTask(documentId, taskPath, updateData) {
       success: result.modifiedCount > 0,
       matchedCount: result.matchedCount,
       modifiedCount: result.modifiedCount,
+      jiraUpdate: jiraUpdateResult
     };
     
   } catch (error) {

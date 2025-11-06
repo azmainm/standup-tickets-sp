@@ -705,7 +705,7 @@ function parseEnhancedGPTResponse(gptResponse) {
           }
           // Additional keyword-based detection
           else if (taskDescription && 
-                   (/future plan|future enhancement|future consideration|roadmap|Q\d|later|planned for|for the future|something for later|future initiative|down the line|eventually|future enhancement/i.test(taskDescription))) {
+                   (/future plan|future enhancement|future consideration|roadmap|Q\d|later|planned for|for the future|something for later|future initiative|down the line|eventually/i.test(taskDescription))) {
             isFuturePlan = true;
             logger.info("Future plan detected by keywords", { description: taskDescription.substring(0, 100) });
           }
@@ -1121,6 +1121,7 @@ function convertPipelineResultsToLegacyFormat(newTasks, taskUpdates) {
       status: "To-do",
       estimatedTime: task.estimatedTime || 0,
       timeTaken: task.timeSpent || 0,
+      priority: task.priority || null,  // ADD THIS - priority is being lost here!
       isFuturePlan: task.isFuturePlan || false,
       taskType: "NEW TASK",
       source: "pipeline_stage_1_2"

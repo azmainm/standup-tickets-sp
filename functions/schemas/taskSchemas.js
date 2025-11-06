@@ -19,7 +19,8 @@ const TaskSchema = z.object({
   timeSpent: z.number().min(0).default(0),
   status: z.enum(["To-do", "In-progress", "Completed"]).default("To-do"),
   isFuturePlan: z.boolean(),
-  assignee: z.string().min(1, "Assignee cannot be empty")
+  assignee: z.string().min(1, "Assignee cannot be empty"),
+  priority: z.enum(["Highest", "High", "Medium", "Low", "Lowest"]).nullable().optional()
 });
 
 // Schema for participant tasks
@@ -50,7 +51,7 @@ const AssigneeDetectionSchema = z.object({
 
 // Schema for status change detection
 const StatusChangeSchema = z.object({
-  taskId: z.string().regex(/^SP-\d+$/),
+  taskId: z.string().regex(/^(SP-\d+|[A-Z]{2,}-\d+)$/), // Accepts both SP-XXX and Jira formats like TRADES-XXX
   newStatus: z.enum(["To-do", "In-progress", "Completed"]),
   confidence: z.number().min(0).max(1),
   evidence: z.string(),
@@ -219,7 +220,8 @@ function sanitizeTask(task, assignee) {
     timeSpent: Math.max(0, Number(task.timeSpent) || 0),
     status: ["To-do", "In-progress", "Completed"].includes(task.status) ? task.status : "To-do",
     isFuturePlan: Boolean(task.isFuturePlan),
-    assignee: String(task.assignee || assignee || "TBD").trim()
+    assignee: String(task.assignee || assignee || "TBD").trim(),
+    priority: task.priority || null
   };
 }
 

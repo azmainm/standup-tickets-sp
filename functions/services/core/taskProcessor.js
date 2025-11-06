@@ -13,7 +13,7 @@
 
 const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("../integrations/openaiService");
 const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("../storage/mongoService");
-// const { createJiraIssuesForCodingTasks } = require("../integrations/jiraService"); // Removed from main flow
+const { createJiraIssuesForCodingTasks } = require("../integrations/jiraService");
 const { matchTasksWithDatabase, normalizeTicketId } = require("../pipeline/taskMatcher");
 const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("../integrations/teamsService");
 const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("../utilities/statusChangeDetectionService");
@@ -244,7 +244,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
       }
     }
 
-    // Step 9: Store new tasks in MongoDB (only the ones that don't match existing tasks)
+    // Step 9: Store new tasks in MongoDB (Jira integration removed - legacy function not used)
     logger.info("💾 Step 9: Storing new tasks in MongoDB", {
       newTasksCount: matchingResult.summary.newTasks,
     });
@@ -273,6 +273,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
         newTasksForStorage[newTask.participantName][newTask.type].push(taskObject);
       }
       
+      // Store tasks without Jira integration (legacy function)
       mongoResult = await storeTasks(newTasksForStorage, {
         ...openaiResult.metadata,
         transcriptMetadata,
@@ -291,19 +292,6 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
       };
     }
 
-    // Step 10: Jira integration removed from main flow (kept jiraService.js for future reuse)
-    logger.info("⏭️  Step 10: Skipping Jira integration (removed from main flow)");
-    const jiraResult = {
-      success: true,
-      skipped: true,
-      message: "Jira integration removed from main flow",
-      totalCodingTasks: 0,
-      createdIssues: [],
-      failedIssues: [],
-      participants: [],
-      processingTime: "0s"
-    };
-
     // Step 11: Send enhanced summary to Teams webhook
     logger.info("📢 Step 11: Sending enhanced standup summary to Teams");
     let teamsResult = null;
@@ -312,7 +300,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
       // Generate summary data from the complete task processing result
       const summaryData = generateSummaryDataFromTaskResult({
         taskMatching: matchingResult,
-        jira: jiraResult,
+        jira: { success: true, skipped: true, message: "Jira integration removed from legacy function" },
         tasks: openaiResult.tasks
       }, mongoResult);
       
@@ -324,7 +312,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
       teamsResult = await sendStandupSummaryToTeams(summaryData, {
         standupDate,
         processingDuration: (Date.now() - startTime) / 1000,
-        jiraIntegrationSuccess: jiraResult?.success || false,
+        jiraIntegrationSuccess: false, // Jira integration removed from legacy function
         testRun: processingOptions.testMode || false,
       });
       
@@ -391,7 +379,7 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
         applied: statusChangeResults,
         summary: statusChangeSummary
       },
-      jira: jiraResult,
+      jira: { success: true, skipped: true, message: "Jira integration removed from legacy function" },
       teams: teamsResult,
       validation: {
         openaiValidation: validationResult,
@@ -843,7 +831,136 @@ async function processTranscriptToTasksWithPipeline(
       throw new Error("3-Stage Pipeline processing failed");
     }
 
-    // Step 4: Store new tasks and apply updates
+    // Step 9: Create Jira issues for all tasks (Coding and Non-Coding) before MongoDB storage
+    logger.info("🎫 Step 9: Creating Jira issues for all tasks", {
+      newTasksCount: Object.keys(pipelineResult.tasks).length > 0 ? 
+        Object.values(pipelineResult.tasks).reduce((sum, pt) => 
+          sum + (pt.Coding?.length || 0) + (pt["Non-Coding"]?.length || 0), 0) : 0,
+    });
+    
+    let jiraResult = null;
+    let jiraTicketIdMap = {}; // Maps task identifier to Jira ticketId
+    
+    if (Object.keys(pipelineResult.tasks).length > 0) {
+      // Prepare tasks for Jira (tasks are already in the correct format from pipeline)
+      const tasksForJira = {};
+      
+      // Convert pipeline tasks format to Jira format (they're already in the right structure)
+      for (const [participant, participantTasks] of Object.entries(pipelineResult.tasks)) {
+        if ((participantTasks.Coding && participantTasks.Coding.length > 0) || 
+            (participantTasks["Non-Coding"] && participantTasks["Non-Coding"].length > 0)) {
+          tasksForJira[participant] = {
+            "Coding": (participantTasks.Coding || []).map(task => {
+              const mappedTask = {
+                description: task.description,
+                title: task.title,
+                status: task.status || "To-do",
+                estimatedTime: task.estimatedTime || 0,
+                timeTaken: task.timeTaken || 0,
+                priority: task.priority || null,
+                isFuturePlan: Boolean(task.isFuturePlan)
+              };
+              
+              logger.info("Mapping task for Jira (Coding)", {
+                participant,
+                title: mappedTask.title,
+                priority: mappedTask.priority,
+                estimatedTime: mappedTask.estimatedTime,
+                hasPriority: task.priority !== undefined && task.priority !== null,
+                hasEstimatedTime: task.estimatedTime !== undefined && task.estimatedTime !== null && task.estimatedTime > 0,
+              });
+              
+              return mappedTask;
+            }),
+            "Non-Coding": (participantTasks["Non-Coding"] || []).map(task => {
+              const mappedTask = {
+                description: task.description,
+                title: task.title,
+                status: task.status || "To-do",
+                estimatedTime: task.estimatedTime || 0,
+                timeTaken: task.timeTaken || 0,
+                priority: task.priority || null,
+                isFuturePlan: Boolean(task.isFuturePlan)
+              };
+              
+              logger.info("Mapping task for Jira (Non-Coding)", {
+                participant,
+                title: mappedTask.title,
+                priority: mappedTask.priority,
+                estimatedTime: mappedTask.estimatedTime,
+                hasPriority: task.priority !== undefined && task.priority !== null,
+                hasEstimatedTime: task.estimatedTime !== undefined && task.estimatedTime !== null && task.estimatedTime > 0,
+              });
+              
+              return mappedTask;
+            })
+          };
+        }
+      }
+      
+      // Create Jira issues if there are any tasks
+      const hasTasks = Object.keys(tasksForJira).length > 0 && 
+          Object.values(tasksForJira).some(pt => 
+            (pt.Coding && pt.Coding.length > 0) || 
+            (pt["Non-Coding"] && pt["Non-Coding"].length > 0)
+          );
+      
+      if (hasTasks) {
+        jiraResult = await createJiraIssuesForCodingTasks(tasksForJira);
+        
+        // Map Jira results back to tasks by participant and order
+        for (const participantResult of jiraResult.participants || []) {
+          const participant = participantResult.participant;
+          let codingIndex = 0;
+          let nonCodingIndex = 0;
+          
+          // Map successful Jira issues
+          for (const issue of participantResult.createdIssues || []) {
+            const issueType = issue.type || "Coding";
+            
+            let taskKey;
+            if (issueType === "Coding") {
+              taskKey = `${participant}:Coding:${codingIndex}`;
+              codingIndex++;
+            } else {
+              taskKey = `${participant}:Non-Coding:${nonCodingIndex}`;
+              nonCodingIndex++;
+            }
+            
+            jiraTicketIdMap[taskKey] = issue.issueKey;
+            logger.info("Mapped Jira issue to task", {
+              taskKey,
+              jiraIssueKey: issue.issueKey,
+              participant,
+              type: issueType,
+            });
+          }
+        }
+        
+        logger.info("Jira ticket ID mapping created", {
+          totalMappings: Object.keys(jiraTicketIdMap).length,
+          participants: Object.keys(tasksForJira).length,
+        });
+      } else {
+        jiraResult = {
+          success: true,
+          createdIssues: [],
+          failedIssues: [],
+          participants: [],
+          message: "No tasks to create Jira issues for",
+        };
+      }
+    } else {
+      jiraResult = {
+        success: true,
+        createdIssues: [],
+        failedIssues: [],
+        participants: [],
+        message: "No new tasks to create Jira issues for",
+      };
+    }
+
+    // Step 4: Store new tasks and apply updates (with Jira ticketId mapping)
     logger.info("💾 Step 4: Storing new tasks and applying updates");
     let mongoResult = null;
     
@@ -853,7 +970,8 @@ async function processTranscriptToTasksWithPipeline(
         transcriptMetadata,
         transcriptDocumentId: transcriptStorageResult.documentId,
         processingDuration: (Date.now() - startTime) / 1000,
-        pipelineVersion: "1.0"
+        pipelineVersion: "1.0",
+        jiraTicketIdMap: jiraTicketIdMap, // Pass Jira ticketId mapping
       });
     } else {
       mongoResult = {
@@ -1143,7 +1261,7 @@ async function processTranscriptToTasksWithPipeline(
           applied: statusChangeResults.filter(r => r.success).length
         }
       },
-      jira: { success: true, skipped: true, message: "Jira integration removed" },
+      jira: jiraResult,
       teams: teamsResult,
       processing: {
         duration: completeDuration,

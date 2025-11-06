@@ -27,57 +27,57 @@ function detectStatusChanges(transcriptText, speaker) {
       containsCompleted: transcriptText.toLowerCase().includes('completed')
     });
     
-    // Patterns for completion
+    // Patterns for completion (supports both SP-XXX and Jira ticket formats like TRADES-XXX)
     const completionPatterns = [
-      // "SP-XX is completed/done/finished" (more precise - avoid words like "complete" in middle of sentence)
+      // "SP-XX is completed/done/finished" or "TRADES-204 is completed"
       {
-        pattern: /\b(sp[-\s]?\d+)\s+(?:is|was|has\s+been)\s+(?:now\s+|definitely\s+)?(?:completed?|done|finished|resolved)\b/gi,
+        pattern: /\b((?:sp|[A-Z]{2,})[-\s]?\d+)\s+(?:is|was|has\s+been)\s+(?:now\s+|definitely\s+)?(?:completed?|done|finished|resolved)\b/gi,
         status: "Completed",
         confidence: 0.9
       },
-      // "completed SP-XX"
+      // "completed SP-XX" or "completed TRADES-204"
       {
-        pattern: /\b(?:completed?|finished|done\s+with)\s+(sp[-\s]?\d+)\b/gi,
+        pattern: /\b(?:completed?|finished|done\s+with)\s+((?:sp|[A-Z]{2,})[-\s]?\d+)\b/gi,
         status: "Completed", 
         confidence: 0.9
       },
-      // "SP-XX - completed" or "SP-XX completed" (exact word boundary)
+      // "SP-XX - completed" or "TRADES-204 completed"
       {
-        pattern: /\b(sp[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:completed?|finished|done)\b(?!\s+(?:by|in|within|about))/gi,
+        pattern: /\b((?:sp|[A-Z]{2,})[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:completed?|finished|done)\b(?!\s+(?:by|in|within|about))/gi,
         status: "Completed",
         confidence: 0.8
       },
-      // "I completed SP-XX"
+      // "I completed SP-XX" or "I've completed TRADES-204"
       {
-        pattern: /\b(?:i\s+)?(?:have\s+)?(?:completed?|finished|done)\s+(?:working\s+on\s+)?(sp[-\s]?\d+)\b/gi,
+        pattern: /\b(?:i\s+)?(?:have\s+)?(?:completed?|finished|done)\s+(?:working\s+on\s+)?((?:sp|[A-Z]{2,})[-\s]?\d+)\b/gi,
         status: "Completed",
         confidence: 0.9
       }
     ];
 
-    // Patterns for in-progress
+    // Patterns for in-progress (supports both SP-XXX and Jira ticket formats)
     const inProgressPatterns = [
-      // "SP-XX is in progress/started"
+      // "SP-XX is in progress/started" or "TRADES-204 is in progress"
       {
-        pattern: /\b(sp[-\s]?\d+)\s+(?:is|was)?\s*(?:in\s+progress|started|begun|underway|ongoing)\b/gi,
+        pattern: /\b((?:sp|[A-Z]{2,})[-\s]?\d+)\s+(?:is|was)?\s*(?:in\s+progress|started|begun|underway|ongoing)\b/gi,
         status: "In-progress",
         confidence: 0.9
       },
-      // "started SP-XX"
+      // "started SP-XX" or "started TRADES-204"
       {
-        pattern: /\b(?:started|began|begun)\s+(?:working\s+on\s+)?(sp[-\s]?\d+)\b/gi,
+        pattern: /\b(?:started|began|begun)\s+(?:working\s+on\s+)?((?:sp|[A-Z]{2,})[-\s]?\d+)\b/gi,
         status: "In-progress",
         confidence: 0.9
       },
-      // "working on SP-XX"
+      // "working on SP-XX" or "working on TRADES-204"
       {
-        pattern: /\b(?:working\s+on|currently\s+on)\s+(sp[-\s]?\d+)\b/gi,
+        pattern: /\b(?:working\s+on|currently\s+on)\s+((?:sp|[A-Z]{2,})[-\s]?\d+)\b/gi,
         status: "In-progress",
         confidence: 0.8
       },
-      // "SP-XX - started" or "SP-XX started"
+      // "SP-XX - started" or "TRADES-204 started"
       {
-        pattern: /\b(sp[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:started|begun|in\s+progress)\b/gi,
+        pattern: /\b((?:sp|[A-Z]{2,})[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:started|begun|in\s+progress)\b/gi,
         status: "In-progress",
         confidence: 0.8
       }
@@ -221,7 +221,7 @@ function detectStatusChangesFromTranscript(transcriptEntries) {
 }
 
 /**
- * Normalize task ID to standard format (SP-XX)
+ * Normalize task ID to standard format (SP-XX or Jira format like TRADES-XX)
  * @param {string} rawTaskId - Raw task ID from text
  * @returns {string|null} Normalized task ID or null if invalid
  */
@@ -231,10 +231,33 @@ function normalizeTaskId(rawTaskId) {
   // Remove spaces and convert to uppercase
   const cleaned = rawTaskId.replace(/\s+/g, "").toUpperCase();
   
-  // Check if it matches SP followed by numbers
-  const match = cleaned.match(/^SP[-]?(\d+)$/);
-  if (match) {
-    return `SP-${match[1]}`;
+  // Check if it matches SP followed by numbers (legacy format)
+  const spMatch = cleaned.match(/^SP[-]?(\d+)$/);
+  if (spMatch) {
+    return `SP-${spMatch[1]}`;
+  }
+  
+  // Check if it matches Jira ticket format (PROJECTKEY-NUMBER)
+  // This matches formats like: TRADES-204, PROJ-123, ABC-456
+  // Must have at least 2 uppercase letters followed by dash and numbers
+  const jiraMatch = cleaned.match(/^([A-Z]{2,})[-]?(\d+)$/);
+  if (jiraMatch) {
+    const projectKey = jiraMatch[1];
+    const number = jiraMatch[2];
+    
+    // Verify it's likely a Jira ticket by checking against project key if available
+    try {
+      const { JIRA_PROJECT_KEY } = process.env;
+      if (JIRA_PROJECT_KEY && projectKey === JIRA_PROJECT_KEY.toUpperCase()) {
+        return `${projectKey}-${number}`;
+      }
+      // If no project key configured or doesn't match, still accept the format
+      // This is lenient to handle multiple Jira projects or future projects
+      return `${projectKey}-${number}`;
+    } catch (error) {
+      // If env check fails, still accept the format
+      return `${projectKey}-${number}`;
+    }
   }
   
   return null;
