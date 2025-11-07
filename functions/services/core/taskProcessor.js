@@ -858,6 +858,7 @@ async function processTranscriptToTasksWithPipeline(
                 estimatedTime: task.estimatedTime || 0,
                 timeTaken: task.timeTaken || 0,
                 priority: task.priority || null,
+                storyPoints: task.storyPoints || null,
                 isFuturePlan: Boolean(task.isFuturePlan)
               };
               
@@ -866,8 +867,10 @@ async function processTranscriptToTasksWithPipeline(
                 title: mappedTask.title,
                 priority: mappedTask.priority,
                 estimatedTime: mappedTask.estimatedTime,
+                storyPoints: mappedTask.storyPoints,
                 hasPriority: task.priority !== undefined && task.priority !== null,
                 hasEstimatedTime: task.estimatedTime !== undefined && task.estimatedTime !== null && task.estimatedTime > 0,
+                hasStoryPoints: task.storyPoints !== undefined && task.storyPoints !== null && task.storyPoints > 0,
               });
               
               return mappedTask;
@@ -880,6 +883,7 @@ async function processTranscriptToTasksWithPipeline(
                 estimatedTime: task.estimatedTime || 0,
                 timeTaken: task.timeTaken || 0,
                 priority: task.priority || null,
+                storyPoints: task.storyPoints || null,
                 isFuturePlan: Boolean(task.isFuturePlan)
               };
               
@@ -888,8 +892,10 @@ async function processTranscriptToTasksWithPipeline(
                 title: mappedTask.title,
                 priority: mappedTask.priority,
                 estimatedTime: mappedTask.estimatedTime,
+                storyPoints: mappedTask.storyPoints,
                 hasPriority: task.priority !== undefined && task.priority !== null,
                 hasEstimatedTime: task.estimatedTime !== undefined && task.estimatedTime !== null && task.estimatedTime > 0,
+                hasStoryPoints: task.storyPoints !== undefined && task.storyPoints !== null && task.storyPoints > 0,
               });
               
               return mappedTask;

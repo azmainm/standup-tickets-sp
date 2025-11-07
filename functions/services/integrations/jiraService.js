@@ -330,6 +330,7 @@ async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
  * @param {Array<string>} taskData.labels - Optional labels to add to the issue
  * @param {string} taskData.priority - Priority value (Highest/High/Medium/Low/Lowest), defaults to Medium if not provided
  * @param {number} taskData.estimatedTime - Estimated time in hours, will be converted to seconds for Jira
+ * @param {number} taskData.storyPoints - Optional story points value, only added if provided and > 0
  * @returns {Promise<Object>} Jira issue creation result
  */
 async function createJiraIssue(taskData) {
@@ -447,6 +448,18 @@ async function createJiraIssue(taskData) {
       });
     }
 
+    // Add story points to custom field 10166 if provided
+    const storyPoints = taskData.storyPoints;
+    if (storyPoints !== undefined && storyPoints !== null && storyPoints > 0) {
+      issueData.fields.customfield_10166 = storyPoints;
+      
+      logger.info("Added story points to Jira issue", {
+        storyPoints: storyPoints,
+        participant: taskData.participant,
+        title: taskData.title,
+      });
+    }
+
     // Try to assign the issue using the participant mapping
     // Skip assignee for future plans
     // taskData.assignee now contains the Jira accountId directly from mapping
@@ -505,6 +518,7 @@ async function createJiraIssue(taskData) {
       priority: priority,
       estimatedTimeHours: estimatedTimeHours,
       estimatedTimeSeconds: estimatedTimeHours > 0 ? Math.round(estimatedTimeHours * 3600) : 0,
+      storyPoints: storyPoints || null,
       labels: labels,
       transitionedToBoard: transitioned,
     });
@@ -521,6 +535,7 @@ async function createJiraIssue(taskData) {
       isFuturePlan: taskData.isFuturePlan,
       priority: priority,
       estimatedTimeHours: estimatedTimeHours,
+      storyPoints: storyPoints || null,
       labels: labels,
       transitionedToBoard: transitioned,
     };
@@ -600,12 +615,14 @@ async function createJiraIssuesForCodingTasks(tasksData) {
         const isFuturePlan = typeof task === "object" ? Boolean(task.isFuturePlan) : false;
         const priority = typeof task === "object" ? (task.priority || null) : null;
         const estimatedTime = typeof task === "object" ? (task.estimatedTime || 0) : 0;
+        const storyPoints = typeof task === "object" ? (task.storyPoints || null) : null;
         
         logger.info("Extracting task data for Jira issue creation (Coding)", {
           participant,
           taskIndex: i,
           priority: priority,
           estimatedTimeHours: estimatedTime,
+          storyPoints: storyPoints,
           hasTitle: typeof task === "object" && !!task.title,
           taskKeys: typeof task === "object" ? Object.keys(task) : "string task",
         });
@@ -627,6 +644,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
             isFuturePlan: isFuturePlan,
             priority: priority,
             estimatedTime: estimatedTime,
+            storyPoints: storyPoints,
           });
 
           if (issueResult.success) {
@@ -670,12 +688,14 @@ async function createJiraIssuesForCodingTasks(tasksData) {
         const isFuturePlan = typeof task === "object" ? Boolean(task.isFuturePlan) : false;
         const priority = typeof task === "object" ? (task.priority || null) : null;
         const estimatedTime = typeof task === "object" ? (task.estimatedTime || 0) : 0;
+        const storyPoints = typeof task === "object" ? (task.storyPoints || null) : null;
         
         logger.info("Extracting task data for Jira issue creation (Non-Coding)", {
           participant,
           taskIndex: i,
           priority: priority,
           estimatedTimeHours: estimatedTime,
+          storyPoints: storyPoints,
           hasTitle: typeof task === "object" && !!task.title,
           taskKeys: typeof task === "object" ? Object.keys(task) : "string task",
         });
@@ -697,6 +717,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
             isFuturePlan: isFuturePlan,
             priority: priority,
             estimatedTime: estimatedTime,
+            storyPoints: storyPoints,
           });
 
           if (issueResult.success) {

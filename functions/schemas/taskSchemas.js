@@ -20,7 +20,8 @@ const TaskSchema = z.object({
   status: z.enum(["To-do", "In-progress", "Completed"]).default("To-do"),
   isFuturePlan: z.boolean(),
   assignee: z.string().min(1, "Assignee cannot be empty"),
-  priority: z.enum(["Highest", "High", "Medium", "Low", "Lowest"]).nullable().optional()
+  priority: z.enum(["Highest", "High", "Medium", "Low", "Lowest"]).nullable().optional(),
+  storyPoints: z.number().min(0).nullable().optional()
 });
 
 // Schema for participant tasks
@@ -221,7 +222,8 @@ function sanitizeTask(task, assignee) {
     status: ["To-do", "In-progress", "Completed"].includes(task.status) ? task.status : "To-do",
     isFuturePlan: Boolean(task.isFuturePlan),
     assignee: String(task.assignee || assignee || "TBD").trim(),
-    priority: task.priority || null
+    priority: task.priority || null,
+    storyPoints: task.storyPoints !== undefined && task.storyPoints !== null ? Math.max(0, Number(task.storyPoints)) : null
   };
 }
 

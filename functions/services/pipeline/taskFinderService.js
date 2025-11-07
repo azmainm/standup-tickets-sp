@@ -140,6 +140,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
       priority: task.priority,
       estimatedTime: task.estimatedTime || 0,
       timeSpent: task.timeSpent || 0,
+      storyPoints: task.storyPoints || null,
       isFuturePlan: task.isFuturePlan
     }));
 
@@ -153,6 +154,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
       priority: task.priority,
       estimatedTime: task.estimatedTime || 0,
       timeSpent: task.timeSpent || 0,
+      storyPoints: task.storyPoints || null,
     }));
 
     // console.log("[DEBUG] Task Finder returning attendees:", attendees);
@@ -392,14 +394,30 @@ When EXPLICIT future plan language found:
 - Use context to infer priority when explicit language is used
 - Be conservative - only extract when clearly indicated
 
-**8. TASK CANCELLATION DETECTION**:
+**8. STORY POINTS EXTRACTION**:
+
+**STORY POINTS PATTERNS** - Look for these patterns to extract story points:
+- "X story points" / "X points" / "X SP" / "X sp"
+- "estimated X story points" / "about X points"
+- "this is a X point story" / "X point task"
+- "should be X points" / "probably X points"
+- Context clues: "small task" (1-2 points), "medium task" (3-5 points), "large task" (8+ points)
+
+**STORY POINTS EXTRACTION RULES**:
+- Extract story points from explicit mentions in the conversation
+- Story points are typically whole numbers (1, 2, 3, 5, 8, 13, etc.)
+- If story points are not mentioned, leave STORY_POINTS field blank (do not add to Jira issue)
+- Be conservative - only extract when clearly indicated
+- Do not infer story points from estimated time or other metrics
+
+**9. TASK CANCELLATION DETECTION**:
 Scan the ENTIRE transcript for task cancellation patterns:
 - If someone mentions a potential task early in the conversation
 - But later says cancellation phrases like: "actually, let's not", "never mind", "scratch that", "forget about that", "we decided not to", "on second thought", "let's hold off", "maybe later", "not right now", "let's table that"
 - Then DO NOT include that task in the final output
 - Always check the full conversation context before finalizing any task
 
-**9. CONTEXT GATHERING STRATEGY**:
+**10. CONTEXT GATHERING STRATEGY**:
 - Scan the ENTIRE transcript for ALL mentions of each identified task
 - For SP-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
 - For new tasks: Find the initial mention AND any subsequent elaborations or additions
@@ -407,7 +425,7 @@ Scan the ENTIRE transcript for task cancellation patterns:
 - Include all technical details, requirements, and context mentioned anywhere in the transcript
 - Capture task evolution - how requirements or scope might change during discussion
 
-**10. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
+**11. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
 - "for me" / "my task" / "I will" = assign to speaker
 - "for [Name]" / "[Name] will" / "[Name] should" = assign to that person
 - "task for [Name] who isn't here" = assign to that person (not TBD)
@@ -435,6 +453,7 @@ TICKET_ID: [SP-XXX if mentioned for updates, or "NONE" for new tasks]
 ESTIMATED_TIME: [Number in hours - e.g., "3", "16" (2 days), "0" if not mentioned]
 TIME_SPENT: [Number in hours - e.g., "5", "8" (1 day), "0" if not mentioned OR if NEW_TASK]
 PRIORITY: [Highest/High/Medium/Low/Lowest - extract from transcript context, or leave blank if not mentioned]
+STORY_POINTS: [Number - e.g., "3", "5", "8", or leave blank if not mentioned]
 EVIDENCE: [ALL specific quotes from transcript related to this task - include quotes from every mention throughout the meeting]
 CONTEXT: [Comprehensive context combining ALL discussions about this task - include initial mention, elaborations, technical details, and any additional requirements. Include [IS_FUTURE_PLAN: true] if this is a future plan]
 URGENCY: [Any timeline mentioned]
@@ -542,6 +561,7 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
         estimatedTime: 0,     // Default to 0 hours
         timeSpent: 0,         // Default to 0 hours
         priority: null,       // Default to null (will default to Medium in Jira)
+        storyPoints: null,    // Default to null (only add to Jira if mentioned)
         isFuturePlan: false, // Default to not a future plan
         source: "task_finder",
         stage: 1
@@ -600,6 +620,15 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
         if (priorityStr && priorityStr.length > 0) {
           const normalizedPriority = normalizePriority(priorityStr);
           currentTask.priority = normalizedPriority;
+        }
+      } else if (trimmed.startsWith('STORY_POINTS:') || trimmed.startsWith('  STORY_POINTS:')) {
+        const storyPointsStr = trimmed.replace(/^\s*STORY_POINTS:\s*/, '').trim();
+        // Parse story points as integer, set to null if not provided or empty
+        if (storyPointsStr && storyPointsStr.length > 0) {
+          const storyPoints = parseInt(storyPointsStr, 10);
+          if (!isNaN(storyPoints) && storyPoints > 0) {
+            currentTask.storyPoints = storyPoints;
+          }
         }
       }
     }
