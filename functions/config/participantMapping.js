@@ -2,40 +2,40 @@
  * Participant Mapping Configuration
  * 
  * This file maps transcript participant names to their corresponding
- * Jira user identifiers (emails or usernames).
+ * Jira accountIds (no API lookup needed).
  */
 
 /**
- * Map of participant names (as they appear in transcripts) to their Jira identifiers
+ * Map of participant names (as they appear in transcripts) to their Jira accountIds
  * 
  * Key: Participant name as it appears in Microsoft Teams transcripts
- * Value: Email address or username used in Jira
+ * Value: Jira accountId (e.g., "557058:abc123def456")
  * 
  * Example:
- * "Azmain Morshed": "azmain.morshed@company.com"
- * "Doug Whitewolff": "doug.whitewolff@company.com"
+ * "Azmain Morshed": "557058:abc123def456"
+ * "Doug Whitewolff": "557058:xyz789ghi012"
  */
 const PARTICIPANT_TO_JIRA_MAPPING = {
-  // Add your team members here
-  "Azmain Morshed": "azmainmorshed03@gmail.com",
-  "Doug Whitewolff": "doug@transformationmath.com", // Replace with actual email
-  "Shafkat Kabir": "kabir.shafkat@gmail.com", // Replace with actual email
-  "Faiyaz Rahman": "faiyaz.rahman@example.com", // Replace with actual email
+  // Add your team members here with their Jira accountIds
+  "Azmain Morshed": "712020:07191a71-d22a-4918-a0a5-7fd37a3d989d",  // Jira account ID
+  "Faiyaz Rahman": "712020:c78868d6-22f3-4057-af78-ee12cb842f1d",
+  "Shafkat Kabir": "63b5ca05b790087ed712410a",
+  "Doug Whitewolff": "712020:bd2ea925-798e-4c8f-8854-c0ddfc7c787f",
   
   // You can also use variations of names that might appear in transcripts
-  "Azmain": "azmainmorshed03@gmail.com",
-  "Doug": "doug@transformationmath.com",
-  "Shafkat": "kabir.shafkat@gmail.com",
-  "Faiyaz": "faiyaz.rahman@example.com",
-  "Fayaz": "faiyaz.rahman@example.com", // Map Fayaz to Faiyaz's email
+  "Azmain": "712020:07191a71-d22a-4918-a0a5-7fd37a3d989d",
+  "Doug": "712020:bd2ea925-798e-4c8f-8854-c0ddfc7c787f",
+  "Shafkat": "63b5ca05b790087ed712410a",
+  "Faiyaz": "712020:c78868d6-22f3-4057-af78-ee12cb842f1d",
+  "Fayaz": "712020:c78868d6-22f3-4057-af78-ee12cb842f1d", // Map Fayaz to Faiyaz's accountId
   
 };
 
 /**
- * Default assignee email when participant is not found in mapping
- * Set this to your email or leave null to create unassigned issues
+ * Default assignee accountId when participant is not found in mapping
+ * Set this to your accountId or leave null to create unassigned issues
  */
-const DEFAULT_ASSIGNEE = "azmainmorshed03@gmail.com"; // or null
+const DEFAULT_ASSIGNEE = "557058:abc123def456"; // or null
 
 /**
  * Normalize assignee name to handle common variations
@@ -67,9 +67,9 @@ function normalizeAssigneeName(name) {
 }
 
 /**
- * Get Jira assignee identifier for a participant
+ * Get Jira assignee accountId for a participant
  * @param {string} participantName - Name as it appears in transcript
- * @returns {string|null} Jira email/username or null if not found
+ * @returns {string|null} Jira accountId or null if not found
  */
 function getJiraAssigneeForParticipant(participantName) {
   if (!participantName) {
@@ -87,17 +87,17 @@ function getJiraAssigneeForParticipant(participantName) {
   
   // Try case-insensitive lookup
   const lowerName = normalizedName.toLowerCase();
-  for (const [mappedName, email] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
+  for (const [mappedName, accountId] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
     if (mappedName.toLowerCase() === lowerName) {
-      return email;
+      return accountId;
     }
   }
   
   // Try partial matching (first name)
   const firstName = normalizedName.split(" ")[0].toLowerCase();
-  for (const [mappedName, email] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
+  for (const [mappedName, accountId] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
     if (mappedName.toLowerCase().includes(firstName)) {
-      return email;
+      return accountId;
     }
   }
   
@@ -114,19 +114,20 @@ function getAllParticipants() {
 }
 
 /**
- * Validate that all participants have valid email formats
+ * Validate that all participants have valid accountId formats
  * @returns {Object} Validation results
  */
 function validateParticipantMapping() {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // Jira accountIds typically follow format: "number:alphanumeric" (e.g., "557058:abc123def456")
+  const accountIdRegex = /^\d+:[a-zA-Z0-9]+$/;
   const validEntries = [];
   const invalidEntries = [];
   
-  for (const [participant, email] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
-    if (emailRegex.test(email)) {
-      validEntries.push({ participant, email });
+  for (const [participant, accountId] of Object.entries(PARTICIPANT_TO_JIRA_MAPPING)) {
+    if (accountIdRegex.test(accountId)) {
+      validEntries.push({ participant, accountId });
     } else {
-      invalidEntries.push({ participant, email, reason: "Invalid email format" });
+      invalidEntries.push({ participant, accountId, reason: "Invalid accountId format (expected format: 'number:alphanumeric')" });
     }
   }
   

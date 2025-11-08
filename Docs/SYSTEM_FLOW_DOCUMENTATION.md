@@ -132,7 +132,6 @@ The Standup Tickets SP system processes Microsoft Teams meeting transcripts usin
         description: "Implement comprehensive user authentication system with JWT tokens, password hashing, and session management. Based on security requirements discussed in previous meetings, include multi-factor authentication support and OAuth integration with Google and Microsoft. The system should handle user registration, login, logout, and password reset functionality with proper validation and error handling.",
         status: "To-do",
         estimatedTime: 8,
-        timeTaken: 0,
         isFuturePlan: false
       }
     ]

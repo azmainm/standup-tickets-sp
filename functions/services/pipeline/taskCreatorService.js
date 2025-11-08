@@ -95,8 +95,8 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
             evidence: taskToCreate.evidence,
             context: taskToCreate.context,
             urgency: taskToCreate.urgency,
+            priority: taskToCreate.priority || null,
             estimatedTime: taskToCreate.estimatedTime || 0,
-            timeSpent: taskToCreate.timeSpent || 0,
             ragEnhanced: true,
             ragConfidence: ragResult.confidence,
             ragSources: ragResult.ragSources || [],
@@ -155,6 +155,7 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
             evidence: taskToCreate.evidence,
             context: taskToCreate.context,
             urgency: taskToCreate.urgency,
+            priority: taskToCreate.priority || null,
             estimatedTime: taskToCreate.estimatedTime || 0,
             timeSpent: taskToCreate.timeSpent || 0,
             ragEnhanced: false,
@@ -199,7 +200,6 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
           context: taskToCreate.context,
           urgency: taskToCreate.urgency,
           estimatedTime: taskToCreate.estimatedTime || 0,
-          timeSpent: taskToCreate.timeSpent || 0,
           ragEnhanced: false,
           ragError: error.message,
           creationConfidence: 0.5,
@@ -481,8 +481,7 @@ async function generateEmbeddingsForNewTasks(newTasks) {
           type: task.type,
           status: task.status || 'To-do',
           isFuturePlan: task.isFuturePlan || false,
-          estimatedTime: task.estimatedTime || 0,
-          timeTaken: task.timeTaken || 0
+          estimatedTime: task.estimatedTime || 0
         });
         
         if (embeddingResult) {

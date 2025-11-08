@@ -634,7 +634,6 @@ function parseEnhancedGPTResponse(gptResponse) {
         // Parse enhanced information from the format
         let taskType_extracted = "NEW TASK";
         let estimatedTime = 0;
-        let timeSpent = 0;
         let status = "To-do";
         let existingTaskId = null;
         let isFuturePlan = false;
@@ -659,12 +658,6 @@ function parseEnhancedGPTResponse(gptResponse) {
         const estimatedMatch = additionalInfo.match(/\[ESTIMATED:\s*([^\]]+)\]/i);
         if (estimatedMatch) {
           estimatedTime = parseTimeToHours(estimatedMatch[1].trim());
-        }
-        
-        // Extract TIME SPENT with enhanced parsing
-        const timeSpentMatch = additionalInfo.match(/\[TIME SPENT:\s*([^\]]+)\]/i);
-        if (timeSpentMatch) {
-          timeSpent = parseTimeToHours(timeSpentMatch[1].trim());
         }
         
         // Extract STATUS
@@ -705,7 +698,7 @@ function parseEnhancedGPTResponse(gptResponse) {
           }
           // Additional keyword-based detection
           else if (taskDescription && 
-                   (/future plan|future enhancement|future consideration|roadmap|Q\d|later|planned for|for the future|something for later|future initiative|down the line|eventually|future enhancement/i.test(taskDescription))) {
+                   (/future plan|future enhancement|future consideration|roadmap|Q\d|later|planned for|for the future|something for later|future initiative|down the line|eventually/i.test(taskDescription))) {
             isFuturePlan = true;
             logger.info("Future plan detected by keywords", { description: taskDescription.substring(0, 100) });
           }
@@ -716,7 +709,6 @@ function parseEnhancedGPTResponse(gptResponse) {
           description: taskDescription,
           status: status,
           estimatedTime: estimatedTime,
-          timeTaken: timeSpent,
           taskType: taskType_extracted, // NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE, FUTURE PLAN
           existingTaskId: existingTaskId, // SP-XX if this is an update to existing task, null if new
           isFuturePlan: isFuturePlan, // true for future plans, false for regular tasks
@@ -799,7 +791,6 @@ function parseGPTResponse(gptResponse) {
         // Parse additional information from the enhanced format
         let taskType_extracted = "NEW TASK";
         let estimatedTime = 0;
-        let timeSpent = 0;
         let status = "To-do";
         let existingTaskId = null;
         let isFuturePlan = false;
@@ -823,12 +814,6 @@ function parseGPTResponse(gptResponse) {
         const estimatedMatch = additionalInfo.match(/\[ESTIMATED:\s*([^\]]+)\]/i);
         if (estimatedMatch) {
           estimatedTime = parseTimeToHours(estimatedMatch[1].trim());
-        }
-        
-        // Extract TIME SPENT with enhanced parsing
-        const timeSpentMatch = additionalInfo.match(/\[TIME SPENT:\s*([^\]]+)\]/i);
-        if (timeSpentMatch) {
-          timeSpent = parseTimeToHours(timeSpentMatch[1].trim());
         }
         
         // Extract STATUS
@@ -869,7 +854,6 @@ function parseGPTResponse(gptResponse) {
           description: taskDescription,
           status: status,
           estimatedTime: estimatedTime,
-          timeTaken: timeSpent,
           taskType: taskType_extracted, // NEW TASK, EXISTING TASK UPDATE, STATUS CHANGE, FUTURE PLAN
           existingTaskId: existingTaskId, // SP-XX if this is an update to existing task, null if new
           isFuturePlan: isFuturePlan // true for future plans, false for regular tasks
@@ -984,8 +968,7 @@ async function generateTaskTitlesInBatch(tasks) {
           description: task,
           title: titles[index],
           status: "To-do",
-          estimatedTime: 0,
-          timeTaken: 0
+          estimatedTime: 0
         };
       } else {
         return {
@@ -1012,8 +995,7 @@ async function generateTaskTitlesInBatch(tasks) {
           description: task,
           title: fallbackTitle,
           status: "To-do",
-          estimatedTime: 0,
-          timeTaken: 0
+          estimatedTime: 0
         };
       } else {
         return {
@@ -1120,7 +1102,7 @@ function convertPipelineResultsToLegacyFormat(newTasks, taskUpdates) {
       description: task.description,
       status: "To-do",
       estimatedTime: task.estimatedTime || 0,
-      timeTaken: task.timeSpent || 0,
+      priority: task.priority || null,  // ADD THIS - priority is being lost here!
       isFuturePlan: task.isFuturePlan || false,
       taskType: "NEW TASK",
       source: "pipeline_stage_1_2"

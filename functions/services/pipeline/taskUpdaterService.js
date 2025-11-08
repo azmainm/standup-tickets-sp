@@ -147,8 +147,7 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, task
               participantName: existingTask.participantName,
               type: existingTask.type || 'Non-Coding',
               status: existingTask.status || 'To-do',
-              estimatedTime: existingTask.estimatedTime || 0,
-              timeTaken: existingTask.timeTaken || 0
+              estimatedTime: existingTask.estimatedTime || 0
             }
           };
 
@@ -187,8 +186,7 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, task
               participantName: existingTask.participantName,
               type: existingTask.type || 'Non-Coding',
               status: existingTask.status || 'To-do',
-              estimatedTime: existingTask.estimatedTime || 0,
-              timeTaken: existingTask.timeTaken || 0
+              estimatedTime: existingTask.estimatedTime || 0
             }
           };
 
@@ -551,8 +549,7 @@ async function updateEmbeddingsForModifiedTasks(taskUpdates) {
           type: taskUpdate.updatedTaskData.type,
           status: taskUpdate.updatedTaskData.status,
           isFuturePlan: taskUpdate.updatedTaskData.isFuturePlan || false,
-          estimatedTime: taskUpdate.updatedTaskData.estimatedTime || 0,
-          timeTaken: taskUpdate.updatedTaskData.timeTaken || 0
+          estimatedTime: taskUpdate.updatedTaskData.estimatedTime || 0
         });
         
         if (embeddingResult.success) {
