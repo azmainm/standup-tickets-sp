@@ -104,8 +104,7 @@ async function addNewTasksToModernEmbeddings(processedTasksData, assignedTicketI
                 type: taskType,
                 status: task.status || "To-do",
                 isFuturePlan: Boolean(task.isFuturePlan),
-                estimatedTime: task.estimatedTime || 0,
-                timeTaken: task.timeTaken || 0
+                estimatedTime: task.estimatedTime || 0
               });
 
               if (embeddingResult) {
@@ -329,7 +328,6 @@ async function storeTasks(tasksData, _metadata = {}) {
             description: task.description,
             status: task.status || "To-do",
             estimatedTime: task.estimatedTime || 0,
-            timeTaken: task.timeTaken || 0,
             isFuturePlan: isFuturePlan
           };
           
@@ -381,7 +379,6 @@ async function storeTasks(tasksData, _metadata = {}) {
             description: task.description,
             status: task.status || "To-do",
             estimatedTime: task.estimatedTime || 0,
-            timeTaken: task.timeTaken || 0,
             isFuturePlan: isFuturePlan
           };
           
@@ -702,7 +699,6 @@ async function getActiveTasks() {
                 status: taskObj.status,
                 type: "Coding",
                 estimatedTime: taskObj.estimatedTime || 0,
-                timeTaken: taskObj.timeTaken || 0,
                 documentId: docId,
                 timestamp,
                 taskIndex: i,
@@ -727,7 +723,6 @@ async function getActiveTasks() {
                 status: taskObj.status,
                 type: "Non-Coding",
                 estimatedTime: taskObj.estimatedTime || 0,
-                timeTaken: taskObj.timeTaken || 0,
                 documentId: docId,
                 timestamp,
                 taskIndex: i,
@@ -803,9 +798,6 @@ async function updateTaskByTicketId(ticketId, updateData) {
               }
               if (updateData.estimatedTime !== undefined) {
                 updateObj[`${participantName}.Coding.${i}.estimatedTime`] = updateData.estimatedTime;
-              }
-              if (updateData.timeTaken !== undefined) {
-                updateObj[`${participantName}.Coding.${i}.timeTaken`] = updateData.timeTaken;
               }
               
               const result = await collection.updateOne(
@@ -920,9 +912,6 @@ async function updateTaskByTicketId(ticketId, updateData) {
               }
               if (updateData.estimatedTime !== undefined) {
                 updateObj[`${participantName}.Non-Coding.${i}.estimatedTime`] = updateData.estimatedTime;
-              }
-              if (updateData.timeTaken !== undefined) {
-                updateObj[`${participantName}.Non-Coding.${i}.timeTaken`] = updateData.timeTaken;
               }
               
               const result = await collection.updateOne(
@@ -1052,7 +1041,7 @@ async function updateTaskByTicketId(ticketId, updateData) {
  * Update a specific task in the database
  * @param {string} documentId - MongoDB document ID
  * @param {string} taskPath - Path to the task (e.g., "Azmain.Coding.0")
- * @param {Object} updateData - Data to update (description, status, estimatedTime, timeTaken)
+ * @param {Object} updateData - Data to update (description, status, estimatedTime)
  * @returns {Promise<Object>} Update result
  */
 async function updateTask(documentId, taskPath, updateData) {
@@ -1098,9 +1087,6 @@ async function updateTask(documentId, taskPath, updateData) {
     if (updateData.estimatedTime !== undefined) {
       updateObj[`${taskPath}.estimatedTime`] = updateData.estimatedTime;
     }
-    if (updateData.timeTaken !== undefined) {
-      updateObj[`${taskPath}.timeTaken`] = updateData.timeTaken;
-    }
     
     const result = await collection.updateOne(
       { _id: documentId },
@@ -1129,8 +1115,7 @@ async function updateTask(documentId, taskPath, updateData) {
           type: updateData.type || "Non-Coding",
           status: updateData.status || "To-do",
           isFuturePlan: Boolean(updateData.isFuturePlan),
-          estimatedTime: updateData.estimatedTime || 0,
-          timeTaken: updateData.timeTaken || 0
+          estimatedTime: updateData.estimatedTime || 0
         });
         
         console.log(`[DEBUG] Updated embedding for task ${ticketIdForEmbedding}`);

@@ -16,7 +16,6 @@ const TaskSchema = z.object({
   taskType: z.enum(["NEW TASK", "EXISTING TASK UPDATE", "STATUS CHANGE", "FUTURE PLAN"]),
   existingTaskId: z.string().regex(/^SP-\d+$/).nullable().optional(),
   estimatedTime: z.number().min(0).default(0),
-  timeSpent: z.number().min(0).default(0),
   status: z.enum(["To-do", "In-progress", "Completed"]).default("To-do"),
   isFuturePlan: z.boolean(),
   assignee: z.string().min(1, "Assignee cannot be empty"),
@@ -218,7 +217,6 @@ function sanitizeTask(task, assignee) {
     existingTaskId: task.existingTaskId && /^SP-\d+$/i.test(task.existingTaskId) ? 
                     task.existingTaskId.toUpperCase() : null,
     estimatedTime: Math.max(0, Number(task.estimatedTime) || 0),
-    timeSpent: Math.max(0, Number(task.timeSpent) || 0),
     status: ["To-do", "In-progress", "Completed"].includes(task.status) ? task.status : "To-do",
     isFuturePlan: Boolean(task.isFuturePlan),
     assignee: String(task.assignee || assignee || "TBD").trim(),

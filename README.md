@@ -50,7 +50,7 @@ The system features a **RAG-enhanced 3-stage processing pipeline** with transcri
 - **Explicit ID Matching**: Direct task updates using ticket IDs mentioned in transcripts
 - **Assignee Detection**: Intelligent assignment based on conversation context
 - **Future Plans Detection**: Separate handling of future/TBD tasks
-- **Time Tracking**: Automatic extraction of estimated time and time spent from conversation
+- **Time Tracking**: Automatic extraction of estimated time from conversation
 - **🆕 Attendees Tracking**: Automatic extraction of meeting participants' initials
 - **🆕 Meeting Documentation**: AI-generated comprehensive meeting notes and summaries
 
@@ -73,6 +73,7 @@ functions/services/
 │   └── taskMatcher.js            # Task matching logic
 ├── integrations/
 │   ├── allMeetingsService.js     # Microsoft Graph API integration
+│   ├── jiraService.js            # Jira API integration
 │   ├── openaiService.js          # OpenAI API integration
 │   └── teamsService.js           # Teams webhook notifications
 ├── storage/
@@ -100,6 +101,10 @@ functions/services/
    OPENAI_API_KEY          # OpenAI API Key
    MONGODB_URI             # MongoDB connection string
    TEAMS_WEBHOOK_URL       # Teams webhook (optional)
+   JIRA_URL                # Jira instance URL (optional)
+   JIRA_EMAIL              # Jira account email (optional)
+   JIRA_API_TOKEN          # Jira API token (optional)
+   JIRA_PROJECT_KEY        # Jira project key (optional)
    ```
 3. **Enable GitHub Actions** - The workflow runs automatically every 60 minutes
 4. **Manual Testing** - Go to Actions tab → "Transcript Processor Cron Job" → "Run workflow"
@@ -142,6 +147,10 @@ functions/services/
 | `OPENAI_API_KEY` | OpenAI API Key | `sk-proj-...` |
 | `MONGODB_URI` | MongoDB Connection String | `mongodb+srv://user:pass@cluster...` |
 | `TEAMS_WEBHOOK_URL` | Teams Webhook URL (optional) | `https://outlook.office.com/webhook/...` |
+| `JIRA_URL` | Jira instance URL (optional) | `https://yourcompany.atlassian.net` |
+| `JIRA_EMAIL` | Jira account email (optional) | `your-email@company.com` |
+| `JIRA_API_TOKEN` | Jira API token (optional) | `ATATT3xFfGF0...` |
+| `JIRA_PROJECT_KEY` | Jira project key (optional) | `TRADES`, `PROJ` |
 
 ### Azure App Registration Permissions
 
@@ -169,7 +178,7 @@ npm run test:github-actions
 ### Time Tracking Test
 The `test:fake-flow` script includes comprehensive time tracking testing:
 - Tests time extraction patterns for new tasks
-- Validates time spent tracking for existing tasks
+- Validates time tracking for tasks
 - Displays time tracking summaries
 - Shows time information in task lists
 
@@ -211,13 +220,9 @@ The system automatically extracts time information from meeting conversations:
 - **Usage**: Automatically captured for new tasks and future plans
 - **Format**: Stored in hours (converts minutes: 30 minutes = 0.5 hours)
 
-### Time Spent Tracking
-- **Patterns**: "spent X hours on SP-XXX", "took me X hours", "worked X hours on SP-XXX"
-- **Usage**: Captured for existing task updates (requires task ID)
-- **Format**: Stored in hours with task ID association
 
 ### Time Display
-- **Task Lists**: Shows `[Time: Xh spent, Yh estimated]` for each task
+- **Task Lists**: Shows estimated time for each task
 - **Summaries**: Participant-level and total time tracking summaries
 - **Teams Notifications**: Time information included in task summaries
 
@@ -227,7 +232,7 @@ The system automatically extracts time information from meeting conversations:
 - Professional titles (3-5 words)
 - Rich, contextual descriptions using RAG
 - Proper assignee detection
-- Estimated time and time spent tracking
+- Estimated time tracking
 - Status and task type classification
 
 ### Task Updates
@@ -284,6 +289,7 @@ node scripts/transcriptProcessingUtils.js cleanup 90
 - [Function Flow Documentation](Docs/FUNCTION_FLOW_DOCUMENTATION.md) - Detailed function explanations
 - [3-Stage Pipeline Guide](Docs/3_STAGE_PIPELINE_GUIDE.md) - Pipeline architecture details
 - [Meeting Participant Guidelines](Docs/MEETING_PARTICIPANT_GUIDELINES.md) - How to communicate for optimal task tracking
+- [Jira Integration Guide](Docs/JIRA_INTEGRATION_GUIDE.md) - Setup and configuration for Jira integration
 - [Vector Database Implementation](Docs/VECTOR_DATABASE_IMPLEMENTATION.md) - RAG and embedding system details
 
 ## 🛠️ Development

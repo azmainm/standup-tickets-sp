@@ -266,7 +266,6 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
           description: newTask.description,
           status: newTask.status,
           estimatedTime: newTask.estimatedTime || 0,
-          timeTaken: newTask.timeTaken || 0,
           isFuturePlan: Boolean(newTask.isFuturePlan)
         };
         
@@ -856,7 +855,6 @@ async function processTranscriptToTasksWithPipeline(
                 title: task.title,
                 status: task.status || "To-do",
                 estimatedTime: task.estimatedTime || 0,
-                timeTaken: task.timeTaken || 0,
                 priority: task.priority || null,
                 storyPoints: task.storyPoints || null,
                 isFuturePlan: Boolean(task.isFuturePlan)
@@ -881,7 +879,6 @@ async function processTranscriptToTasksWithPipeline(
                 title: task.title,
                 status: task.status || "To-do",
                 estimatedTime: task.estimatedTime || 0,
-                timeTaken: task.timeTaken || 0,
                 priority: task.priority || null,
                 storyPoints: task.storyPoints || null,
                 isFuturePlan: Boolean(task.isFuturePlan)

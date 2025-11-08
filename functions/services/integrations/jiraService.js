@@ -104,7 +104,7 @@ async function getProjectInfo(projectKey) {
 function isJiraTicket(ticketId) {
   if (!ticketId) return false;
   
-  const { JIRA_PROJECT_KEY } = process.env;
+  const { JIRA_PROJECT_KEY } = process.env || "TRADES";
   if (!JIRA_PROJECT_KEY) return false;
   
   // Check if ticketId starts with the JIRA_PROJECT_KEY (case-insensitive)

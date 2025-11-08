@@ -128,7 +128,6 @@ async function addTaskEmbedding(taskData) {
         status: taskData.status || 'To-do',
         isFuturePlan: Boolean(taskData.isFuturePlan),
         estimatedTime: taskData.estimatedTime || 0,
-        timeTaken: taskData.timeTaken || 0,
         chunkIndex: index,
         chunkTotal: chunks.length,
         contentHash: contentHash,
@@ -284,7 +283,6 @@ async function searchSimilarTasks(query, filters = {}, maxResults = 5) {
           status: doc.metadata.status,
           isFuturePlan: doc.metadata.isFuturePlan,
           estimatedTime: doc.metadata.estimatedTime,
-          timeTaken: doc.metadata.timeTaken,
           createdAt: doc.metadata.createdAt
         });
       }

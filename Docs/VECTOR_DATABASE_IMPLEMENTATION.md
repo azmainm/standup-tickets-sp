@@ -91,7 +91,6 @@ export interface Task {
   status: 'To-do' | 'In Progress' | 'Completed'
   type: 'Coding' | 'Non-Coding'
   estimatedTime?: string
-  timeTaken?: string
   timestamp: string
   isFuturePlan?: boolean
   lastModifiedAp?: string // NEW: Admin panel modification timestamp

@@ -38,30 +38,6 @@ function parseTimeEstimate(text) {
 }
 
 /**
- * Parse time spent from task description
- * @param {string} text - Text that might contain time spent information
- * @returns {number} Time spent in hours, 0 if not found
- */
-function parseTimeSpent(text) {
-  if (!text) return 0;
-  
-  // Look for patterns like "spent X hours", "took X hours", "X hours spent", "completed in X hours"
-  const timePatterns = [
-    /(?:spent|took|completed in|worked for)\s*(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/i,
-    /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\s*(?:spent|taken|worked)/i
-  ];
-  
-  for (const pattern of timePatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      return parseFloat(match[1]) || 0;
-    }
-  }
-  
-  return 0;
-}
-
-/**
  * Normalize ticket ID to handle different formats (SP3, SP 12, SP-13, sp4)
  * @param {string} ticketId - Raw ticket ID from transcript or database
  * @returns {string|null} Normalized ticket ID (e.g., "SP-3") or null if invalid
@@ -175,11 +151,6 @@ function prepareTaskUpdate(newTask, matchingTask) {
     updateData.updates.status = statusUpdate;
   }
   
-  // Parse and apply time spent updates
-  const timeSpent = parseTimeSpent(newTask.description);
-  if (timeSpent > 0) {
-    updateData.updates.timeTaken = (matchingTask.timeTaken || 0) + timeSpent;
-  }
   
   // Parse and apply time estimates (only if not already set)
   if (!matchingTask.estimatedTime || matchingTask.estimatedTime === 0) {
@@ -203,8 +174,7 @@ function prepareNewTask(newTask) {
     description: newTask.description,
     status: parseStatusUpdate(newTask.description) || "To-do",
     type: newTask.type,
-    estimatedTime: parseTimeEstimate(newTask.description),
-    timeTaken: parseTimeSpent(newTask.description)
+    estimatedTime: parseTimeEstimate(newTask.description)
   };
 }
 
@@ -225,7 +195,6 @@ function convertStructuredTasksToFlat(extractedTasksData) {
           description: typeof task === "string" ? task : task.description,
           type: "Coding",
           estimatedTime: typeof task === "object" ? task.estimatedTime : undefined,
-          timeTaken: typeof task === "object" ? task.timeTaken : undefined,
           status: typeof task === "object" ? task.status : undefined,
           existingTaskId: typeof task === "object" ? task.existingTaskId : undefined,
           taskType: typeof task === "object" ? task.taskType : undefined
@@ -241,7 +210,6 @@ function convertStructuredTasksToFlat(extractedTasksData) {
           description: typeof task === "string" ? task : task.description,
           type: "Non-Coding",
           estimatedTime: typeof task === "object" ? task.estimatedTime : undefined,
-          timeTaken: typeof task === "object" ? task.timeTaken : undefined,
           status: typeof task === "object" ? task.status : undefined,
           existingTaskId: typeof task === "object" ? task.existingTaskId : undefined,
           taskType: typeof task === "object" ? task.taskType : undefined
@@ -389,7 +357,6 @@ module.exports = {
   
   // Utility functions
   parseTimeEstimate,
-  parseTimeSpent,
   parseStatusUpdate,
   normalizeTicketId
 };

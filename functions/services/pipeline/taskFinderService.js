@@ -139,7 +139,6 @@ async function findTasksFromTranscript(transcript, context = {}) {
       urgency: task.urgency,
       priority: task.priority,
       estimatedTime: task.estimatedTime || 0,
-      timeSpent: task.timeSpent || 0,
       storyPoints: task.storyPoints || null,
       isFuturePlan: task.isFuturePlan
     }));
@@ -153,7 +152,6 @@ async function findTasksFromTranscript(transcript, context = {}) {
       urgency: task.urgency,
       priority: task.priority,
       estimatedTime: task.estimatedTime || 0,
-      timeSpent: task.timeSpent || 0,
       storyPoints: task.storyPoints || null,
     }));
 
@@ -345,15 +343,6 @@ When EXPLICIT future plan language found:
 - "probably [X] days to complete"
 - "needs about [X] hours"
 
-**TIME SPENT** - Look for these patterns for EXISTING tasks only (with SP-XXX):
-- "spent [X] hours on SP-XXX"
-- "worked [X] hours/days on SP-XXX"
-- "already put in [X] hours on SP-XXX"
-- "took me [X] hours so far on SP-XXX"
-- "invested [X] hours in SP-XXX"
-- "used [X] hours on SP-XXX"
-- "been working for [X] hours on SP-XXX"
-
 **TIME CONVERSION RULES**:
 - Only extract time when explicitly mentioned in hours or minutes
 - Convert minutes to hours: "30 minutes" = 0.5 hours, "90 minutes" = 1.5 hours
@@ -361,11 +350,9 @@ When EXPLICIT future plan language found:
 - Do NOT convert days, weeks, or other time units to hours
 
 **CRITICAL RULES**:
-- Only extract TIME_SPENT for UPDATE_TASK category (tasks with SP-XXX ticket IDs)
-- For NEW_TASK category, TIME_SPENT should always be 0
-- If no time mentioned, use 0 for both fields
+- Only extract ESTIMATED_TIME for new tasks
+- If no time mentioned, use 0
 - Be conservative - only extract when clearly mentioned
-- Context matters: "will take" = ESTIMATED, "spent/worked" = TIME_SPENT
 
 **7. PRIORITY EXTRACTION**:
 
@@ -451,7 +438,6 @@ TYPE: [Coding/Non-Coding]
 CATEGORY: [NEW_TASK or UPDATE_TASK]
 TICKET_ID: [SP-XXX if mentioned for updates, or "NONE" for new tasks]
 ESTIMATED_TIME: [Number in hours - e.g., "3", "16" (2 days), "0" if not mentioned]
-TIME_SPENT: [Number in hours - e.g., "5", "8" (1 day), "0" if not mentioned OR if NEW_TASK]
 PRIORITY: [Highest/High/Medium/Low/Lowest - extract from transcript context, or leave blank if not mentioned]
 STORY_POINTS: [Number - e.g., "3", "5", "8", or leave blank if not mentioned]
 EVIDENCE: [ALL specific quotes from transcript related to this task - include quotes from every mention throughout the meeting]
@@ -559,7 +545,6 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
         context: "",
         urgency: "",
         estimatedTime: 0,     // Default to 0 hours
-        timeSpent: 0,         // Default to 0 hours
         priority: null,       // Default to null (will default to Medium in Jira)
         storyPoints: null,    // Default to null (only add to Jira if mentioned)
         isFuturePlan: false, // Default to not a future plan
@@ -611,9 +596,6 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
       } else if (trimmed.startsWith('ESTIMATED_TIME:') || trimmed.startsWith('  ESTIMATED_TIME:')) {
         const timeStr = trimmed.replace(/^\s*ESTIMATED_TIME:\s*/, '').trim();
         currentTask.estimatedTime = parseTimeStringToHours(timeStr);
-      } else if (trimmed.startsWith('TIME_SPENT:') || trimmed.startsWith('  TIME_SPENT:')) {
-        const timeStr = trimmed.replace(/^\s*TIME_SPENT:\s*/, '').trim();
-        currentTask.timeSpent = parseTimeStringToHours(timeStr);
       } else if (trimmed.startsWith('PRIORITY:') || trimmed.startsWith('  PRIORITY:')) {
         const priorityStr = trimmed.replace(/^\s*PRIORITY:\s*/, '').trim();
         // Normalize priority to Jira standard values
