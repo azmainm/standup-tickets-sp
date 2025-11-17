@@ -31,11 +31,22 @@ async function testJiraConnection() {
       return false;
     }
 
+    // Validate JIRA_URL format
+    const trimmedUrl = JIRA_URL.trim();
+    if (!trimmedUrl.startsWith("http://") && !trimmedUrl.startsWith("https://")) {
+      logger.error("Invalid JIRA_URL format - must start with http:// or https://", {
+        providedUrl: JIRA_URL,
+        trimmedUrl: trimmedUrl,
+        suggestion: `https://${trimmedUrl}`,
+      });
+      return false;
+    }
+
     // Create authentication header
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
     
     // Test API connection by getting user info
-    const response = await axios.get(`${JIRA_URL}/rest/api/2/myself`, {
+    const response = await axios.get(`${trimmedUrl}/rest/api/2/myself`, {
       headers: {
         "Authorization": `Basic ${auth}`,
         "Accept": "application/json",
@@ -46,6 +57,7 @@ async function testJiraConnection() {
     logger.info("Jira connection test successful", {
       user: response.data.displayName,
       accountType: response.data.accountType,
+      jiraUrl: trimmedUrl,
     });
     
     return true;
@@ -53,8 +65,10 @@ async function testJiraConnection() {
   } catch (error) {
     logger.error("Jira connection test failed", {
       error: error.message,
+      code: error.code,
       status: error.response?.status,
       statusText: error.response?.statusText,
+      responseData: error.response?.data,
     });
     return false;
   }
@@ -68,9 +82,10 @@ async function testJiraConnection() {
 async function getProjectInfo(projectKey) {
   try {
     const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
+    const trimmedJiraUrl = JIRA_URL.trim();
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
     
-    const response = await axios.get(`${JIRA_URL}/rest/api/2/project/${projectKey}`, {
+    const response = await axios.get(`${trimmedJiraUrl}/rest/api/2/project/${projectKey}`, {
       headers: {
         "Authorization": `Basic ${auth}`,
         "Accept": "application/json",
@@ -129,11 +144,12 @@ async function updateJiraIssueDescription(issueKey, description) {
       return false;
     }
 
+    const trimmedJiraUrl = JIRA_URL.trim();
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
     
     // Update the issue description
     await axios.put(
-      `${JIRA_URL}/rest/api/2/issue/${issueKey}`,
+      `${trimmedJiraUrl}/rest/api/2/issue/${issueKey}`,
       {
         fields: {
           description: description || "",
@@ -179,11 +195,12 @@ async function updateJiraIssueDescription(issueKey, description) {
 async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
   try {
     const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
+    const trimmedJiraUrl = JIRA_URL.trim();
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
     
     // Get current issue status
     const issueResponse = await axios.get(
-      `${JIRA_URL}/rest/api/2/issue/${issueKey}?fields=status`,
+      `${trimmedJiraUrl}/rest/api/2/issue/${issueKey}?fields=status`,
       {
         headers: {
           "Authorization": `Basic ${auth}`,
@@ -197,7 +214,7 @@ async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
     
     // Get available transitions for the issue
     const transitionsResponse = await axios.get(
-      `${JIRA_URL}/rest/api/2/issue/${issueKey}/transitions`,
+      `${trimmedJiraUrl}/rest/api/2/issue/${issueKey}/transitions`,
       {
         headers: {
           "Authorization": `Basic ${auth}`,
@@ -279,7 +296,7 @@ async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
     
     // Execute the transition
     await axios.post(
-      `${JIRA_URL}/rest/api/2/issue/${issueKey}/transitions`,
+      `${trimmedJiraUrl}/rest/api/2/issue/${issueKey}/transitions`,
       {
         transition: {
           id: targetTransition.id,
@@ -339,6 +356,13 @@ async function createJiraIssue(taskData) {
     
     if (!JIRA_URL || !JIRA_EMAIL || !JIRA_API_TOKEN || !JIRA_PROJECT_KEY) {
       throw new Error("Missing required Jira environment variables");
+    }
+
+    // Trim whitespace from JIRA_URL to prevent "Invalid URL" errors
+    const trimmedJiraUrl = JIRA_URL.trim();
+    
+    if (!trimmedJiraUrl.startsWith("http://") && !trimmedJiraUrl.startsWith("https://")) {
+      throw new Error(`Invalid JIRA_URL format: "${JIRA_URL}". Must start with http:// or https://`);
     }
 
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
@@ -476,7 +500,7 @@ async function createJiraIssue(taskData) {
     }
 
     // Create the issue
-    const response = await axios.post(`${JIRA_URL}/rest/api/2/issue`, issueData, {
+    const response = await axios.post(`${trimmedJiraUrl}/rest/api/2/issue`, issueData, {
       headers: {
         "Authorization": `Basic ${auth}`,
         "Accept": "application/json",
@@ -527,7 +551,7 @@ async function createJiraIssue(taskData) {
       success: true,
       issueKey: createdIssue.key,
       issueId: createdIssue.id,
-      issueUrl: `${JIRA_URL}/browse/${createdIssue.key}`,
+      issueUrl: `${trimmedJiraUrl}/browse/${createdIssue.key}`,
       title: taskData.title,
       participant: taskData.participant,
       assignee: taskData.assignee,

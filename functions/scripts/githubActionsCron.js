@@ -21,6 +21,7 @@ const {
   updateCronRunTimestamp, 
   getCronJobStats 
 } = require("../services/storage/mongoService");
+const { testJiraConnection } = require("../services/integrations/jiraService");
 // const { getBangladeshTimeComponents } = require("../services/utilities/meetingUrlService");
 
 /**
@@ -84,6 +85,55 @@ async function runTranscriptProcessor() {
     
     console.log("✅ Environment variables validated");
     
+    // Validate Jira integration setup
+    console.log("\n🔧 JIRA INTEGRATION CHECK");
+    console.log("=".repeat(70));
+    
+    const jiraEnvVars = {
+      JIRA_URL: process.env.JIRA_URL,
+      JIRA_EMAIL: process.env.JIRA_EMAIL,
+      JIRA_API_TOKEN: process.env.JIRA_API_TOKEN,
+      JIRA_PROJECT_KEY: process.env.JIRA_PROJECT_KEY
+    };
+    
+    const hasJiraCredentials = Object.values(jiraEnvVars).every(val => val && val.trim());
+    
+    if (!hasJiraCredentials) {
+      const missingJiraVars = Object.entries(jiraEnvVars)
+        .filter(([_, val]) => !val || !val.trim())
+        .map(([key, _]) => key);
+      
+      console.log("⚠️  Jira Integration: DISABLED (Optional)");
+      console.log(`   Missing credentials: ${missingJiraVars.join(", ")}`);
+      console.log("   Tasks will be extracted but NOT created in Jira");
+      console.log("   To enable: Set all Jira environment variables in GitHub Secrets");
+    } else {
+      console.log("🔍 Jira credentials found - Testing connection...");
+      console.log(`   JIRA_URL: ${jiraEnvVars.JIRA_URL}`);
+      console.log(`   JIRA_EMAIL: ${jiraEnvVars.JIRA_EMAIL}`);
+      console.log(`   JIRA_PROJECT_KEY: ${jiraEnvVars.JIRA_PROJECT_KEY}`);
+      console.log(`   JIRA_API_TOKEN: ${jiraEnvVars.JIRA_API_TOKEN ? "***SET***" : "NOT SET"}`);
+      
+      const jiraConnectionSuccess = await testJiraConnection();
+      
+      if (jiraConnectionSuccess) {
+        console.log("✅ Jira Integration: READY");
+        console.log("   Connection test: SUCCESS");
+        console.log("   🎯 Jira tasks WILL be created when tasks are found in transcripts");
+      } else {
+        console.log("❌ Jira Integration: CONNECTION FAILED");
+        console.log("   Connection test: FAILED");
+        console.log("   Possible issues:");
+        console.log("   - JIRA_URL is malformed (should be: https://yourcompany.atlassian.net)");
+        console.log("   - JIRA_EMAIL is incorrect");
+        console.log("   - JIRA_API_TOKEN is invalid or expired");
+        console.log("   - Network/firewall blocking connection to Jira");
+        console.log("   ⚠️  Tasks will be extracted but NOT created in Jira until this is fixed");
+      }
+    }
+    
+    console.log("=".repeat(70));
+    
     // Get cron job statistics for logging
     const cronStats = await getCronJobStats(cronJobName);
     console.log("📊 Cron Job History:", {
@@ -110,10 +160,12 @@ async function runTranscriptProcessor() {
     console.log(`   Test Mode: ${isTestMode}`);
     
     // Fetch meetings for the target user within the extended calendar window
-    console.log(`📅 Fetching meetings from extended calendar window...`);
+    console.log("📅 Fetching meetings from extended calendar window...");
     console.log(`   Calendar Window: ${timeWindow.calendarStartTime} to ${timeWindow.calendarEndTime}`);
-    console.log(`   Lookback: ${timeWindow.calendarExtensionHours} hours to catch meetings with delayed/early transcripts`);
-    console.log(`   Transcript Filtering: Process ALL transcripts (duplicate prevention only)`);
+    console.log(
+      `   Lookback: ${timeWindow.calendarExtensionHours} hours to catch meetings with delayed/early transcripts`
+    );
+    console.log("   Transcript Filtering: Process ALL transcripts (duplicate prevention only)");
     
     const allTranscripts = await fetchAllMeetingsForUser(
       process.env.TARGET_USER_ID,

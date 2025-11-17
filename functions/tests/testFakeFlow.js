@@ -212,10 +212,10 @@ async function runCompleteFlowTest() {
   try {
     // Step 1: Load test transcript first
     console.log("📁 Step 1: Loading test transcript...");
-    const transcriptPath = path.join(__dirname, "..", "output", "test_transcript.json");
+    const transcriptPath = path.join(__dirname, "..", "output", "test_transcript_converted.json");
     
     if (!fs.existsSync(transcriptPath)) {
-      throw new Error(`Test transcript not found at: ${transcriptPath}. Please ensure test_transcript.json exists in output/`);
+      throw new Error(`Test transcript not found at: ${transcriptPath}. Please ensure test_transcript_converted.json exists in output/`);
     }
 
     const transcriptData = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
@@ -340,7 +340,7 @@ async function runCompleteFlowTest() {
     };
     
     const processingResult = await processTranscriptToTasksWithPipeline(transcriptData, {
-      sourceFile: "test_transcript.json",
+      sourceFile: "test_transcript_converted.json",
       fetchedAt: new Date().toISOString(),
       meetingId: `test-meeting-${Date.now()}`,
       transcriptId: `test-transcript-${Date.now()}`,
@@ -561,7 +561,7 @@ logger.warn = (...args) => {
 if (require.main === module) {
   console.log("🚀 3-Stage Pipeline Complete System Flow Test");
   console.log("==============================================");
-  console.log("This test validates the entire 3-stage pipeline system using test_transcript.json");
+  console.log("This test validates the entire 3-stage pipeline system using test_transcript_converted.json");
   console.log("🧪 This is a REAL test run - data will be saved to database and Teams notification sent");
   console.log("");
   
