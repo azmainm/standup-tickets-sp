@@ -404,7 +404,6 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
           mongoDocumentId: mongoResult?.documentId,
           transcriptDocumentId: transcriptStorageResult.documentId,
           totalProcessingTime: `${completeDuration.toFixed(2)}s`,
-          jiraProcessingTime: jiraResult?.processingTime || "0s",
           existingTasksContext: existingTasks.length,
           statusChangesDetected: detectedStatusChanges.length,
           statusChangesApplied: statusChangeResults.filter(r => r.success).length
@@ -1004,17 +1003,121 @@ async function processTranscriptToTasksWithPipeline(
         });
         
         if (taskToUpdate) {
+          // Update MongoDB first
           const updateResult = await updateTaskByTicketId(
             statusChange.taskId,
             { status: statusChange.newStatus }
           );
           
-          console.log("[DEBUG] Status update result:", {
+          console.log("[DEBUG] MongoDB status update result:", {
             taskId: statusChange.taskId,
             updateSuccess: updateResult.success,
             oldStatus: taskToUpdate.status,
             newStatus: statusChange.newStatus
           });
+          
+          // Sync to Jira based on ticket type
+          const { 
+            isJiraTicket, 
+            isMongoTicket, 
+            findJiraIssueByTitle, 
+            updateJiraIssue 
+          } = require("../integrations/jiraService");
+          let jiraUpdateSuccess = false;
+          let jiraUpdateError = null;
+          let jiraIssueKey = null;
+          
+          // TRADES-XXX: Direct Jira issue key - update directly
+          if (isJiraTicket(statusChange.taskId)) {
+            try {
+              logger.info("Syncing status change to Jira (direct TRADES-XXX)", {
+                taskId: statusChange.taskId,
+                newStatus: statusChange.newStatus
+              });
+              
+              const jiraUpdateResult = await updateJiraIssue(
+                statusChange.taskId,
+                { status: statusChange.newStatus }
+              );
+              
+              jiraUpdateSuccess = jiraUpdateResult.success;
+              jiraIssueKey = statusChange.taskId;
+              
+              if (jiraUpdateResult.success) {
+                logger.info("Jira status update successful (TRADES-XXX)", {
+                  taskId: statusChange.taskId,
+                  statusUpdated: jiraUpdateResult.statusUpdated
+                });
+              } else {
+                jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Unknown error";
+                logger.warn("Jira status update failed (TRADES-XXX)", {
+                  taskId: statusChange.taskId,
+                  errors: jiraUpdateResult.errors
+                });
+              }
+            } catch (jiraError) {
+              jiraUpdateError = jiraError.message;
+              logger.error("Jira status update exception (TRADES-XXX)", {
+                taskId: statusChange.taskId,
+                error: jiraError.message,
+                stack: jiraError.stack
+              });
+            }
+          } 
+          // SP-XXX: MongoDB ticket ID - search Jira by title
+          else if (isMongoTicket(statusChange.taskId)) {
+            try {
+              logger.info("Searching Jira for SP ticket in title", {
+                mongoTicketId: statusChange.taskId
+              });
+              
+              const jiraIssue = await findJiraIssueByTitle(statusChange.taskId);
+              
+              if (jiraIssue) {
+                logger.info("Found Jira issue with SP ticket in title, updating", {
+                  mongoTicketId: statusChange.taskId,
+                  jiraIssueKey: jiraIssue.key,
+                  jiraSummary: jiraIssue.summary
+                });
+                
+                const jiraUpdateResult = await updateJiraIssue(
+                  jiraIssue.key,
+                  { status: statusChange.newStatus }
+                );
+                
+                jiraUpdateSuccess = jiraUpdateResult.success;
+                jiraIssueKey = jiraIssue.key;
+                
+                if (jiraUpdateResult.success) {
+                  logger.info("Jira status update successful (SP-XXX via title search)", {
+                    mongoTicketId: statusChange.taskId,
+                    jiraIssueKey: jiraIssue.key,
+                    statusUpdated: jiraUpdateResult.statusUpdated
+                  });
+                } else {
+                  jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Unknown error";
+                  logger.warn("Jira status update failed (SP-XXX)", {
+                    mongoTicketId: statusChange.taskId,
+                    jiraIssueKey: jiraIssue.key,
+                    errors: jiraUpdateResult.errors
+                  });
+                }
+              } else {
+                logger.info("No Jira issue found with SP ticket in title", {
+                  mongoTicketId: statusChange.taskId
+                });
+              }
+            } catch (jiraError) {
+              jiraUpdateError = jiraError.message;
+              logger.error("Jira search/update exception (SP-XXX)", {
+                mongoTicketId: statusChange.taskId,
+                error: jiraError.message,
+                stack: jiraError.stack
+              });
+            }
+          } else {
+            console.log("[DEBUG] Unknown ticket format, skipping Jira sync:", statusChange.taskId);
+          }
           
           statusChangeResults.push({
             success: updateResult.success,
@@ -1022,14 +1125,19 @@ async function processTranscriptToTasksWithPipeline(
             oldStatus: taskToUpdate.status,
             newStatus: statusChange.newStatus,
             confidence: statusChange.confidence,
-            speaker: statusChange.speaker
+            speaker: statusChange.speaker,
+            jiraSynced: jiraUpdateSuccess,
+            jiraIssueKey: jiraIssueKey,
+            jiraError: jiraUpdateError
           });
           
           logger.info("Status change applied", {
             taskId: statusChange.taskId,
             oldStatus: taskToUpdate.status,
             newStatus: statusChange.newStatus,
-            speaker: statusChange.speaker
+            speaker: statusChange.speaker,
+            jiraSynced: jiraUpdateSuccess,
+            jiraIssueKey: jiraIssueKey
           });
         } else {
           console.log("[DEBUG] Task not found for status change:", {
@@ -1069,11 +1177,12 @@ async function processTranscriptToTasksWithPipeline(
         if (update.updateType && update.updateType !== "none" && update.newInformation) {
           // Find the existing task to get current description
           const normalizedUpdateTaskId = normalizeTicketId(update.taskId);
-          const existingTask = existingTasks.find(task => normalizeTicketId(task.ticketId) === normalizedUpdateTaskId);
+          const _existingTask = existingTasks.find(task => normalizeTicketId(task.ticketId) === normalizedUpdateTaskId);
           
           // RAG-enhanced description is the complete updated description (not just new info)
           const updatedDescription = update.newInformation;
           
+          // Update MongoDB first
           const updateResult = await updateTaskByTicketId(
             update.taskId,
             { 
@@ -1082,23 +1191,132 @@ async function processTranscriptToTasksWithPipeline(
             }
           );
           
-          console.log("[DEBUG] Task description update result:", {
+          console.log("[DEBUG] MongoDB description update result:", {
             taskId: update.taskId,
             updateSuccess: updateResult.success,
             updateType: update.updateType
           });
           
+          // Sync to Jira based on ticket type
+          const { 
+            isJiraTicket, 
+            isMongoTicket, 
+            findJiraIssueByTitle, 
+            updateJiraIssue 
+          } = require("../integrations/jiraService");
+          let jiraUpdateSuccess = false;
+          let jiraUpdateError = null;
+          let jiraIssueKey = null;
+          
+          // TRADES-XXX: Direct Jira issue key - update directly
+          if (isJiraTicket(update.taskId)) {
+            try {
+              logger.info("Syncing description update to Jira (direct TRADES-XXX)", {
+                taskId: update.taskId,
+                descriptionLength: updatedDescription.length,
+                updateType: update.updateType
+              });
+              
+              const jiraUpdateResult = await updateJiraIssue(
+                update.taskId,
+                { description: updatedDescription }
+              );
+              
+              jiraUpdateSuccess = jiraUpdateResult.success;
+              jiraIssueKey = update.taskId;
+              
+              if (jiraUpdateResult.success) {
+                logger.info("Jira description update successful (TRADES-XXX)", {
+                  taskId: update.taskId,
+                  descriptionUpdated: jiraUpdateResult.descriptionUpdated
+                });
+              } else {
+                jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Unknown error";
+                logger.warn("Jira description update failed (TRADES-XXX)", {
+                  taskId: update.taskId,
+                  errors: jiraUpdateResult.errors
+                });
+              }
+            } catch (jiraError) {
+              jiraUpdateError = jiraError.message;
+              logger.error("Jira description update exception (TRADES-XXX)", {
+                taskId: update.taskId,
+                error: jiraError.message,
+                stack: jiraError.stack
+              });
+            }
+          } 
+          // SP-XXX: MongoDB ticket ID - search Jira by title
+          else if (isMongoTicket(update.taskId)) {
+            try {
+              logger.info("Searching Jira for SP ticket in title", {
+                mongoTicketId: update.taskId
+              });
+              
+              const jiraIssue = await findJiraIssueByTitle(update.taskId);
+              
+              if (jiraIssue) {
+                logger.info("Found Jira issue with SP ticket in title, updating", {
+                  mongoTicketId: update.taskId,
+                  jiraIssueKey: jiraIssue.key,
+                  jiraSummary: jiraIssue.summary
+                });
+                
+                const jiraUpdateResult = await updateJiraIssue(
+                  jiraIssue.key,
+                  { description: updatedDescription }
+                );
+                
+                jiraUpdateSuccess = jiraUpdateResult.success;
+                jiraIssueKey = jiraIssue.key;
+                
+                if (jiraUpdateResult.success) {
+                  logger.info("Jira description update successful (SP-XXX via title search)", {
+                    mongoTicketId: update.taskId,
+                    jiraIssueKey: jiraIssue.key,
+                    descriptionUpdated: jiraUpdateResult.descriptionUpdated
+                  });
+                } else {
+                  jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Unknown error";
+                  logger.warn("Jira description update failed (SP-XXX)", {
+                    mongoTicketId: update.taskId,
+                    jiraIssueKey: jiraIssue.key,
+                    errors: jiraUpdateResult.errors
+                  });
+                }
+              } else {
+                logger.info("No Jira issue found with SP ticket in title", {
+                  mongoTicketId: update.taskId
+                });
+              }
+            } catch (jiraError) {
+              jiraUpdateError = jiraError.message;
+              logger.error("Jira search/update exception (SP-XXX)", {
+                mongoTicketId: update.taskId,
+                error: jiraError.message,
+                stack: jiraError.stack
+              });
+            }
+          } else {
+            console.log("[DEBUG] Unknown ticket format, skipping Jira sync:", update.taskId);
+          }
+          
           taskUpdateResults.push({
             success: updateResult.success,
             taskId: update.taskId,
             updateType: update.updateType,
-            confidence: update.confidence
+            confidence: update.confidence,
+            jiraSynced: jiraUpdateSuccess,
+            jiraIssueKey: jiraIssueKey,
+            jiraError: jiraUpdateError
           });
           
           logger.info("Task description updated", {
             taskId: update.taskId,
             updateType: update.updateType,
-            confidence: update.confidence
+            confidence: update.confidence,
+            jiraSynced: jiraUpdateSuccess,
+            jiraIssueKey: jiraIssueKey
           });
         }
       } catch (error) {

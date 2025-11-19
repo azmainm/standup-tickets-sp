@@ -112,21 +112,29 @@ async function getProjectInfo(projectKey) {
 }
 
 /**
- * Check if a ticketId is a Jira ticket by matching against JIRA_PROJECT_KEY
- * @param {string} ticketId - The ticket ID to check (e.g., "TRADES-123", "SP-456")
- * @returns {boolean} True if the ticketId is a Jira ticket
+ * Check if a ticketId is a Jira issue key (TRADES-XXX format)
+ * Note: SP-XXX are MongoDB ticket IDs, not Jira issue keys
+ * @param {string} ticketId - The ticket ID to check (e.g., "TRADES-123")
+ * @returns {boolean} True if the ticketId is a Jira issue key
  */
 function isJiraTicket(ticketId) {
   if (!ticketId) return false;
   
-  const { JIRA_PROJECT_KEY } = process.env || "TRADES";
-  if (!JIRA_PROJECT_KEY) return false;
-  
-  // Check if ticketId starts with the JIRA_PROJECT_KEY (case-insensitive)
+  // Only TRADES-XXX format are direct Jira issue keys
   const normalizedTicketId = ticketId.toString().toUpperCase();
-  const normalizedProjectKey = JIRA_PROJECT_KEY.toString().toUpperCase();
+  return normalizedTicketId.startsWith("TRADES-");
+}
+
+/**
+ * Check if a ticketId is a MongoDB ticket ID (SP-XXX format)
+ * @param {string} ticketId - The ticket ID to check (e.g., "SP-456")
+ * @returns {boolean} True if the ticketId is a MongoDB ticket ID
+ */
+function isMongoTicket(ticketId) {
+  if (!ticketId) return false;
   
-  return normalizedTicketId.startsWith(normalizedProjectKey + "-");
+  const normalizedTicketId = ticketId.toString().toUpperCase();
+  return normalizedTicketId.startsWith("SP-");
 }
 
 /**
@@ -901,6 +909,73 @@ async function updateJiraIssue(issueKey, updateData) {
   }
 }
 
+/**
+ * Search Jira issues by title/summary to find tickets containing a specific ticket ID
+ * @param {string} ticketId - The ticket ID to search for (e.g., "SP-456")
+ * @returns {Promise<Object|null>} Jira issue if found, null otherwise
+ */
+async function findJiraIssueByTitle(ticketId) {
+  try {
+    const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY } = process.env;
+    
+    if (!JIRA_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) {
+      logger.error("Missing Jira credentials for title search");
+      return null;
+    }
+    
+    const trimmedJiraUrl = JIRA_URL.trim();
+    const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
+    
+    // Search for issues with the ticket ID in the summary/title
+    // Using JQL to search within the project
+    const projectKey = JIRA_PROJECT_KEY || "TRADES";
+    const jql = `project = ${projectKey} AND summary ~ "${ticketId}"`;
+    
+    const response = await axios.get(`${trimmedJiraUrl}/rest/api/2/search`, {
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Accept": "application/json",
+      },
+      params: {
+        jql: jql,
+        maxResults: 1,
+        fields: "summary,status,description,key"
+      },
+      timeout: 10000,
+    });
+    
+    if (response.data.issues && response.data.issues.length > 0) {
+      const issue = response.data.issues[0];
+      logger.info("Found Jira issue by title search", {
+        searchTicketId: ticketId,
+        foundIssueKey: issue.key,
+        issueSummary: issue.fields.summary
+      });
+      return {
+        key: issue.key,
+        summary: issue.fields.summary,
+        status: issue.fields.status.name,
+        description: issue.fields.description
+      };
+    }
+    
+    logger.info("No Jira issue found with ticket ID in title", {
+      ticketId: ticketId,
+      jql: jql
+    });
+    return null;
+    
+  } catch (error) {
+    logger.error("Error searching Jira by title", {
+      ticketId: ticketId,
+      error: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText
+    });
+    return null;
+  }
+}
+
 module.exports = {
   testJiraConnection,
   getProjectInfo,
@@ -908,6 +983,8 @@ module.exports = {
   createJiraIssue,
   createJiraIssuesForCodingTasks,
   isJiraTicket,
+  isMongoTicket,
+  findJiraIssueByTitle,
   updateJiraIssueDescription,
   updateJiraIssue,
 };

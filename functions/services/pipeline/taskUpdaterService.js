@@ -62,21 +62,46 @@ async function updateExistingTasks(foundTasks, skippedTasks, existingTasks, task
     // Detect status changes from transcript first
     const detectedStatusChanges = detectStatusChangesFromTranscript(transcript);
     
-    // Process status changes
+    console.log("[DEBUG] Task Updater - Status changes detected:", {
+      detectedChangesCount: detectedStatusChanges.length,
+      changes: detectedStatusChanges.map(sc => ({
+        taskId: sc.taskId,
+        newStatus: sc.newStatus,
+        speaker: sc.speaker
+      }))
+    });
+    
+    // Process status changes - ALWAYS pass them through, even if task not found in existingTasks
+    // The taskProcessor will handle finding the task in its own existingTasks array
     for (const statusChange of detectedStatusChanges) {
       const normalizedStatusChangeTaskId = normalizeTicketId(statusChange.taskId);
       const existingTask = existingTasks.find(task => 
         normalizeTicketId(task.ticketId) === normalizedStatusChangeTaskId
       );
       
+      // CRITICAL FIX: Always push status changes, even if task not found here
+      // The task might exist in the database but not in this particular existingTasks array
+      // Let the taskProcessor handle the actual task lookup and update
+      statusChanges.push({
+        taskId: statusChange.taskId,
+        oldStatus: existingTask?.status || "Unknown",
+        newStatus: statusChange.newStatus,
+        confidence: statusChange.confidence,
+        speaker: statusChange.speaker,
+        evidence: statusChange.evidence
+      });
+      
       if (existingTask) {
-        statusChanges.push({
+        console.log("[DEBUG] Task Updater - Found existing task for status change:", {
           taskId: statusChange.taskId,
-          oldStatus: existingTask.status,
+          currentStatus: existingTask.status,
+          newStatus: statusChange.newStatus
+        });
+      } else {
+        console.log("[DEBUG] Task Updater - Task not in existingTasks array, but passing status change anyway:", {
+          taskId: statusChange.taskId,
           newStatus: statusChange.newStatus,
-          confidence: statusChange.confidence,
-          speaker: statusChange.speaker,
-          evidence: statusChange.evidence
+          note: "TaskProcessor will handle the actual update"
         });
       }
     }

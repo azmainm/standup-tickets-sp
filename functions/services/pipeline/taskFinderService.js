@@ -207,7 +207,15 @@ function createTaskFinderSystemPrompt(context) {
 - Focus strictly on clarity and grounded accuracy
 - Do not assume advisory, prioritization, or coaching functions
 
-**Core Purpose**: Detect and surface actionable tasks from meeting transcripts in a way that aligns with Scrum practices. Focus on recognizing explicit work items, structuring them clearly, and ensuring they are both accurate and contextually grounded.`;
+**Core Purpose**: Detect and surface actionable tasks from meeting transcripts in a way that aligns with Scrum practices. Focus on recognizing explicit work items, structuring them clearly, and ensuring they are both accurate and contextually grounded.
+
+**CRITICAL - TICKET ID FORMATS**:
+We use TWO types of ticket IDs to identify existing tasks:
+1. SP-XXX = MongoDB internal ticket IDs (e.g., SP-123, SP-456)
+2. TRADES-XXX = Jira issue keys (e.g., TRADES-220, TRADES-222, TRADES-223)
+
+When you see EITHER format mentioned in the transcript, it indicates an EXISTING task that needs an UPDATE.
+Extract the ticket ID exactly as mentioned and classify as UPDATE_TASK.`;
 
   let contextualAddition = "";
   if (context.isMultiTranscript) {
@@ -291,16 +299,26 @@ function createTaskFindingPrompt(transcriptText, context, participantsInMeeting 
 Then DO NOT create that task.
 
 **TASK UPDATE PATTERNS** (ticket number explicitly mentioned):
-- Status updates: "SP-XXX is completed", "SP-XXX is in progress"
-- Progress reports: "I'm working on SP-XXX and...", "SP-XXX needs..."
-- Task modifications: "For SP-XXX, we should also add..."
-- Task discussions: "talking about SP-XXX", "regarding SP-XXX", "for SP-XXX"
-- Specific ticket references: Any mention of "SP-" followed by numbers
+IMPORTANT: We use TWO ticket ID formats:
+  1. SP-XXX = MongoDB internal ticket IDs (e.g., SP-123, SP-456)
+  2. TRADES-XXX = Jira issue keys (e.g., TRADES-220, TRADES-222, TRADES-223)
+  
+Both formats indicate EXISTING tasks that need updates!
+
+- Explicit update mentions: "task update SP-XXX", "task update TRADES-XXX", "update SP-XXX", "update TRADES-XXX"
+- Status updates: "SP-XXX is completed", "TRADES-XXX is done", "SP-XXX is in progress"
+- Progress reports: "I'm working on SP-XXX and...", "TRADES-XXX needs...", "working on TRADES-XXX"
+- Task modifications: "For SP-XXX, we should also add...", "For TRADES-XXX, change the description"
+- Task discussions: "talking about SP-XXX", "regarding TRADES-XXX", "for SP-XXX", "for TRADES-XXX"
+- Specific ticket references: Any mention of "SP-" or "TRADES-" followed by numbers
 
 **CLASSIFICATION RULE**: 
-- If a ticket number (SP-XXX) is mentioned, it's an UPDATE to existing task
-- If EXPLICIT task creation language is used (without SP-XXX), it's a NEW TASK
+- If a ticket number (SP-XXX or TRADES-XXX) is mentioned in ANY context, it's an UPDATE to existing task
+- If someone says "task update SP-XXX" or "task update TRADES-XXX", it's DEFINITELY an UPDATE
+- If EXPLICIT task creation language is used (without ticket number), it's a NEW TASK
 - If neither condition is met, DO NOT create any task entry
+
+**CRITICAL**: Even casual mentions like "task update trades 223" or "TRADES-223, we're changing X to Y" should be captured as UPDATE_TASK with the full context of what's being changed.
 
 **4. CONTEXT PRESERVATION**:
 - Include WHO mentioned the task
@@ -407,6 +425,7 @@ Scan the ENTIRE transcript for task cancellation patterns:
 **10. CONTEXT GATHERING STRATEGY**:
 - Scan the ENTIRE transcript for ALL mentions of each identified task
 - For SP-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
+- For TRADES-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
 - For new tasks: Find the initial mention AND any subsequent elaborations or additions
 - Combine information from multiple speakers if they discuss the same task
 - Include all technical details, requirements, and context mentioned anywhere in the transcript
@@ -436,7 +455,7 @@ TASK: [CLEAN, short task summary - NO prefixes like "NEW_TASK", "Purpose:", "Cre
 ASSIGNEE: [Person assigned or TBD]
 TYPE: [Coding/Non-Coding]
 CATEGORY: [NEW_TASK or UPDATE_TASK]
-TICKET_ID: [SP-XXX if mentioned for updates, or "NONE" for new tasks]
+TICKET_ID: [SP-XXX or TRADES-XXX if mentioned for updates, or "NONE" for new tasks]
 ESTIMATED_TIME: [Number in hours - e.g., "3", "16" (2 days), "0" if not mentioned]
 PRIORITY: [Highest/High/Medium/Low/Lowest - extract from transcript context, or leave blank if not mentioned]
 STORY_POINTS: [Number - e.g., "3", "5", "8", or leave blank if not mentioned]
