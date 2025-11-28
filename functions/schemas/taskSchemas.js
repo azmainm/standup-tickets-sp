@@ -51,7 +51,7 @@ const AssigneeDetectionSchema = z.object({
 
 // Schema for status change detection
 const StatusChangeSchema = z.object({
-  taskId: z.string().regex(/^(SP-\d+|[A-Z]{2,}-\d+)$/), // Accepts both SP-XXX and Jira formats like TRADES-XXX
+  taskId: z.string().regex(/^(SP-\d+|[A-Z]{2,}-\d+)$/), // Accepts both SP-XXX and Jira formats like TDS-XXX
   newStatus: z.enum(["To-do", "In-progress", "Completed"]),
   confidence: z.number().min(0).max(1),
   evidence: z.string(),
