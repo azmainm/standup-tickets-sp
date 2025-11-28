@@ -1027,10 +1027,10 @@ async function processTranscriptToTasksWithPipeline(
           let jiraUpdateError = null;
           let jiraIssueKey = null;
           
-          // TRADES-XXX: Direct Jira issue key - update directly
+          // TDS-XXX: Direct Jira issue key - update directly
           if (isJiraTicket(statusChange.taskId)) {
             try {
-              logger.info("Syncing status change to Jira (direct TRADES-XXX)", {
+              logger.info("Syncing status change to Jira (direct TDS-XXX)", {
                 taskId: statusChange.taskId,
                 newStatus: statusChange.newStatus
               });
@@ -1044,20 +1044,20 @@ async function processTranscriptToTasksWithPipeline(
               jiraIssueKey = statusChange.taskId;
               
               if (jiraUpdateResult.success) {
-                logger.info("Jira status update successful (TRADES-XXX)", {
+                logger.info("Jira status update successful (TDS-XXX)", {
                   taskId: statusChange.taskId,
                   statusUpdated: jiraUpdateResult.statusUpdated
                 });
               } else {
                 jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Unknown error";
-                logger.warn("Jira status update failed (TRADES-XXX)", {
+                logger.warn("Jira status update failed (TDS-XXX)", {
                   taskId: statusChange.taskId,
                   errors: jiraUpdateResult.errors
                 });
               }
             } catch (jiraError) {
               jiraUpdateError = jiraError.message;
-              logger.error("Jira status update exception (TRADES-XXX)", {
+              logger.error("Jira status update exception (TDS-XXX)", {
                 taskId: statusChange.taskId,
                 error: jiraError.message,
                 stack: jiraError.stack
@@ -1208,10 +1208,10 @@ async function processTranscriptToTasksWithPipeline(
           let jiraUpdateError = null;
           let jiraIssueKey = null;
           
-          // TRADES-XXX: Direct Jira issue key - update directly
+          // TDS-XXX: Direct Jira issue key - update directly
           if (isJiraTicket(update.taskId)) {
             try {
-              logger.info("Syncing description update to Jira (direct TRADES-XXX)", {
+              logger.info("Syncing description update to Jira (direct TDS-XXX)", {
                 taskId: update.taskId,
                 descriptionLength: updatedDescription.length,
                 updateType: update.updateType
@@ -1226,20 +1226,20 @@ async function processTranscriptToTasksWithPipeline(
               jiraIssueKey = update.taskId;
               
               if (jiraUpdateResult.success) {
-                logger.info("Jira description update successful (TRADES-XXX)", {
+                logger.info("Jira description update successful (TDS-XXX)", {
                   taskId: update.taskId,
                   descriptionUpdated: jiraUpdateResult.descriptionUpdated
                 });
               } else {
                 jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Unknown error";
-                logger.warn("Jira description update failed (TRADES-XXX)", {
+                logger.warn("Jira description update failed (TDS-XXX)", {
                   taskId: update.taskId,
                   errors: jiraUpdateResult.errors
                 });
               }
             } catch (jiraError) {
               jiraUpdateError = jiraError.message;
-              logger.error("Jira description update exception (TRADES-XXX)", {
+              logger.error("Jira description update exception (TDS-XXX)", {
                 taskId: update.taskId,
                 error: jiraError.message,
                 stack: jiraError.stack

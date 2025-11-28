@@ -13,7 +13,7 @@ To ensure our automated task tracking system captures all task information accur
 
 **Every task in our system gets a unique ID. The format depends on whether Jira integration is enabled:**
 
-- **With Jira Integration**: Tasks get Jira ticket IDs (e.g., `TRADES-123`, `PROJ-456`)
+- **With Jira Integration**: Tasks get Jira ticket IDs (e.g., `TDS-123`, `PROJ-456`)
 - **Without Jira Integration**: Tasks get SP-XXX format IDs (e.g., `SP-22`, `SP-23`)
 
 **Both formats work the same way - always mention the ticket ID when discussing existing tasks!**
@@ -25,9 +25,9 @@ To ensure our automated task tracking system captures all task information accur
 
 ### For EXISTING tasks:
 - **ALWAYS start by saying the task ID loudly and clearly**
-- **Example: "TRADES-123 - I made progress on the user authentication feature"** (Jira ticket)
+- **Example: "TDS-123 - I made progress on the user authentication feature"** (Jira ticket)
 - **Example: "SP-25 - I made progress on the user authentication feature"** (SP format)
-- **Example: "Task TRADES-127 - I completed the database migration"**
+- **Example: "Task TDS-127 - I completed the database migration"**
 - **Example: "For SP-30 - I need to add error handling"**
 
 **⚠️ If you don't mention a task ID when discussing a task, the system will treat it as a NEW task!**
@@ -41,7 +41,7 @@ When Jira integration is enabled:
 - **Status Synchronization**: Status updates in meetings sync to Jira
 - **Team Assignment**: Tasks are automatically assigned to team members
 
-**Note**: You can reference tasks using either the Jira ticket ID (e.g., `TRADES-123`) or the SP format (e.g., `SP-25`). The system recognizes both!
+**Note**: You can reference tasks using either the Jira ticket ID (e.g., `TDS-123`) or the SP format (e.g., `SP-25`). The system recognizes both!
 
 ## 🚀 Guidelines for Mentioning Tasks
 
@@ -79,9 +79,9 @@ When introducing a completely new task, be explicit:
 When providing updates on existing tasks, always start with the task ID (Jira ticket ID or SP-XXX format):
 
 **✅ Good Examples:**
-- "**TRADES-123** - Update on the user authentication task: I've added email validation and it's working well." (Jira ticket)
+- "**TDS-123** - Update on the user authentication task: I've added email validation and it's working well." (Jira ticket)
 - "**SP-25** - Update on the user authentication task: I've added email validation and it's working well." (SP format)
-- "**Task TRADES-127** - For the admin dashboard feature, I've completed the user management section."
+- "**Task TDS-127** - For the admin dashboard feature, I've completed the user management section."
 - "**SP-30** - Progress on payment integration: I've integrated Stripe but still need to add error handling."
 
 **❌ Avoid:**
@@ -93,11 +93,11 @@ When providing updates on existing tasks, always start with the task ID (Jira ti
 Be explicit about status changes and always include the task ID (Jira ticket ID or SP-XXX format):
 
 **✅ Good Examples:**
-- "**TRADES-123** - I have **completed** the user authentication task." (Jira ticket)
+- "**TDS-123** - I have **completed** the user authentication task." (Jira ticket)
 - "**SP-25** - I have **completed** the user authentication task." (SP format)
-- "**TRADES-127** - I've **started working on** the admin dashboard."
+- "**TDS-127** - I've **started working on** the admin dashboard."
 - "**Task SP-30** - The payment integration is **finished** and deployed."
-- "**TRADES-132** - I **began** the database migration task yesterday."
+- "**TDS-132** - I **began** the database migration task yesterday."
 
 **Status updates will automatically sync to Jira if integration is enabled!**
 
@@ -124,9 +124,9 @@ Always mention time estimates for new tasks:
 When adding or removing features from existing tasks, always include the task ID (Jira ticket ID or SP-XXX format):
 
 **✅ Good Examples:**
-- "**TRADES-123** - For the user authentication task, I need to **add two-factor authentication** as well." (Jira ticket)
+- "**TDS-123** - For the user authentication task, I need to **add two-factor authentication** as well." (Jira ticket)
 - "**SP-25** - For the user authentication task, I need to **add two-factor authentication** as well." (SP format)
-- "**Task TRADES-127** - Update to the admin dashboard: we're **removing the analytics section** for now."
+- "**Task TDS-127** - Update to the admin dashboard: we're **removing the analytics section** for now."
 - "**SP-30** - The payment integration now needs to **support PayPal** in addition to Stripe."
 
 **Task modifications will update the Jira issue description if integration is enabled!**
@@ -172,19 +172,19 @@ The system automatically captures estimated time for new tasks. Use these specif
 > *System will assign: SP-36 with estimatedTime: 8*
 
 ### Update Example:
-> "**TRADES-136** - Update on the search functionality task: I've completed the API part and I'm now working on the frontend integration."
-> *System will update TRADES-136 and sync to Jira if integration is enabled*
+> "**TDS-136** - Update on the search functionality task: I've completed the API part and I'm now working on the frontend integration."
+> *System will update TDS-136 and sync to Jira if integration is enabled*
 
 ### Completion Example:
-> "**TRADES-136** - I have **completed** the search functionality task. Everything is tested and deployed."
-> *System will update TRADES-136 with status: Completed, and sync status to Jira*
+> "**TDS-136** - I have **completed** the search functionality task. Everything is tested and deployed."
+> *System will update TDS-136 with status: Completed, and sync status to Jira*
 
 ### Status Change Example:
 > "I've **started working on** the new user notification system. This is a **new task** that should take about **6 hours**."
-> *System will create a new task (e.g., TRADES-137) with estimatedTime: 6, and create a Jira issue if integration is enabled*
+> *System will create a new task (e.g., TDS-137) with estimatedTime: 6, and create a Jira issue if integration is enabled*
 > 
-> Later: "**TRADES-137** - Progress update on the user notification system: I've implemented the basic structure and it's going well."
-> *System will update TRADES-137 and sync to Jira*
+> Later: "**TDS-137** - Progress update on the user notification system: I've implemented the basic structure and it's going well."
+> *System will update TDS-137 and sync to Jira*
 
 ## 🚀 Enhanced System Features
 
@@ -212,9 +212,9 @@ The system now includes several advanced features for better task tracking:
 
 ## ⚠️ Important Notes
 
-1. **Task IDs are CRITICAL**: Always mention task ID for existing tasks (Jira format like `TRADES-123` or SP format like `SP-25`)
+1. **Task IDs are CRITICAL**: Always mention task ID for existing tasks (Jira format like `TDS-123` or SP format like `SP-25`)
 2. **Jira Integration**: If enabled, tasks are automatically created as Jira issues with rich metadata
-3. **Ticket Format**: You can reference tasks using either Jira ticket IDs (e.g., `TRADES-123`) or SP format (e.g., `SP-25`) - both work!
+3. **Ticket Format**: You can reference tasks using either Jira ticket IDs (e.g., `TDS-123`) or SP format (e.g., `SP-25`) - both work!
 4. **Future Plans**: Use phrases like "is a future plan", "future enhancement", "planned for future" to create future plan tasks
 5. **Be Specific**: Always mention the task name/description clearly
 6. **Use Keywords**: Include the suggested keywords for better detection
@@ -233,25 +233,25 @@ The system now includes several advanced features for better task tracking:
 
 ### Phase 1: Task Creation
 - "**New task**: [Description] - estimated **X hours**"
-- *System assigns ID automatically (e.g., TRADES-141 if Jira enabled, or SP-41)*
+- *System assigns ID automatically (e.g., TDS-141 if Jira enabled, or SP-41)*
 - *If Jira enabled: Creates Jira issue with priority, story points, labels, and assigns to team member*
 
 ### Phase 2: Progress Updates
-- "**TRADES-141** - Update on [task name]: [progress details]"
+- "**TDS-141** - Update on [task name]: [progress details]"
 - *System updates task and syncs to Jira if integration enabled*
 
 ### Phase 3: Completion
-- "**TRADES-141** - Completed [task name]"
+- "**TDS-141** - Completed [task name]"
 - *System updates status to Completed and syncs to Jira (status: done)*
 
 ### Phase 4: Additional Work
-- "**TRADES-141** - For [task name], need to add [new requirement] - estimated additional **X hours**"
+- "**TDS-141** - For [task name], need to add [new requirement] - estimated additional **X hours**"
 - *System updates description and syncs to Jira*
 
 ## ✅ Quick Checklist Before Speaking
 
 - [ ] **For future plans: Did I use "future plan" language clearly?**
-- [ ] **For existing tasks: Did I start with the task ID (TRADES-XXX or SP-XX)?**
+- [ ] **For existing tasks: Did I start with the task ID (TDS-XXX or SP-XX)?**
 - [ ] Did I specify if this is a new task or update to existing?
 - [ ] **Time Tracking: Did I include time estimates for new tasks?**
 - [ ] Did I clearly state any status changes?
@@ -259,7 +259,7 @@ The system now includes several advanced features for better task tracking:
 - [ ] **Enhanced Features: Did I provide enough context for rich descriptions?**
 - [ ] **Jira Integration: Did I use the correct ticket ID format (if Jira is enabled)?**
 
-**Remember: No Task ID = New Task! Always use TRADES-XXX (or SP-XX) for existing tasks.**
+**Remember: No Task ID = New Task! Always use TDS-XXX (or SP-XX) for existing tasks.**
 
 ## 🔗 Related Documentation
 

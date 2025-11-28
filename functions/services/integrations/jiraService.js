@@ -112,17 +112,17 @@ async function getProjectInfo(projectKey) {
 }
 
 /**
- * Check if a ticketId is a Jira issue key (TRADES-XXX format)
+ * Check if a ticketId is a Jira issue key (TDS-XXX format)
  * Note: SP-XXX are MongoDB ticket IDs, not Jira issue keys
- * @param {string} ticketId - The ticket ID to check (e.g., "TRADES-123")
+ * @param {string} ticketId - The ticket ID to check (e.g., "TDS-123")
  * @returns {boolean} True if the ticketId is a Jira issue key
  */
 function isJiraTicket(ticketId) {
   if (!ticketId) return false;
   
-  // Only TRADES-XXX format are direct Jira issue keys
+  // Only TDS-XXX format are direct Jira issue keys
   const normalizedTicketId = ticketId.toString().toUpperCase();
-  return normalizedTicketId.startsWith("TRADES-");
+  return normalizedTicketId.startsWith("TDS-");
 }
 
 /**
@@ -139,7 +139,7 @@ function isMongoTicket(ticketId) {
 
 /**
  * Update Jira issue description
- * @param {string} issueKey - The issue key (e.g., "TRADES-123")
+ * @param {string} issueKey - The issue key (e.g., "TDS-123")
  * @param {string} description - The new description (complete replacement)
  * @returns {Promise<boolean>} True if update successful
  */
@@ -841,7 +841,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
 
 /**
  * Update a Jira issue (both status and description)
- * @param {string} issueKey - The issue key (e.g., "TRADES-123")
+ * @param {string} issueKey - The issue key (e.g., "TDS-123")
  * @param {Object} updateData - Update data containing status and/or description
  * @param {string} updateData.status - New status (optional, will be mapped: "In-progress" → "in-progress", "Completed" → "done")
  * @param {string} updateData.description - New description (optional, complete replacement)
@@ -928,7 +928,7 @@ async function findJiraIssueByTitle(ticketId) {
     
     // Search for issues with the ticket ID in the summary/title
     // Using JQL to search within the project
-    const projectKey = JIRA_PROJECT_KEY || "TRADES";
+    const projectKey = JIRA_PROJECT_KEY || "TDS";
     const jql = `project = ${projectKey} AND summary ~ "${ticketId}"`;
     
     const response = await axios.get(`${trimmedJiraUrl}/rest/api/2/search`, {

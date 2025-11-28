@@ -27,27 +27,27 @@ function detectStatusChanges(transcriptText, speaker) {
       containsCompleted: transcriptText.toLowerCase().includes('completed')
     });
     
-    // Patterns for completion (supports both SP-XXX and Jira ticket formats like TRADES-XXX)
+    // Patterns for completion (supports both SP-XXX and Jira ticket formats like TDS-XXX)
     const completionPatterns = [
-      // "SP-XX is completed/done/finished" or "TRADES-204 is completed"
+      // "SP-XX is completed/done/finished" or "TDS-204 is completed"
       {
         pattern: /\b((?:sp|[A-Z]{2,})[-\s]?\d+)\s+(?:is|was|has\s+been)\s+(?:now\s+|definitely\s+)?(?:completed?|done|finished|resolved)\b/gi,
         status: "Completed",
         confidence: 0.9
       },
-      // "completed SP-XX" or "completed TRADES-204"
+      // "completed SP-XX" or "completed TDS-204"
       {
         pattern: /\b(?:completed?|finished|done\s+with)\s+((?:sp|[A-Z]{2,})[-\s]?\d+)\b/gi,
         status: "Completed", 
         confidence: 0.9
       },
-      // "SP-XX - completed" or "TRADES-204 completed"
+      // "SP-XX - completed" or "TDS-204 completed"
       {
         pattern: /\b((?:sp|[A-Z]{2,})[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:completed?|finished|done)\b(?!\s+(?:by|in|within|about))/gi,
         status: "Completed",
         confidence: 0.8
       },
-      // "I completed SP-XX" or "I've completed TRADES-204"
+      // "I completed SP-XX" or "I've completed TDS-204"
       {
         pattern: /\b(?:i\s+)?(?:have\s+)?(?:completed?|finished|done)\s+(?:working\s+on\s+)?((?:sp|[A-Z]{2,})[-\s]?\d+)\b/gi,
         status: "Completed",
@@ -57,25 +57,25 @@ function detectStatusChanges(transcriptText, speaker) {
 
     // Patterns for in-progress (supports both SP-XXX and Jira ticket formats)
     const inProgressPatterns = [
-      // "SP-XX is in progress/started" or "TRADES-204 is in progress"
+      // "SP-XX is in progress/started" or "TDS-204 is in progress"
       {
         pattern: /\b((?:sp|[A-Z]{2,})[-\s]?\d+)\s+(?:is|was)?\s*(?:in\s+progress|started|begun|underway|ongoing)\b/gi,
         status: "In-progress",
         confidence: 0.9
       },
-      // "started SP-XX" or "started TRADES-204"
+      // "started SP-XX" or "started TDS-204"
       {
         pattern: /\b(?:started|began|begun)\s+(?:working\s+on\s+)?((?:sp|[A-Z]{2,})[-\s]?\d+)\b/gi,
         status: "In-progress",
         confidence: 0.9
       },
-      // "working on SP-XX" or "working on TRADES-204"
+      // "working on SP-XX" or "working on TDS-204"
       {
         pattern: /\b(?:working\s+on|currently\s+on)\s+((?:sp|[A-Z]{2,})[-\s]?\d+)\b/gi,
         status: "In-progress",
         confidence: 0.8
       },
-      // "SP-XX - started" or "TRADES-204 started"
+      // "SP-XX - started" or "TDS-204 started"
       {
         pattern: /\b((?:sp|[A-Z]{2,})[-\s]?\d+)(?:\s*[-:]\s*|\s+)(?:started|begun|in\s+progress)\b/gi,
         status: "In-progress",
@@ -221,7 +221,7 @@ function detectStatusChangesFromTranscript(transcriptEntries) {
 }
 
 /**
- * Normalize task ID to standard format (SP-XX or Jira format like TRADES-XX)
+ * Normalize task ID to standard format (SP-XX or Jira format like TDS-XX)
  * @param {string} rawTaskId - Raw task ID from text
  * @returns {string|null} Normalized task ID or null if invalid
  */
@@ -238,7 +238,7 @@ function normalizeTaskId(rawTaskId) {
   }
   
   // Check if it matches Jira ticket format (PROJECTKEY-NUMBER)
-  // This matches formats like: TRADES-204, PROJ-123, ABC-456
+  // This matches formats like: TDS-204, PROJ-123, ABC-456
   // Must have at least 2 uppercase letters followed by dash and numbers
   const jiraMatch = cleaned.match(/^([A-Z]{2,})[-]?(\d+)$/);
   if (jiraMatch) {

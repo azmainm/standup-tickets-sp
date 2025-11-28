@@ -150,7 +150,7 @@ functions/services/
 | `JIRA_URL` | Jira instance URL (optional) | `https://yourcompany.atlassian.net` |
 | `JIRA_EMAIL` | Jira account email (optional) | `your-email@company.com` |
 | `JIRA_API_TOKEN` | Jira API token (optional) | `ATATT3xFfGF0...` |
-| `JIRA_PROJECT_KEY` | Jira project key (optional) | `TRADES`, `PROJ` |
+| `JIRA_PROJECT_KEY` | Jira project key (optional) | `TDS`, `PROJ` |
 
 ### Azure App Registration Permissions
 
