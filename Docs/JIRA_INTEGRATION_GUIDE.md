@@ -33,7 +33,7 @@ Add the following environment variables to your configuration:
 | `JIRA_URL` | Your Jira instance URL | `https://yourcompany.atlassian.net` |
 | `JIRA_EMAIL` | Email address of the Jira account with API access | `your-email@company.com` |
 | `JIRA_API_TOKEN` | Jira API token (see below for how to create) | `ATATT3xFfGF0...` |
-| `JIRA_PROJECT_KEY` | The project key where issues will be created | `TRADES`, `PROJ`, `SP` |
+| `JIRA_PROJECT_KEY` | The project key where issues will be created | `TDS`, `PROJ`, `SP` |
 
 #### Creating a Jira API Token
 
@@ -102,7 +102,7 @@ If using Firebase Functions, add to your `.env` file:
 JIRA_URL=https://yourcompany.atlassian.net
 JIRA_EMAIL=your-email@company.com
 JIRA_API_TOKEN=ATATT3xFfGF0...
-JIRA_PROJECT_KEY=TRADES
+JIRA_PROJECT_KEY=TDS
 ```
 
 ## 🔄 How It Works
@@ -125,7 +125,7 @@ JIRA_PROJECT_KEY=TRADES
 
 ### Task Update Flow
 
-1. **Status Detection**: When a task ID (e.g., `TRADES-123`) is mentioned in a meeting
+1. **Status Detection**: When a task ID (e.g., `TDS-123`) is mentioned in a meeting
 2. **Status Mapping**: MongoDB statuses are mapped to Jira statuses:
    - `In-progress` → `in-progress`
    - `Completed` → `done`
@@ -137,7 +137,7 @@ JIRA_PROJECT_KEY=TRADES
 
 The system uses a dual ticket ID system:
 
-- **Jira Tickets**: When Jira integration is enabled, tasks get Jira ticket IDs (e.g., `TRADES-123`)
+- **Jira Tickets**: When Jira integration is enabled, tasks get Jira ticket IDs (e.g., `TDS-123`)
 - **SP Tickets**: If Jira creation fails or integration is disabled, tasks get SP-XXX format IDs (e.g., `SP-25`)
 
 Both formats are supported for task updates in meetings.
@@ -207,7 +207,7 @@ testJiraConnection().then(success => {
 ```javascript
 const { getProjectInfo } = require('./services/integrations/jiraService');
 
-getProjectInfo('TRADES').then(project => {
+getProjectInfo('TDS').then(project => {
   console.log('Project:', project);
 });
 ```
@@ -360,7 +360,7 @@ The Jira integration is seamlessly integrated into the meeting processing pipeli
 4. **Team Communication**:
    - Inform team about Jira integration
    - Train team on how to reference Jira tickets in meetings
-   - Document ticket ID format (e.g., `TRADES-123`)
+   - Document ticket ID format (e.g., `TDS-123`)
 
 ## 🔗 Related Documentation
 
