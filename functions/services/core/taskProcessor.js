@@ -13,7 +13,7 @@
 
 const { processTranscriptForTasks, processTranscriptForTasksWithPipeline } = require("../integrations/openaiService");
 const { storeTasks, storeTranscript, updateTask, updateTaskByTicketId, getActiveTasks } = require("../storage/mongoService");
-const { createJiraIssuesForCodingTasks } = require("../integrations/jiraService");
+const { createJiraIssuesForCodingTasks, isJiraTicket, updateJiraIssue } = require("../integrations/jiraService");
 const { matchTasksWithDatabase, normalizeTicketId } = require("../pipeline/taskMatcher");
 const { sendStandupSummaryToTeams, generateSummaryDataFromTaskResult } = require("../integrations/teamsService");
 const { detectStatusChangesFromTranscript, getStatusChangeSummary } = require("../utilities/statusChangeDetectionService");
@@ -146,22 +146,55 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
         });
         
         if (taskToUpdate) {
-          const updateResult = await updateTaskByTicketId(
-            statusChange.taskId,
-            { status: statusChange.newStatus }
-          );
+          let jiraUpdateSuccess = false;
+          let jiraUpdateError = null;
           
-          console.log("[DEBUG] Status update result:", {
-            taskId: statusChange.taskId,
-            updateSuccess: updateResult.success,
-            updateResult
-          });
+          // Update Jira if this is a Jira ticket (skip MongoDB)
+          if (isJiraTicket(statusChange.taskId)) {
+            try {
+              const jiraUpdateResult = await updateJiraIssue(statusChange.taskId, {
+                status: statusChange.newStatus
+              });
+              
+              jiraUpdateSuccess = jiraUpdateResult.success;
+              
+              if (jiraUpdateResult.success) {
+                logger.info("Jira status updated successfully (legacy function)", {
+                  taskId: statusChange.taskId,
+                  oldStatus: taskToUpdate.status,
+                  newStatus: statusChange.newStatus,
+                  statusUpdated: jiraUpdateResult.statusUpdated
+                });
+              } else {
+                jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Jira update failed";
+                logger.warn("Jira status update failed (legacy function)", {
+                  taskId: statusChange.taskId,
+                  errors: jiraUpdateResult.errors
+                });
+              }
+            } catch (jiraError) {
+              jiraUpdateError = jiraError.message;
+              logger.error("Error updating Jira status (legacy function)", {
+                taskId: statusChange.taskId,
+                error: jiraError.message
+              });
+            }
+          }
           
-          statusChangeResults.push({
-            success: updateResult.success,
+          console.log("[DEBUG] Status update processed (MongoDB skipped, Jira updated):", {
             taskId: statusChange.taskId,
             oldStatus: taskToUpdate.status,
             newStatus: statusChange.newStatus,
+            jiraUpdated: jiraUpdateSuccess
+          });
+          
+          statusChangeResults.push({
+            success: jiraUpdateSuccess || !isJiraTicket(statusChange.taskId), // Success if Jira updated or not a Jira ticket
+            taskId: statusChange.taskId,
+            oldStatus: taskToUpdate.status,
+            newStatus: statusChange.newStatus,
+            jiraUpdated: jiraUpdateSuccess,
+            error: jiraUpdateError,
             confidence: statusChange.confidence,
             speaker: statusChange.speaker
           });
@@ -212,27 +245,76 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
     }
 
     // Step 8: Update existing tasks in the database (from task matching)
-    logger.info("📝 Step 8: Updating existing tasks from task matching", {
+    // SKIPPED: MongoDB updates and embeddings (handled by Jira automation)
+    // Still updating Jira directly
+    logger.info("🔄 Step 8: Applying task updates to Jira from matching (MongoDB skipped)", {
       tasksToUpdate: matchingResult.summary.updatedTasks,
     });
     
     const updateResults = [];
     for (const taskUpdate of matchingResult.tasksToUpdate) {
       try {
-        const updateResult = await updateTask(
-          taskUpdate.originalTask.documentId,
-          taskUpdate.originalTask.taskPath,
-          taskUpdate.updates
-        );
+        const ticketId = taskUpdate.originalTask.ticketId;
+        let jiraUpdateSuccess = false;
+        let jiraUpdateError = null;
+        
+        // Update Jira if this is a Jira ticket (skip MongoDB)
+        if (ticketId && isJiraTicket(ticketId)) {
+          try {
+            const jiraUpdateData = {};
+            if (taskUpdate.updates.status) {
+              jiraUpdateData.status = taskUpdate.updates.status;
+            }
+            if (taskUpdate.updates.description) {
+              jiraUpdateData.description = taskUpdate.updates.description;
+            }
+            
+            if (Object.keys(jiraUpdateData).length > 0) {
+              const jiraUpdateResult = await updateJiraIssue(ticketId, jiraUpdateData);
+              
+              jiraUpdateSuccess = jiraUpdateResult.success;
+              
+              if (jiraUpdateResult.success) {
+                logger.info("Jira task updated successfully from matching (legacy function)", {
+                  ticketId,
+                  statusUpdated: jiraUpdateResult.statusUpdated,
+                  descriptionUpdated: jiraUpdateResult.descriptionUpdated
+                });
+              } else {
+                jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Jira update failed";
+                logger.warn("Jira task update failed from matching (legacy function)", {
+                  ticketId,
+                  errors: jiraUpdateResult.errors
+                });
+              }
+            }
+          } catch (jiraError) {
+            jiraUpdateError = jiraError.message;
+            logger.error("Error updating Jira task from matching (legacy function)", {
+              ticketId,
+              error: jiraError.message
+            });
+          }
+        }
+        
         updateResults.push({
-          success: updateResult.success,
+          success: jiraUpdateSuccess || !ticketId || !isJiraTicket(ticketId), // Success if Jira updated or not a Jira ticket
           taskPath: taskUpdate.originalTask.taskPath,
           updates: taskUpdate.updates,
           similarityScore: taskUpdate.originalTask.similarityScore,
-          reasoning: taskUpdate.originalTask.reasoning
+          reasoning: taskUpdate.originalTask.reasoning,
+          jiraUpdated: jiraUpdateSuccess,
+          error: jiraUpdateError
+        });
+        
+        logger.info("Task update processed (MongoDB skipped, Jira updated)", {
+          taskPath: taskUpdate.originalTask.taskPath,
+          ticketId,
+          updates: taskUpdate.updates,
+          jiraUpdated: jiraUpdateSuccess
         });
       } catch (error) {
-        logger.error("Failed to update task from matching", {
+        logger.error("Error processing task update (MongoDB skipped)", {
           taskPath: taskUpdate.originalTask.taskPath,
           error: error.message,
         });
@@ -964,17 +1046,49 @@ async function processTranscriptToTasksWithPipeline(
     }
 
     // Step 4: Store new tasks and apply updates (with Jira ticketId mapping)
-    logger.info("💾 Step 4: Storing new tasks and applying updates");
+    // SKIPPED: Database storage and embeddings will be handled elsewhere
+    logger.info("⏭️ Step 4: Skipping MongoDB storage and embeddings (handled elsewhere)");
     let mongoResult = null;
     
     if (Object.keys(pipelineResult.tasks).length > 0) {
-      mongoResult = await storeTasks(pipelineResult.tasks, {
-        ...pipelineResult.metadata,
-        transcriptMetadata,
-        transcriptDocumentId: transcriptStorageResult.documentId,
-        processingDuration: (Date.now() - startTime) / 1000,
-        pipelineVersion: "1.0",
-        jiraTicketIdMap: jiraTicketIdMap, // Pass Jira ticketId mapping
+      // Build assignedTicketIds array from jiraTicketIdMap in the same order as tasks
+      const assignedTicketIds = [];
+      for (const [participantName, participantTasks] of Object.entries(pipelineResult.tasks)) {
+        // Process Coding tasks
+        if (participantTasks.Coding && Array.isArray(participantTasks.Coding)) {
+          for (let codingIndex = 0; codingIndex < participantTasks.Coding.length; codingIndex++) {
+            const taskKey = `${participantName}:Coding:${codingIndex}`;
+            const ticketId = jiraTicketIdMap[taskKey] || null;
+            if (ticketId) {
+              assignedTicketIds.push(ticketId);
+            }
+          }
+        }
+        // Process Non-Coding tasks
+        if (participantTasks["Non-Coding"] && Array.isArray(participantTasks["Non-Coding"])) {
+          for (let nonCodingIndex = 0; nonCodingIndex < participantTasks["Non-Coding"].length; nonCodingIndex++) {
+            const taskKey = `${participantName}:Non-Coding:${nonCodingIndex}`;
+            const ticketId = jiraTicketIdMap[taskKey] || null;
+            if (ticketId) {
+              assignedTicketIds.push(ticketId);
+            }
+          }
+        }
+      }
+      
+      mongoResult = {
+        success: true,
+        documentId: null,
+        timestamp: new Date(),
+        participantCount: Object.keys(pipelineResult.tasks).length,
+        totalTasksWithIds: assignedTicketIds.length,
+        assignedTicketIds: assignedTicketIds,
+        message: "MongoDB storage skipped - handled elsewhere"
+      };
+      
+      logger.info("Built ticket IDs from Jira without storing to database", {
+        totalTicketIds: assignedTicketIds.length,
+        ticketIds: assignedTicketIds
       });
     } else {
       mongoResult = {
@@ -982,12 +1096,15 @@ async function processTranscriptToTasksWithPipeline(
         documentId: null,
         timestamp: new Date(),
         participantCount: 0,
+        assignedTicketIds: [],
         message: "No new tasks to store from pipeline"
       };
     }
 
     // Step 4.1: Apply status changes to existing tasks
-    logger.info("🔄 Step 4.1: Applying status changes");
+    // SKIPPED: MongoDB updates and embeddings (handled by Jira automation)
+    // Still updating Jira directly
+    logger.info("🔄 Step 4.1: Applying status changes to Jira (MongoDB skipped)");
     const statusChangeResults = [];
     const statusChanges = pipelineResult.statusChanges || [];
     
@@ -1004,31 +1121,62 @@ async function processTranscriptToTasksWithPipeline(
         });
         
         if (taskToUpdate) {
-          const updateResult = await updateTaskByTicketId(
-            statusChange.taskId,
-            { status: statusChange.newStatus }
-          );
+          let jiraUpdateSuccess = false;
+          let jiraUpdateError = null;
           
-          console.log("[DEBUG] Status update result:", {
-            taskId: statusChange.taskId,
-            updateSuccess: updateResult.success,
-            oldStatus: taskToUpdate.status,
-            newStatus: statusChange.newStatus
-          });
+          // Update Jira if this is a Jira ticket (skip MongoDB)
+          if (isJiraTicket(statusChange.taskId)) {
+            try {
+              const jiraUpdateResult = await updateJiraIssue(statusChange.taskId, {
+                status: statusChange.newStatus
+              });
+              
+              jiraUpdateSuccess = jiraUpdateResult.success;
+              
+              if (jiraUpdateResult.success) {
+                logger.info("Jira status updated successfully", {
+                  taskId: statusChange.taskId,
+                  oldStatus: taskToUpdate.status,
+                  newStatus: statusChange.newStatus,
+                  statusUpdated: jiraUpdateResult.statusUpdated
+                });
+              } else {
+                jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Jira update failed";
+                logger.warn("Jira status update failed", {
+                  taskId: statusChange.taskId,
+                  errors: jiraUpdateResult.errors
+                });
+              }
+            } catch (jiraError) {
+              jiraUpdateError = jiraError.message;
+              logger.error("Error updating Jira status", {
+                taskId: statusChange.taskId,
+                error: jiraError.message
+              });
+            }
+          } else {
+            // Not a Jira ticket, skip update
+            logger.info("Status change for non-Jira ticket (skipped)", {
+              taskId: statusChange.taskId
+            });
+          }
           
           statusChangeResults.push({
-            success: updateResult.success,
+            success: jiraUpdateSuccess || !isJiraTicket(statusChange.taskId), // Success if Jira updated or not a Jira ticket
             taskId: statusChange.taskId,
             oldStatus: taskToUpdate.status,
             newStatus: statusChange.newStatus,
             confidence: statusChange.confidence,
-            speaker: statusChange.speaker
+            speaker: statusChange.speaker,
+            jiraUpdated: jiraUpdateSuccess,
+            error: jiraUpdateError
           });
           
-          logger.info("Status change applied", {
+          logger.info("Status change processed (MongoDB skipped, Jira updated)", {
             taskId: statusChange.taskId,
             oldStatus: taskToUpdate.status,
             newStatus: statusChange.newStatus,
+            jiraUpdated: jiraUpdateSuccess,
             speaker: statusChange.speaker
           });
         } else {
@@ -1040,7 +1188,7 @@ async function processTranscriptToTasksWithPipeline(
           statusChangeResults.push({
             success: false,
             taskId: statusChange.taskId,
-            error: "Task not found in database",
+            error: "Task not found",
             newStatus: statusChange.newStatus
           });
         }
@@ -1060,7 +1208,9 @@ async function processTranscriptToTasksWithPipeline(
     }
 
     // Step 4.2: Apply task description updates
-    logger.info("📝 Step 4.2: Applying task description updates");
+    // SKIPPED: MongoDB updates and embeddings (handled by Jira automation)
+    // Still updating Jira directly
+    logger.info("📝 Step 4.2: Applying task description updates to Jira (MongoDB skipped)");
     const taskUpdateResults = [];
     const taskUpdates = pipelineResult.pipelineResults?.stage3?.taskUpdates || [];
     
@@ -1074,30 +1224,58 @@ async function processTranscriptToTasksWithPipeline(
           // RAG-enhanced description is the complete updated description (not just new info)
           const updatedDescription = update.newInformation;
           
-          const updateResult = await updateTaskByTicketId(
-            update.taskId,
-            { 
-              description: updatedDescription,
-              lastModified: new Date()
-            }
-          );
+          let jiraUpdateSuccess = false;
+          let jiraUpdateError = null;
           
-          console.log("[DEBUG] Task description update result:", {
-            taskId: update.taskId,
-            updateSuccess: updateResult.success,
-            updateType: update.updateType
-          });
+          // Update Jira if this is a Jira ticket (skip MongoDB)
+          if (isJiraTicket(update.taskId)) {
+            try {
+              const jiraUpdateResult = await updateJiraIssue(update.taskId, {
+                description: updatedDescription
+              });
+              
+              jiraUpdateSuccess = jiraUpdateResult.success;
+              
+              if (jiraUpdateResult.success) {
+                logger.info("Jira description updated successfully", {
+                  taskId: update.taskId,
+                  updateType: update.updateType,
+                  descriptionUpdated: jiraUpdateResult.descriptionUpdated
+                });
+              } else {
+                jiraUpdateError = jiraUpdateResult.errors?.join(", ") || "Jira update failed";
+                logger.warn("Jira description update failed", {
+                  taskId: update.taskId,
+                  errors: jiraUpdateResult.errors
+                });
+              }
+            } catch (jiraError) {
+              jiraUpdateError = jiraError.message;
+              logger.error("Error updating Jira description", {
+                taskId: update.taskId,
+                error: jiraError.message
+              });
+            }
+          } else {
+            // Not a Jira ticket, skip update
+            logger.info("Description update for non-Jira ticket (skipped)", {
+              taskId: update.taskId
+            });
+          }
           
           taskUpdateResults.push({
-            success: updateResult.success,
+            success: jiraUpdateSuccess || !isJiraTicket(update.taskId), // Success if Jira updated or not a Jira ticket
             taskId: update.taskId,
             updateType: update.updateType,
-            confidence: update.confidence
+            confidence: update.confidence,
+            jiraUpdated: jiraUpdateSuccess,
+            error: jiraUpdateError
           });
           
-          logger.info("Task description updated", {
+          logger.info("Task description update processed (MongoDB skipped, Jira updated)", {
             taskId: update.taskId,
             updateType: update.updateType,
+            jiraUpdated: jiraUpdateSuccess,
             confidence: update.confidence
           });
         }
