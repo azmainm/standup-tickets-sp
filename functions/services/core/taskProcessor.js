@@ -486,7 +486,6 @@ async function processTranscriptToTasks(transcript, transcriptMetadata = {}, pro
           mongoDocumentId: mongoResult?.documentId,
           transcriptDocumentId: transcriptStorageResult.documentId,
           totalProcessingTime: `${completeDuration.toFixed(2)}s`,
-          jiraProcessingTime: jiraResult?.processingTime || "0s",
           existingTasksContext: existingTasks.length,
           statusChangesDetected: detectedStatusChanges.length,
           statusChangesApplied: statusChangeResults.filter(r => r.success).length
@@ -1219,7 +1218,7 @@ async function processTranscriptToTasksWithPipeline(
         if (update.updateType && update.updateType !== "none" && update.newInformation) {
           // Find the existing task to get current description
           const normalizedUpdateTaskId = normalizeTicketId(update.taskId);
-          const existingTask = existingTasks.find(task => normalizeTicketId(task.ticketId) === normalizedUpdateTaskId);
+          const _existingTask = existingTasks.find(task => normalizeTicketId(task.ticketId) === normalizedUpdateTaskId);
           
           // RAG-enhanced description is the complete updated description (not just new info)
           const updatedDescription = update.newInformation;

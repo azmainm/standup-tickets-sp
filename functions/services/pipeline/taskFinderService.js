@@ -207,7 +207,37 @@ function createTaskFinderSystemPrompt(context) {
 - Focus strictly on clarity and grounded accuracy
 - Do not assume advisory, prioritization, or coaching functions
 
-**Core Purpose**: Detect and surface actionable tasks from meeting transcripts in a way that aligns with Scrum practices. Focus on recognizing explicit work items, structuring them clearly, and ensuring they are both accurate and contextually grounded.`;
+**Core Purpose**: Detect and surface actionable tasks from meeting transcripts in a way that aligns with Scrum practices. Focus on recognizing explicit work items, structuring them clearly, and ensuring they are both accurate and contextually grounded.
+
+**CRITICAL - TICKET ID FORMATS**:
+We use TWO types of ticket IDs to identify existing tasks:
+1. SP-XXX = MongoDB internal ticket IDs (e.g., SP-123, SP-456)
+2. TDS-XXX = Jira issue keys (e.g., TDS-220, TDS-222, TDS-223)
+
+When you see EITHER format mentioned in the transcript, it indicates an EXISTING task that needs an UPDATE.
+Extract the ticket ID exactly as mentioned and classify as UPDATE_TASK.
+
+**CRITICAL - FUZZY MATCHING FOR TRANSCRIPTION ERRORS**:
+Transcription services often mishear "TDS" as phonetically similar words. If you see ANY of these patterns followed by a dash and number, treat them as TDS-XXX tickets:
+
+Common misspellings of "TDS":
+- "tds XXX" or "tds-XXX" → TDS-XXX (e.g., "tds 226" = TDS-226)
+- "teas XXX" or "teas-XXX" → TDS-XXX (e.g., "teas 223" = TDS-223)
+- "tdes XXX" or "tdes-XXX" → TDS-XXX (e.g., "tdes 220" = TDS-220)
+- "tids XXX" or "tids-XXX" → TDS-XXX
+- "tees XXX" or "tees-XXX" → TDS-XXX
+- "tdis XXX" or "tdis-XXX" → TDS-XXX
+- "tads XXX" or "tads-XXX" → TDS-XXX
+
+**FUZZY MATCHING RULES**:
+1. If you see a word that sounds like "TDS" followed by a number, treat it as a TDS ticket
+2. Always normalize to the correct format: TDS-XXX (with dash)
+3. Examples:
+   - "tds 226" → Extract as TDS-226
+   - "teas two twenty three" → Extract as TDS-223
+   - "I worked on tdes 150" → Extract as TDS-150
+
+**CRITICAL**: Always output the CORRECTED ticket ID (TDS-XXX) in the TICKET_ID field, not the misspelled version.`;
 
   let contextualAddition = "";
   if (context.isMultiTranscript) {
@@ -291,16 +321,41 @@ function createTaskFindingPrompt(transcriptText, context, participantsInMeeting 
 Then DO NOT create that task.
 
 **TASK UPDATE PATTERNS** (ticket number explicitly mentioned):
-- Status updates: "SP-XXX is completed", "SP-XXX is in progress"
-- Progress reports: "I'm working on SP-XXX and...", "SP-XXX needs..."
-- Task modifications: "For SP-XXX, we should also add..."
-- Task discussions: "talking about SP-XXX", "regarding SP-XXX", "for SP-XXX"
-- Specific ticket references: Any mention of "SP-" followed by numbers
+IMPORTANT: We use TWO ticket ID formats:
+  1. SP-XXX = MongoDB internal ticket IDs (e.g., SP-123, SP-456)
+  2. TDS-XXX = Jira issue keys (e.g., TDS-220, TDS-222, TDS-223)
+  
+Both formats indicate EXISTING tasks that need updates!
+
+**STANDUP-STYLE REPORTING PATTERNS** (CRITICAL - MOST COMMON):
+- Past tense work reports: "I worked on TDS-XXX", "I finished TDS-XXX", "I completed SP-XXX"
+- Ticket transitions: "The next ticket I worked on was TDS-XXX", "After that I worked on SP-XXX"
+- Contextual references: "that was TDS-226", "this is for SP-123", "the ticket was TDS-XXX"
+- Status completions: "TDS-XXX is complete", "TDS-XXX is done", "SP-XXX is finished"
+- Keeping open: "I'm keeping TDS-XXX open", "keeping that open", "still working on it"
+- Work descriptions: "The ticket I worked on was TDS-XXX which is...", "TDS-XXX which is the..."
+
+**APPLY FUZZY MATCHING**: Remember that transcription errors are common! 
+- "that was tds 226" → TDS-226
+- "I worked on teas 223" → TDS-223  
+- "tdes 150 is complete" → TDS-150
+Always extract these as UPDATE_TASK with the corrected ticket ID.
+
+**OTHER UPDATE PATTERNS**:
+- Explicit update mentions: "task update SP-XXX", "task update TDS-XXX", "update SP-XXX", "update TDS-XXX"
+- Status updates: "SP-XXX is in progress", "TDS-XXX is blocked"
+- Progress reports: "I'm working on SP-XXX and...", "TDS-XXX needs...", "working on TDS-XXX"
+- Task modifications: "For SP-XXX, we should also add...", "For TDS-XXX, change the description"
+- Task discussions: "talking about SP-XXX", "regarding TDS-XXX", "for SP-XXX", "for TDS-XXX"
+- Specific ticket references: Any mention of "SP-" or "TDS-" followed by numbers
 
 **CLASSIFICATION RULE**: 
-- If a ticket number (SP-XXX) is mentioned, it's an UPDATE to existing task
-- If EXPLICIT task creation language is used (without SP-XXX), it's a NEW TASK
+- If a ticket number (SP-XXX or TDS-XXX) is mentioned in ANY context, it's an UPDATE to existing task
+- If someone says "task update SP-XXX" or "task update TDS-XXX", it's DEFINITELY an UPDATE
+- If EXPLICIT task creation language is used (without ticket number), it's a NEW TASK
 - If neither condition is met, DO NOT create any task entry
+
+**CRITICAL**: Even casual mentions like "task update tds 223" or "TDS-223, we're changing X to Y" should be captured as UPDATE_TASK with the full context of what's being changed.
 
 **4. CONTEXT PRESERVATION**:
 - Include WHO mentioned the task
@@ -407,6 +462,7 @@ Scan the ENTIRE transcript for task cancellation patterns:
 **10. CONTEXT GATHERING STRATEGY**:
 - Scan the ENTIRE transcript for ALL mentions of each identified task
 - For SP-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
+- For TDS-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
 - For new tasks: Find the initial mention AND any subsequent elaborations or additions
 - Combine information from multiple speakers if they discuss the same task
 - Include all technical details, requirements, and context mentioned anywhere in the transcript
@@ -436,7 +492,7 @@ TASK: [CLEAN, short task summary - NO prefixes like "NEW_TASK", "Purpose:", "Cre
 ASSIGNEE: [Person assigned or TBD]
 TYPE: [Coding/Non-Coding]
 CATEGORY: [NEW_TASK or UPDATE_TASK]
-TICKET_ID: [SP-XXX if mentioned for updates, or "NONE" for new tasks]
+TICKET_ID: [SP-XXX or TDS-XXX if mentioned for updates, or "NONE" for new tasks]
 ESTIMATED_TIME: [Number in hours - e.g., "3", "16" (2 days), "0" if not mentioned]
 PRIORITY: [Highest/High/Medium/Low/Lowest - extract from transcript context, or leave blank if not mentioned]
 STORY_POINTS: [Number - e.g., "3", "5", "8", or leave blank if not mentioned]
@@ -451,7 +507,52 @@ URGENCY: [Any timeline mentioned]
 4. Examples of GOOD TASK names: "Email notification system", "Mobile expense tracker", "Blue navigation menu"
 5. Examples of BAD TASK names: "NEW_TASK - Email notification system", "Purpose: Implement an email notification", "Create a task for email notifications"
 
+**EXTRACTION EXAMPLES FOR STANDUP-STYLE UPDATES**:
 
+Example 1 - Status Update with Description Change:
+Transcript: "I worked on TDS-223. We're not using MailChimp anymore, we're using Outlook email now. TDS-223 is complete."
+Extract as:
+TASK: Outlook email integration (or extract the original task name if known)
+CATEGORY: UPDATE_TASK
+TICKET_ID: TDS-223
+EVIDENCE: "I worked on TDS-223. We're not using MailChimp anymore, we're using Outlook email now. TDS-223 is complete."
+CONTEXT: Status changed to complete. Description updated to reflect using Outlook email instead of MailChimp.
+
+Example 2 - Work Report with Status:
+Transcript: "So that was TDS-226. I'm keeping that open."
+Extract as:
+TASK: [Extract task name from context or use ticket ID]
+CATEGORY: UPDATE_TASK
+TICKET_ID: TDS-226
+EVIDENCE: "So that was TDS-226. I'm keeping that open."
+CONTEXT: Status update indicating work is ongoing, ticket remains open/in progress.
+
+Example 3 - Multiple Ticket Updates in Standup:
+Transcript: "The next ticket I worked on was TDS-223 which is the email integration. I finished that yesterday."
+Extract as:
+TASK: Email integration
+CATEGORY: UPDATE_TASK
+TICKET_ID: TDS-223
+EVIDENCE: "The next ticket I worked on was TDS-223 which is the email integration. I finished that yesterday."
+CONTEXT: Work completed on email integration task.
+
+Example 4 - TRANSCRIPTION ERROR - Misspelled "TDS" as "tds":
+Transcript: "So that was tds 226. I'm keeping that open."
+Extract as:
+TASK: [Extract task name from context]
+CATEGORY: UPDATE_TASK
+TICKET_ID: TDS-226  ← CORRECTED from "tds 226"
+EVIDENCE: "So that was tds 226. I'm keeping that open."
+CONTEXT: Status update indicating work is ongoing. Note: transcription error "tds" corrected to "TDS".
+
+Example 5 - TRANSCRIPTION ERROR - Misspelled "TDS" as "teas":
+Transcript: "The next ticket I worked on was teas 223 which is the Outlook graph mail. We're not using MailChimp anymore. So tds 223 is complete."
+Extract as:
+TASK: Outlook email integration
+CATEGORY: UPDATE_TASK
+TICKET_ID: TDS-223  ← CORRECTED from "teas 223" and "tds 223"
+EVIDENCE: "The next ticket I worked on was teas 223 which is the Outlook graph mail. We're not using MailChimp anymore. So tds 223 is complete."
+CONTEXT: Status changed to complete. Description: Outlook email integration replacing MailChimp. Note: transcription errors corrected.
 
 **CRITICAL**: Properly classify each item as NEW_TASK or UPDATE_TASK based on whether a ticket number is mentioned.
 

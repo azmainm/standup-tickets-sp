@@ -31,11 +31,22 @@ async function testJiraConnection() {
       return false;
     }
 
+    // Validate JIRA_URL format
+    const trimmedUrl = JIRA_URL.trim();
+    if (!trimmedUrl.startsWith("http://") && !trimmedUrl.startsWith("https://")) {
+      logger.error("Invalid JIRA_URL format - must start with http:// or https://", {
+        providedUrl: JIRA_URL,
+        trimmedUrl: trimmedUrl,
+        suggestion: `https://${trimmedUrl}`,
+      });
+      return false;
+    }
+
     // Create authentication header
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
     
     // Test API connection by getting user info
-    const response = await axios.get(`${JIRA_URL}/rest/api/2/myself`, {
+    const response = await axios.get(`${trimmedUrl}/rest/api/2/myself`, {
       headers: {
         "Authorization": `Basic ${auth}`,
         "Accept": "application/json",
@@ -46,6 +57,7 @@ async function testJiraConnection() {
     logger.info("Jira connection test successful", {
       user: response.data.displayName,
       accountType: response.data.accountType,
+      jiraUrl: trimmedUrl,
     });
     
     return true;
@@ -53,8 +65,10 @@ async function testJiraConnection() {
   } catch (error) {
     logger.error("Jira connection test failed", {
       error: error.message,
+      code: error.code,
       status: error.response?.status,
       statusText: error.response?.statusText,
+      responseData: error.response?.data,
     });
     return false;
   }
@@ -68,9 +82,10 @@ async function testJiraConnection() {
 async function getProjectInfo(projectKey) {
   try {
     const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
+    const trimmedJiraUrl = JIRA_URL.trim();
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
     
-    const response = await axios.get(`${JIRA_URL}/rest/api/2/project/${projectKey}`, {
+    const response = await axios.get(`${trimmedJiraUrl}/rest/api/2/project/${projectKey}`, {
       headers: {
         "Authorization": `Basic ${auth}`,
         "Accept": "application/json",
@@ -97,26 +112,34 @@ async function getProjectInfo(projectKey) {
 }
 
 /**
- * Check if a ticketId is a Jira ticket by matching against JIRA_PROJECT_KEY
- * @param {string} ticketId - The ticket ID to check (e.g., "TRADES-123", "SP-456")
- * @returns {boolean} True if the ticketId is a Jira ticket
+ * Check if a ticketId is a Jira issue key (TDS-XXX format)
+ * Note: SP-XXX are MongoDB ticket IDs, not Jira issue keys
+ * @param {string} ticketId - The ticket ID to check (e.g., "TDS-123")
+ * @returns {boolean} True if the ticketId is a Jira issue key
  */
 function isJiraTicket(ticketId) {
   if (!ticketId) return false;
   
-  const { JIRA_PROJECT_KEY } = process.env || "TRADES";
-  if (!JIRA_PROJECT_KEY) return false;
-  
-  // Check if ticketId starts with the JIRA_PROJECT_KEY (case-insensitive)
+  // Only TDS-XXX format are direct Jira issue keys
   const normalizedTicketId = ticketId.toString().toUpperCase();
-  const normalizedProjectKey = JIRA_PROJECT_KEY.toString().toUpperCase();
+  return normalizedTicketId.startsWith("TDS-");
+}
+
+/**
+ * Check if a ticketId is a MongoDB ticket ID (SP-XXX format)
+ * @param {string} ticketId - The ticket ID to check (e.g., "SP-456")
+ * @returns {boolean} True if the ticketId is a MongoDB ticket ID
+ */
+function isMongoTicket(ticketId) {
+  if (!ticketId) return false;
   
-  return normalizedTicketId.startsWith(normalizedProjectKey + "-");
+  const normalizedTicketId = ticketId.toString().toUpperCase();
+  return normalizedTicketId.startsWith("SP-");
 }
 
 /**
  * Update Jira issue description
- * @param {string} issueKey - The issue key (e.g., "TRADES-123")
+ * @param {string} issueKey - The issue key (e.g., "TDS-123")
  * @param {string} description - The new description (complete replacement)
  * @returns {Promise<boolean>} True if update successful
  */
@@ -129,11 +152,12 @@ async function updateJiraIssueDescription(issueKey, description) {
       return false;
     }
 
+    const trimmedJiraUrl = JIRA_URL.trim();
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
     
     // Update the issue description
     await axios.put(
-      `${JIRA_URL}/rest/api/2/issue/${issueKey}`,
+      `${trimmedJiraUrl}/rest/api/2/issue/${issueKey}`,
       {
         fields: {
           description: description || "",
@@ -179,11 +203,12 @@ async function updateJiraIssueDescription(issueKey, description) {
 async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
   try {
     const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
+    const trimmedJiraUrl = JIRA_URL.trim();
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
     
     // Get current issue status
     const issueResponse = await axios.get(
-      `${JIRA_URL}/rest/api/2/issue/${issueKey}?fields=status`,
+      `${trimmedJiraUrl}/rest/api/2/issue/${issueKey}?fields=status`,
       {
         headers: {
           "Authorization": `Basic ${auth}`,
@@ -197,7 +222,7 @@ async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
     
     // Get available transitions for the issue
     const transitionsResponse = await axios.get(
-      `${JIRA_URL}/rest/api/2/issue/${issueKey}/transitions`,
+      `${trimmedJiraUrl}/rest/api/2/issue/${issueKey}/transitions`,
       {
         headers: {
           "Authorization": `Basic ${auth}`,
@@ -279,7 +304,7 @@ async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
     
     // Execute the transition
     await axios.post(
-      `${JIRA_URL}/rest/api/2/issue/${issueKey}/transitions`,
+      `${trimmedJiraUrl}/rest/api/2/issue/${issueKey}/transitions`,
       {
         transition: {
           id: targetTransition.id,
@@ -339,6 +364,13 @@ async function createJiraIssue(taskData) {
     
     if (!JIRA_URL || !JIRA_EMAIL || !JIRA_API_TOKEN || !JIRA_PROJECT_KEY) {
       throw new Error("Missing required Jira environment variables");
+    }
+
+    // Trim whitespace from JIRA_URL to prevent "Invalid URL" errors
+    const trimmedJiraUrl = JIRA_URL.trim();
+    
+    if (!trimmedJiraUrl.startsWith("http://") && !trimmedJiraUrl.startsWith("https://")) {
+      throw new Error(`Invalid JIRA_URL format: "${JIRA_URL}". Must start with http:// or https://`);
     }
 
     const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
@@ -476,7 +508,7 @@ async function createJiraIssue(taskData) {
     }
 
     // Create the issue
-    const response = await axios.post(`${JIRA_URL}/rest/api/2/issue`, issueData, {
+    const response = await axios.post(`${trimmedJiraUrl}/rest/api/2/issue`, issueData, {
       headers: {
         "Authorization": `Basic ${auth}`,
         "Accept": "application/json",
@@ -527,7 +559,7 @@ async function createJiraIssue(taskData) {
       success: true,
       issueKey: createdIssue.key,
       issueId: createdIssue.id,
-      issueUrl: `${JIRA_URL}/browse/${createdIssue.key}`,
+      issueUrl: `${trimmedJiraUrl}/browse/${createdIssue.key}`,
       title: taskData.title,
       participant: taskData.participant,
       assignee: taskData.assignee,
@@ -809,7 +841,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
 
 /**
  * Update a Jira issue (both status and description)
- * @param {string} issueKey - The issue key (e.g., "TRADES-123")
+ * @param {string} issueKey - The issue key (e.g., "TDS-123")
  * @param {Object} updateData - Update data containing status and/or description
  * @param {string} updateData.status - New status (optional, will be mapped: "In-progress" → "in-progress", "Completed" → "done")
  * @param {string} updateData.description - New description (optional, complete replacement)
@@ -877,6 +909,73 @@ async function updateJiraIssue(issueKey, updateData) {
   }
 }
 
+/**
+ * Search Jira issues by title/summary to find tickets containing a specific ticket ID
+ * @param {string} ticketId - The ticket ID to search for (e.g., "SP-456")
+ * @returns {Promise<Object|null>} Jira issue if found, null otherwise
+ */
+async function findJiraIssueByTitle(ticketId) {
+  try {
+    const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY } = process.env;
+    
+    if (!JIRA_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) {
+      logger.error("Missing Jira credentials for title search");
+      return null;
+    }
+    
+    const trimmedJiraUrl = JIRA_URL.trim();
+    const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString("base64");
+    
+    // Search for issues with the ticket ID in the summary/title
+    // Using JQL to search within the project
+    const projectKey = JIRA_PROJECT_KEY || "TDS";
+    const jql = `project = ${projectKey} AND summary ~ "${ticketId}"`;
+    
+    const response = await axios.get(`${trimmedJiraUrl}/rest/api/2/search`, {
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Accept": "application/json",
+      },
+      params: {
+        jql: jql,
+        maxResults: 1,
+        fields: "summary,status,description,key"
+      },
+      timeout: 10000,
+    });
+    
+    if (response.data.issues && response.data.issues.length > 0) {
+      const issue = response.data.issues[0];
+      logger.info("Found Jira issue by title search", {
+        searchTicketId: ticketId,
+        foundIssueKey: issue.key,
+        issueSummary: issue.fields.summary
+      });
+      return {
+        key: issue.key,
+        summary: issue.fields.summary,
+        status: issue.fields.status.name,
+        description: issue.fields.description
+      };
+    }
+    
+    logger.info("No Jira issue found with ticket ID in title", {
+      ticketId: ticketId,
+      jql: jql
+    });
+    return null;
+    
+  } catch (error) {
+    logger.error("Error searching Jira by title", {
+      ticketId: ticketId,
+      error: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText
+    });
+    return null;
+  }
+}
+
 module.exports = {
   testJiraConnection,
   getProjectInfo,
@@ -884,6 +983,8 @@ module.exports = {
   createJiraIssue,
   createJiraIssuesForCodingTasks,
   isJiraTicket,
+  isMongoTicket,
+  findJiraIssueByTitle,
   updateJiraIssueDescription,
   updateJiraIssue,
 };
