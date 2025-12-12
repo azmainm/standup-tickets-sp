@@ -749,7 +749,7 @@ function generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeRe
       for (const taskType of ["Coding", "Non-Coding"]) {
         if (participantTasks[taskType] && Array.isArray(participantTasks[taskType])) {
           for (const task of participantTasks[taskType]) {
-            const ticketId = mongoResult?.assignedTicketIds?.[ticketIdIndex] || `SP-NEW-${ticketIdIndex}`;
+            const ticketId = mongoResult?.assignedTicketIds?.[ticketIdIndex] || `TDS-${ticketIdIndex}`;
             ticketIdIndex++;
             
             summaryData.participants[participantName].newTasks.push({
@@ -757,6 +757,7 @@ function generatePipelineSummaryData(pipelineResult, mongoResult, statusChangeRe
               title: task.title || task.description,
               description: task.description,
               type: taskType,
+              workType: task.workType || "Task",
               status: task.status || "To-do"
             });
             summaryData.summary.totalNewTasks++;
@@ -935,6 +936,7 @@ async function processTranscriptToTasksWithPipeline(
                 description: task.description,
                 title: task.title,
                 status: task.status || "To-do",
+                workType: task.workType || "Task",
                 estimatedTime: task.estimatedTime || 0,
                 priority: task.priority || null,
                 storyPoints: task.storyPoints || null,
@@ -944,6 +946,7 @@ async function processTranscriptToTasksWithPipeline(
               logger.info("Mapping task for Jira (Coding)", {
                 participant,
                 title: mappedTask.title,
+                workType: mappedTask.workType,
                 priority: mappedTask.priority,
                 estimatedTime: mappedTask.estimatedTime,
                 storyPoints: mappedTask.storyPoints,
@@ -959,6 +962,7 @@ async function processTranscriptToTasksWithPipeline(
                 description: task.description,
                 title: task.title,
                 status: task.status || "To-do",
+                workType: task.workType || "Task",
                 estimatedTime: task.estimatedTime || 0,
                 priority: task.priority || null,
                 storyPoints: task.storyPoints || null,
@@ -968,6 +972,7 @@ async function processTranscriptToTasksWithPipeline(
               logger.info("Mapping task for Jira (Non-Coding)", {
                 participant,
                 title: mappedTask.title,
+                workType: mappedTask.workType,
                 priority: mappedTask.priority,
                 estimatedTime: mappedTask.estimatedTime,
                 storyPoints: mappedTask.storyPoints,

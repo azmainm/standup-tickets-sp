@@ -60,6 +60,11 @@ async function processTranscriptForTasksWithPipeline(transcript, existingTasks =
 
     // STAGE 2: TASK CREATOR - Identify which tasks are genuinely new
     logger.info("📝 Stage 2: Task Creator - Identifying new tasks with RAG");
+    console.log("[DEBUG openaiService] tasksToBeCreated:", taskFinderResult.tasksToBeCreated.map(t => ({
+      description: t.description.substring(0, 50),
+      workType: t.workType,
+      assignee: t.assignee
+    })));
     const taskCreatorResult = await identifyNewTasks(
       foundTasks, 
       existingTasks, 
@@ -1101,8 +1106,10 @@ function convertPipelineResultsToLegacyFormat(newTasks, taskUpdates) {
       title: task.title,
       description: task.description,
       status: "To-do",
+      workType: task.workType || "Task",  // CRITICAL: Preserve workType (Bug or Task)
       estimatedTime: task.estimatedTime || 0,
-      priority: task.priority || null,  // ADD THIS - priority is being lost here!
+      priority: task.priority || null,
+      storyPoints: task.storyPoints || null,
       isFuturePlan: task.isFuturePlan || false,
       taskType: "NEW TASK",
       source: "pipeline_stage_1_2"

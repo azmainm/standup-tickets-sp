@@ -154,9 +154,11 @@ function formatStandupSummary(summaryData, metadata = {}) {
           message += "**New Tasks**\n";
           newTasks.forEach((task, index) => {
             const taskType = task.type === "Coding" ? "Coding" : "Non-Coding";
+            const workType = task.workType || "Task";
             const ticketId = task.ticketId || "SP-??";
             const title = task.title || task.description;
-            message += `${index + 1}. ${ticketId}: ${title} (${taskType})\n`;
+            const emoji = workType === "Bug" ? "🐛 " : "";
+            message += `${index + 1}. ${emoji}${ticketId}: ${title} (${taskType})\n`;
           });
         }
         
