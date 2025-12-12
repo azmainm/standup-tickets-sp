@@ -290,35 +290,103 @@ function createTaskFindingPrompt(transcriptText, context, participantsInMeeting 
   * Capture any clarifications, scope changes, or additional features discussed
   * Combine multiple update mentions into comprehensive update description
 
-**3. WORK ITEM CLASSIFICATION (CRITICAL)**:
+**3. WORK ITEM CLASSIFICATION (CRITICAL - EXTREMELY STRICT)**:
 
-**NEW TASK PATTERNS** (EXPLICIT CREATION INTENT REQUIRED):
-- EXPLICIT task creation: "create a new task", "new task for [assignee]", "add this as a new task"
-- EXPLICIT assignment: "this will be a new task for me/[assignee]", "make this a new task for [person]"
-- EXPLICIT work assignment: "[description] and this will be a new task", "create a task for [person] to [action]"
-- EXPLICIT future plan: "as a future plan", "this is a future plan", "future plan", "future initiative"
+**⚠️ CRITICAL ENFORCEMENT: ONLY CREATE TASKS WITH EXPLICIT LANGUAGE ⚠️**
 
-**CRITICAL RULE**: A task should be created if the participant EXPLICITLY mentions:
-- "new task" / "create a task" / "add a task" / "make a task" / "this will be a task"
-- OR explicitly assigns work with "this will be a task for [person]" / "make this a task for [person]"
-- OR explicitly mentions "as a future plan" / "this is a future plan" / "future plan" / "future initiative"
+**NEW TASK PATTERNS** (MUST USE EXACT PHRASES):
+The participant MUST explicitly say one of these EXACT phrases:
+- "new task for me"
+- "new task for [person's name]"
+- "create a new task for me"
+- "create a new task for [person's name]"
+- "add a new task for me"
+- "add a new task for [person's name]"
+- "make a new task for me"
+- "make a new task for [person's name]"
 
-**DO NOT CREATE TASKS FOR VAGUE STATEMENTS**:
-- General statements: "I need to...", "John should...", "[Name] will..."
-- Problem mentions: "We need to fix...", "There's an issue with..."
-- Casual suggestions: "We should implement...", "Maybe we could..."
-- Vague considerations: "we should consider" (UNLESS followed by "as a future plan")
-- General discussions about work without explicit task creation intent
-- Brainstorming: "what if we...", "it would be nice to...", "eventually we could..."
-- Vague future plans: "down the line", "in the future", "someday we should"
+**FUTURE PLAN/TASK PATTERNS** (MUST USE EXACT PHRASES):
+The participant MUST explicitly say:
+- "future plan"
+- "as a future plan"
+- "this is a future plan"
+- "future task"
+- "as a future task"
 
-**FUTURE PLAN DETECTION**: If someone says "as a future plan" or "this is a future plan", CREATE the task with isFuturePlan=true and assignee="TBD"
+**🚫 ABSOLUTELY DO NOT CREATE TASKS FOR**:
+- ❌ "I need to..." → NO TASK
+- ❌ "I will..." → NO TASK
+- ❌ "I should..." → NO TASK
+- ❌ "[Name] should..." → NO TASK
+- ❌ "[Name] will..." → NO TASK
+- ❌ "We need to..." → NO TASK
+- ❌ "We should..." → NO TASK
+- ❌ "Let's..." → NO TASK
+- ❌ "Maybe we could..." → NO TASK
+- ❌ "We could..." → NO TASK
+- ❌ "I'm going to..." → NO TASK
+- ❌ "I'm planning to..." → NO TASK
+- ❌ "I want to..." → NO TASK
+- ❌ "[Name] needs to..." → NO TASK
+- ❌ "There's an issue with..." → NO TASK
+- ❌ "We need to fix..." → NO TASK
+- ❌ "We should implement..." → NO TASK
+- ❌ "We should consider..." → NO TASK
+- ❌ "What if we..." → NO TASK
+- ❌ "It would be nice to..." → NO TASK
+- ❌ "Eventually we should..." → NO TASK
+- ❌ "In the future..." → NO TASK
+- ❌ "Down the line..." → NO TASK
+- ❌ "Someday we should..." → NO TASK
+- ❌ ANY brainstorming or casual discussion → NO TASK
+- ❌ ANY general work discussion → NO TASK
+- ❌ ANY suggestions or possibilities → NO TASK
+
+**CRITICAL RULE**: 
+IF the exact phrase "new task for [me/person]" is NOT present → DO NOT CREATE A TASK
+IF the exact phrase "future plan" or "future task" is NOT present → DO NOT CREATE A FUTURE TASK
+
+**ONLY EXCEPTION**: If someone says "new task for [person]" without the words exactly in that order but the intent is crystal clear (e.g., "create a new task for John"), you may create the task. But be EXTREMELY conservative.
 
 **TASK CANCELLATION DETECTION**: If someone mentions a potential new task but later in the conversation says:
 - "actually, let's not do that", "never mind", "scratch that", "forget about that"
 - "we decided not to", "on second thought", "let's hold off on that"
 - "maybe later", "not right now", "let's table that"
 Then DO NOT create that task.
+
+**⚠️ STRICT ENFORCEMENT EXAMPLES**:
+
+**EXAMPLE 1 - DO NOT CREATE (Missing "new task" phrase):**
+Transcript: "I need to update the user dashboard this week."
+Action: NO TASK CREATED (just a general statement)
+
+**EXAMPLE 2 - CREATE TASK (Explicit "new task for" phrase):**
+Transcript: "New task for me - update the user dashboard."
+Action: CREATE TASK ✅
+
+**EXAMPLE 3 - DO NOT CREATE (Discussing possible work):**
+Transcript: "We should probably add email notifications to the system."
+Action: NO TASK CREATED (just discussion/suggestion)
+
+**EXAMPLE 4 - CREATE TASK (Explicit "new task for" phrase):**
+Transcript: "Create a new task for Sarah - add email notifications."
+Action: CREATE TASK ✅
+
+**EXAMPLE 5 - DO NOT CREATE (Future discussion without exact phrase):**
+Transcript: "In the future, we could implement a mobile app."
+Action: NO TASK CREATED (vague future discussion)
+
+**EXAMPLE 6 - CREATE FUTURE TASK (Explicit "future plan" phrase):**
+Transcript: "As a future plan - implement a mobile app."
+Action: CREATE TASK with isFuturePlan=true ✅
+
+**EXAMPLE 7 - DO NOT CREATE (Assignment without "new task"):**
+Transcript: "John will work on the API integration next week."
+Action: NO TASK CREATED (just informational)
+
+**EXAMPLE 8 - CREATE TASK (Explicit "new task for" phrase):**
+Transcript: "New task for John - work on the API integration."
+Action: CREATE TASK ✅
 
 **TASK UPDATE PATTERNS** (ticket number explicitly mentioned):
 IMPORTANT: We use TWO ticket ID formats:
@@ -363,26 +431,37 @@ Always extract these as UPDATE_TASK with the corrected ticket ID.
 - Note any dependencies or requirements discussed
 - Preserve timeline information ("by Friday", "next week")
 
-**5. FUTURE PLAN DETECTION** (CREATE TASKS FOR EXPLICIT FUTURE PLANS):
-Look for these patterns that indicate future plans that should become tasks:
-- "as a future plan" / "this is a future plan" / "future plan" 
-- "future initiative" / "this will be a future plan"
-- "add this as a future plan" / "make this a future plan"
+**5. FUTURE PLAN DETECTION** (EXTREMELY STRICT - EXACT PHRASES ONLY):
 
-**ALSO CREATE FUTURE TASKS FOR**:
-- "we should definitely consider" (when they provide specific details)
-- Clear detailed future work that's being planned (not just brainstorming)
+**ONLY CREATE FUTURE TASKS IF EXACT PHRASES ARE USED**:
+- ✅ "future plan"
+- ✅ "as a future plan"
+- ✅ "this is a future plan"
+- ✅ "future task"
+- ✅ "as a future task"
+- ✅ "new future task"
 
-**DO NOT CREATE FUTURE TASKS FOR VAGUE PATTERNS**:
-- "for the future" / "something for later" / "down the line" (VAGUE PLANNING)
-- "future enhancement" / "future consideration" / "on our roadmap" (WISHFUL THINKING)
-- "eventually we'll" / "in the future we should" / "someday" (GENERAL DISCUSSION)
-- Casual "we should consider" without specific details
+**DO NOT CREATE FUTURE TASKS FOR ANYTHING ELSE**:
+- ❌ "for the future" → NO TASK
+- ❌ "something for later" → NO TASK
+- ❌ "down the line" → NO TASK
+- ❌ "in the future" → NO TASK
+- ❌ "future enhancement" → NO TASK
+- ❌ "future consideration" → NO TASK
+- ❌ "on our roadmap" → NO TASK
+- ❌ "eventually we'll" → NO TASK
+- ❌ "someday" → NO TASK
+- ❌ "we should consider" → NO TASK (even with details)
+- ❌ "we should definitely consider" → NO TASK
+- ❌ ANY vague future discussion → NO TASK
+- ❌ ANY brainstorming → NO TASK
 
-When EXPLICIT future plan language found:
+**CRITICAL RULE FOR FUTURE PLANS**:
+IF the participant does NOT say the exact words "future plan" or "future task" → DO NOT CREATE ANY FUTURE TASK
+
+When EXACT future plan phrase is found:
 - Extract the COMPLETE description of what the future plan entails
-- Use conversation context to understand the full scope
-- Assign to "TBD" participant (unless specifically assigned to someone)
+- Assign to "TBD" participant (unless specifically assigned like "new future task for John")
 - Mark as NEW_TASK category
 - Include [IS_FUTURE_PLAN: true] in CONTEXT field
 
@@ -559,7 +638,15 @@ CONTEXT: Status changed to complete. Description: Outlook email integration repl
 **MEETING TRANSCRIPT**:${participantsList}
 ${transcriptText}
 
-**YOUR RESPONSE**: Extract ALL actionable work items with maximum detail and context. Remember to use EXACT participant names from the meeting participant list above when assigning tasks.
+**⚠️ FINAL REMINDER - CRITICAL ENFORCEMENT ⚠️**:
+Before you extract any tasks, remember:
+1. ONLY create tasks if someone says "new task for [me/person]" or "create a new task for [me/person]"
+2. ONLY create future tasks if someone says "future plan" or "future task" (exact phrases)
+3. DO NOT create tasks for: "I need to...", "I will...", "we should...", "let's...", "[name] will...", or ANY general discussion
+4. When in doubt → DO NOT CREATE THE TASK
+5. Be EXTREMELY conservative - it's better to miss a task than create a false one
+
+**YOUR RESPONSE**: Extract ONLY tasks with EXPLICIT task creation language ("new task for..." or "future plan/task"). Remember to use EXACT participant names from the meeting participant list above when assigning tasks.
 
 **AFTER EXTRACTING ALL TASKS**: At the very end of your response, provide a section titled "MEETING ATTENDEES" that lists ONLY the initials of all meeting participants who spoke during this meeting. Extract initials from the participant names found in the transcript timestamps.
 
