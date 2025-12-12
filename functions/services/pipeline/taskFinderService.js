@@ -134,6 +134,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
       description: task.description,
       assignee: task.assignee,
       type: task.type,
+      workType: task.workType || 'Task', // Task or Bug
       evidence: task.evidence,
       context: task.context,
       urgency: task.urgency,
@@ -292,9 +293,19 @@ function createTaskFindingPrompt(transcriptText, context, participantsInMeeting 
 
 **3. WORK ITEM CLASSIFICATION (CRITICAL - EXTREMELY STRICT)**:
 
-**⚠️ CRITICAL ENFORCEMENT: ONLY CREATE TASKS WITH EXPLICIT LANGUAGE ⚠️**
+**⚠️ CRITICAL ENFORCEMENT: ONLY CREATE TASKS/BUGS WITH EXPLICIT LANGUAGE ⚠️**
 
-**NEW TASK PATTERNS** (MUST USE EXACT PHRASES):
+**🐛 NEW BUG PATTERNS** (HIGH PRIORITY - CHECK THESE FIRST):
+If you see ANY of these phrases, CREATE A BUG immediately:
+- "new bug" → CREATE BUG, assign to speaker ✅
+- "new bug for me" → CREATE BUG, assign to speaker ✅
+- "new bug for [person]" → CREATE BUG, assign to that person ✅
+- "create a bug" / "create a new bug" → CREATE BUG, assign to speaker ✅
+- "add a bug" / "add a new bug" → CREATE BUG, assign to speaker ✅
+
+**CRITICAL**: "new bug" by itself (without "for") should CREATE A BUG assigned to the SPEAKER!
+
+**✅ NEW TASK PATTERNS** (MUST USE EXACT PHRASES):
 The participant MUST explicitly say one of these EXACT phrases:
 - "new task for me"
 - "new task for [person's name]"
@@ -304,6 +315,10 @@ The participant MUST explicitly say one of these EXACT phrases:
 - "add a new task for [person's name]"
 - "make a new task for me"
 - "make a new task for [person's name]"
+
+**WORK TYPE DETECTION**:
+- If "new bug" / "create a bug" / "add a bug" → workType = "**Bug**" ⚠️
+- If "new task" / "create a task" → workType = "Task"
 
 **FUTURE PLAN/TASK PATTERNS** (MUST USE EXACT PHRASES):
 The participant MUST explicitly say:
@@ -387,6 +402,22 @@ Action: NO TASK CREATED (just informational)
 **EXAMPLE 8 - CREATE TASK (Explicit "new task for" phrase):**
 Transcript: "New task for John - work on the API integration."
 Action: CREATE TASK ✅
+
+**EXAMPLE 9 - CREATE BUG (Just "new bug", no "for"):**
+Transcript: "John Smith: New bug - login page crashes on mobile devices."
+Action: CREATE BUG ✅ (workType=Bug, assignee=John Smith - the speaker)
+
+**EXAMPLE 10 - CREATE BUG (Explicit "new bug for me"):**
+Transcript: "Sarah: New bug for me - API returns 500 error on user creation."
+Action: CREATE BUG ✅ (workType=Bug, assignee=Sarah)
+
+**EXAMPLE 11 - CREATE BUG (Explicit "new bug for" someone else):**
+Transcript: "Mike: New bug for John - dashboard shows stale data after refresh."
+Action: CREATE BUG ✅ (workType=Bug, assignee=John)
+
+**EXAMPLE 12 - DO NOT CREATE (Bug mention without "new bug"):**
+Transcript: "There's a bug in the login system that needs fixing."
+Action: NO BUG CREATED ❌ (just discussion)
 
 **TASK UPDATE PATTERNS** (ticket number explicitly mentioned):
 IMPORTANT: We use TWO ticket ID formats:
@@ -570,6 +601,7 @@ For each task found, provide EXACTLY this format (DO NOT use bullet points or da
 TASK: [CLEAN, short task summary - NO prefixes like "NEW_TASK", "Purpose:", "Create a task" - just the core deliverable like "Email notification system" or "Mobile expense tracker"]
 ASSIGNEE: [Person assigned or TBD]
 TYPE: [Coding/Non-Coding]
+WORK_TYPE: [Task or Bug - ⚠️ CRITICAL: If "new bug" was said, this MUST be "Bug", otherwise "Task"]
 CATEGORY: [NEW_TASK or UPDATE_TASK]
 TICKET_ID: [SP-XXX or TDS-XXX if mentioned for updates, or "NONE" for new tasks]
 ESTIMATED_TIME: [Number in hours - e.g., "3", "16" (2 days), "0" if not mentioned]
@@ -640,11 +672,12 @@ ${transcriptText}
 
 **⚠️ FINAL REMINDER - CRITICAL ENFORCEMENT ⚠️**:
 Before you extract any tasks, remember:
-1. ONLY create tasks if someone says "new task for [me/person]" or "create a new task for [me/person]"
-2. ONLY create future tasks if someone says "future plan" or "future task" (exact phrases)
-3. DO NOT create tasks for: "I need to...", "I will...", "we should...", "let's...", "[name] will...", or ANY general discussion
-4. When in doubt → DO NOT CREATE THE TASK
-5. Be EXTREMELY conservative - it's better to miss a task than create a false one
+1. 🐛 **BUGS**: If someone says "new bug" (even without "for me") → CREATE BUG with WORK_TYPE: Bug, assign to speaker
+2. ✅ **TASKS**: ONLY create tasks if someone says "new task for [me/person]" or "create a new task for [me/person]"
+3. 🔮 **FUTURE**: ONLY create future tasks if someone says "future plan" or "future task" (exact phrases)
+4. ❌ **DO NOT** create tasks for: "I need to...", "I will...", "we should...", "let's...", "[name] will...", or ANY general discussion
+5. When in doubt about tasks → DO NOT CREATE. But if you see "new bug" → ALWAYS CREATE with WORK_TYPE: Bug
+6. Be conservative with tasks, but ALWAYS create bugs when "new bug" is mentioned
 
 **YOUR RESPONSE**: Extract ONLY tasks with EXPLICIT task creation language ("new task for..." or "future plan/task"). Remember to use EXACT participant names from the meeting participant list above when assigning tasks.
 
@@ -727,6 +760,7 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
         description: taskText,
         assignee: "Unknown",
         type: "Non-Coding",
+        workType: "Task",     // Default to Task (can be Bug)
         category: "NEW_TASK", // Default to new task
         ticketId: "NONE", // Default to no ticket
         evidence: "",
@@ -764,6 +798,11 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
       } else if (trimmed.startsWith('TYPE:') || trimmed.startsWith('  TYPE:')) {
         const type = trimmed.replace(/^\s*TYPE:\s*/, '').trim();
         currentTask.type = type.includes('Coding') ? 'Coding' : 'Non-Coding';
+      } else if (trimmed.startsWith('WORK_TYPE:') || trimmed.startsWith('  WORK_TYPE:')) {
+        const workType = trimmed.replace(/^\s*WORK_TYPE:\s*/, '').trim();
+        const detectedWorkType = workType.includes('Bug') ? 'Bug' : 'Task';
+        currentTask.workType = detectedWorkType;
+        console.log(`[DEBUG] WORK_TYPE detected: "${workType}" -> ${detectedWorkType}`);
       } else if (trimmed.startsWith('CATEGORY:') || trimmed.startsWith('  CATEGORY:')) {
         const category = trimmed.replace(/^\s*CATEGORY:\s*/, '').trim();
         currentTask.category = category.includes('UPDATE_TASK') ? 'UPDATE_TASK' : 'NEW_TASK';
@@ -806,6 +845,7 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
   
   // Save last task if exists
   if (currentTask && currentTask.description) {
+    console.log(`[DEBUG] Pushing task with workType: ${currentTask.workType}, description: ${currentTask.description.substring(0, 50)}`);
     tasks.push(currentTask);
   }
   

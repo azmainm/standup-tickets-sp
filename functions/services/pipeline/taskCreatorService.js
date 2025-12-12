@@ -49,6 +49,12 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
       tasksToProcess: tasksToBeCreated.length,
       existingTasks: existingTasks.length
     });
+    
+    console.log("[DEBUG Task Creator] Received tasksToBeCreated:", tasksToBeCreated.map(t => ({
+      description: t.description?.substring(0, 50),
+      workType: t.workType,
+      assignee: t.assignee
+    })));
 
     const newTasks = [];
     const analysisResults = [];
@@ -77,6 +83,7 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
           description: taskToCreate.description,
           assignee: taskToCreate.assignee,
           type: taskToCreate.type,
+          workType: taskToCreate.workType || 'Task',
           evidence: taskToCreate.evidence,
           context: taskToCreate.context,
           estimatedTime: taskToCreate.estimatedTime || 0
@@ -91,6 +98,7 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
             title: ragResult.title,
             assignee: taskToCreate.assignee,
             type: taskToCreate.type,
+            workType: taskToCreate.workType || 'Task',
             isFuturePlan: taskToCreate.isFuturePlan || false,
             evidence: taskToCreate.evidence,
             context: taskToCreate.context,
@@ -151,6 +159,7 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
             title: cleanTitle || taskToCreate.description.substring(0, 30),
             assignee: taskToCreate.assignee,
             type: taskToCreate.type,
+            workType: taskToCreate.workType || 'Task',
             isFuturePlan: taskToCreate.isFuturePlan || false,
             evidence: taskToCreate.evidence,
             context: taskToCreate.context,
@@ -195,6 +204,7 @@ async function identifyNewTasks(foundTasks, existingTasks, tasksToBeCreated, con
           title: taskToCreate.description.substring(0, 50),
           assignee: taskToCreate.assignee,
           type: taskToCreate.type,
+          workType: taskToCreate.workType || 'Task',
           isFuturePlan: taskToCreate.isFuturePlan || false,
           evidence: taskToCreate.evidence,
           context: taskToCreate.context,

@@ -344,13 +344,14 @@ async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
 }
 
 /**
- * Create a Jira issue for a task (Coding or Non-Coding)
+ * Create a Jira issue for a task (Coding or Non-Coding) or bug
  * @param {Object} taskData - Task data containing title, description, assignee, type, and labels
  * @param {string} taskData.title - Issue title (summary)
  * @param {string} taskData.description - Issue description
  * @param {string} taskData.assignee - Assignee name/email (null/undefined for future tasks)
  * @param {string} taskData.participant - Original participant name from transcript
  * @param {string} taskData.type - Task type: "Coding" or "Non-Coding"
+ * @param {string} taskData.workType - Work type: "Task" or "Bug" (defaults to "Task")
  * @param {boolean} taskData.isFuturePlan - Whether this is a future plan task (no assignee)
  * @param {Array<string>} taskData.labels - Optional labels to add to the issue
  * @param {string} taskData.priority - Priority value (Highest/High/Medium/Low/Lowest), defaults to Medium if not provided
@@ -385,10 +386,17 @@ async function createJiraIssue(taskData) {
     if (taskData.isFuturePlan) {
       labels.push("future-plan");
     }
+    // Add bug label if this is a bug
+    if (taskData.workType === "Bug") {
+      labels.push("bug");
+    }
     // Add any additional labels from taskData
     if (taskData.labels && Array.isArray(taskData.labels)) {
       labels.push(...taskData.labels);
     }
+    
+    // Determine work type (Task or Bug)
+    const workType = taskData.workType === "Bug" ? "Bug" : "Task";
     
     // Prepare the issue data
     const issueData = {
@@ -399,7 +407,7 @@ async function createJiraIssue(taskData) {
         summary: taskData.title,
         description: taskData.description,
         issuetype: {
-          name: "Task", // Default issue type
+          name: workType, // Task or Bug based on workType
         },
       },
     };
@@ -542,6 +550,7 @@ async function createJiraIssue(taskData) {
     logger.info("Jira issue created successfully", {
       issueKey: createdIssue.key,
       issueId: createdIssue.id,
+      workType: workType,
       title: taskData.title,
       participant: taskData.participant,
       assignee: taskData.assignee || "Unassigned",
@@ -648,10 +657,12 @@ async function createJiraIssuesForCodingTasks(tasksData) {
         const priority = typeof task === "object" ? (task.priority || null) : null;
         const estimatedTime = typeof task === "object" ? (task.estimatedTime || 0) : 0;
         const storyPoints = typeof task === "object" ? (task.storyPoints || null) : null;
+        const workType = typeof task === "object" ? (task.workType || "Task") : "Task";
         
         logger.info("Extracting task data for Jira issue creation (Coding)", {
           participant,
           taskIndex: i,
+          workType: workType,
           priority: priority,
           estimatedTimeHours: estimatedTime,
           storyPoints: storyPoints,
@@ -673,6 +684,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
             participant: participant,
             assignee: jiraAssignee,
             type: "Coding",
+            workType: workType,
             isFuturePlan: isFuturePlan,
             priority: priority,
             estimatedTime: estimatedTime,
@@ -721,10 +733,12 @@ async function createJiraIssuesForCodingTasks(tasksData) {
         const priority = typeof task === "object" ? (task.priority || null) : null;
         const estimatedTime = typeof task === "object" ? (task.estimatedTime || 0) : 0;
         const storyPoints = typeof task === "object" ? (task.storyPoints || null) : null;
+        const workType = typeof task === "object" ? (task.workType || "Task") : "Task";
         
         logger.info("Extracting task data for Jira issue creation (Non-Coding)", {
           participant,
           taskIndex: i,
+          workType: workType,
           priority: priority,
           estimatedTimeHours: estimatedTime,
           storyPoints: storyPoints,
@@ -746,6 +760,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
             participant: participant,
             assignee: jiraAssignee,
             type: "Non-Coding",
+            workType: workType,
             isFuturePlan: isFuturePlan,
             priority: priority,
             estimatedTime: estimatedTime,

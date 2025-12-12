@@ -322,11 +322,16 @@ async function storeTasks(tasksData, _metadata = {}) {
           // CRITICAL FIX: If participant is TBD, this is definitely a future plan
           const isFuturePlan = (participantName === "TBD") ? true : Boolean(task.isFuturePlan);
           
+          // Determine work type and add [BUG] prefix if it's a bug
+          const workType = task.workType || "Task";
+          const titleWithPrefix = workType === "Bug" ? `[BUG] ${task.title}` : task.title;
+          
           const taskWithId = {
             ticketId,
-            title: task.title,
+            title: titleWithPrefix,
             description: task.description,
             status: task.status || "To-do",
+            workType: workType,
             estimatedTime: task.estimatedTime || 0,
             isFuturePlan: isFuturePlan
           };
@@ -373,11 +378,16 @@ async function storeTasks(tasksData, _metadata = {}) {
           // CRITICAL FIX: If participant is TBD, this is definitely a future plan
           const isFuturePlan = (participantName === "TBD") ? true : Boolean(task.isFuturePlan);
           
+          // Determine work type and add [BUG] prefix if it's a bug
+          const workType = task.workType || "Task";
+          const titleWithPrefix = workType === "Bug" ? `[BUG] ${task.title}` : task.title;
+          
           const taskWithId = {
             ticketId,
-            title: task.title,
+            title: titleWithPrefix,
             description: task.description,
             status: task.status || "To-do",
+            workType: workType,
             estimatedTime: task.estimatedTime || 0,
             isFuturePlan: isFuturePlan
           };
