@@ -12,7 +12,9 @@
     "test:real-flow": "node tests/testRealFlow.js",
     "test:github-actions": "node scripts/testGithubActionsCron.js",
     "github:cron": "node scripts/githubActionsCron.js",
-    "fetch:yesterday": "node scripts/fetchYesterdayTranscripts.js"
+    "fetch:yesterday": "node scripts/fetchYesterdayTranscripts.js",
+    "test:sprint-parsing": "node scripts/testSprintPlanParsing.js",
+    "create:sprint-tickets": "node scripts/createSprintTickets.js"
   },
   "engines": {
     "node": "18"

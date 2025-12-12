@@ -1,0 +1,605 @@
+Sprint Definition Summary: 12/15/25-12/26/25 
+
+ShapeSprint Goals 
+
+Primary Goals for the Sprint 
+
+Build FECA (Field Estimate Communication Automation) to a stage so that it can be integrated with Superior Fencing as soon as the accesses arrive (or finish end to end if they arrive early). 
+
+Twilio automation in AHA Onboarding Platform and automation make-live. 
+
+Complete the final requirements for Chat with Business (CWB) including GraphRAG integration. 
+
+Improve transcript-task automation with project-based segregation for CWB. 
+
+Main server/API codebase refactor to reduce load and memory usage. 
+
+Notes: 
+
+FECA is top priority – Azmain & Shafkat will be the primary actors. 
+
+Shafkat will assist Faiyaz with GraphRAG integration. 
+
+Faiyaz will primarily focus on CWB & transcript-task automation. 
+
+API refactoring planning will be done by the development team and assignee TBD based on workload. 
+
+As soon as Shafkat has completed the Twilio automation on the onboarding platform, both Shafkat & Azmain will carry out end-to-end tests and make it live. 
+
+For FECA Automation Development Plan, refer to: FECA_HighLevel_DevelopmentPlan 
+
+Shape 
+Owner-by-Owner Task Breakdown 
+
+Azmain Morshed 
+
+Focus: FECA Automation 2 
+ 
+Goal: Scheduling Confirmation 
+
+Task 1: Build Salesforce → FECA Appointment Scheduled Trigger 
+
+What to build: 
+Endpoint to receive webhook from Salesforce Flow when status = “Appointment Scheduled.” 
+Points: 4 
+
+Acceptance criteria: 
+
+Endpoint /events/appointment-scheduled receives POST 
+
+Required fields extracted (appointment date, time, estimator, phone, email) 
+
+Event stored in queue for processing 
+
+Logged in Evidence Log 
+
+Task 2: Fetch Appointment Details + 15-Minute Delay 
+
+What to build: Pull complete appointment data from CRM, then wait 15 minutes before sending confirmation. 
+Points: 4 
+
+Acceptance criteria: 
+
+Salesforce REST call fetches full appointment details 
+
+Delay is always 15 minutes 
+
+After delay → confirmation sending starts 
+
+Evidence Log records data fetch + delay start/end 
+
+Task 3: Confirmation Message Delivery (SMS + Email) 
+
+What to build: Send confirmation through preferred channel, fallback to Email if SMS fails, Task if both fail. 
+Points: 3 
+
+Acceptance criteria: 
+
+Message template populated with date, time, estimator, address, estimator photo 
+
+SMS is primary unless preference = Email 
+
+SMS fail → Email fallback 
+
+Both fail → Salesforce Task created 
+
+CRM fields updated (“Confirmation Sent”, etc.) 
+
+All events logged 
+
+Task 4: Process YES / Reschedule Replies 
+
+What to build: Interpret customer reply and update CRM status. 
+Points: 3 
+
+Acceptance criteria: 
+
+Reply “YES” → Status set to “Appointment Confirmed” 
+
+Any other reply → Status “Reschedule Requested” + raw message stored 
+
+Evidence Log captures reply and CRM update 
+
+ 
+
+Focus 2: FECA Automation 3 
+ 
+Goal: Day-Before Reminder 
+
+Task 1: Daily/Scheduled Appointment Scanner 
+
+What to build: 
+A scheduler that checks Salesforce for appointments occurring 24 hours from now. 
+Points: 4 
+
+Acceptance criteria: 
+
+Runs on a timed interval (5 min / hourly) 
+
+Fetches all next-day appointments 
+
+Skips already-reminded appointments 
+
+Logs scan results to Evidence Log 
+
+Task 2: Fetch Appointment + Customer Details 
+
+What to build: Load relevant info for each appointment needing reminders. 
+
+ 
+
+Points: 3 
+
+Acceptance criteria: 
+
+Pulls customer phone, email, time, estimator, etc. 
+
+Validates necessary fields 
+
+Logs pull success/failure for each appointment 
+
+Task 3: Send Reminder via SMS (then Email fallback) 
+
+What to build: 
+Send reminder SMS with “C to confirm” / “R to reschedule.” 
+Fallback to Email. If both fail → CRM Task. 
+Points: 4 
+
+Acceptance criteria: 
+
+SMS reminder sent with correct time 
+
+SMS failure triggers Email fallback 
+
+Both fail → Task created in CRM 
+
+CRM fields updated (“Reminder Sent”) 
+
+Evidence Log captures everything 
+
+ 
+
+Focus 3: API refactor 
+ 
+Goal: Reduced memory usage in the render instance so costs also decrease 
+
+Task 1: Refactor the server/API to reduce memory usage 
+
+What to Build: Comment out or branch out prompt-tool server code for reduced memory load 
+Points: 3 
+
+Acceptance Criteria: 
+
+30-40% memory reduction 
+
+ 
+
+ 
+
+Focus 4: AHA Onboarding Automation Make-Live 
+ 
+Goal: Ensure onboarding platform works successfully and deploy it 
+
+Task 1: Test the complete automation end to end and deploy 
+Points: 4 
+
+Acceptance Criteria: 
+
+At least 5 consecutive tests with different businesses should pass 
+
+ 
+
+Shafkat Kabir 
+
+Focus 1: FECA Automation 1 
+Goal: First Contact Follow-Up 
+
+Task 1: Build Salesforce → FECA Trigger (Webhook Receiver) 
+
+What to build: 
+Create an endpoint that receives the Salesforce Flow POST when Contact/Lead becomes “Open.” Extract all fields and validate the payload. 
+Points: 4 
+
+Acceptance criteria: 
+
+Endpoint /events/contact-opened accepts POST payload from Salesforce 
+
+Validates required fields (Contact ID, phone, email, name) 
+
+Stores event in internal queue for processing 
+
+Logs receipt in Evidence Log (MongoDB) 
+
+Task 2: Implement Delayed Execution Logic 
+
+What to build: 
+A background scheduler that waits the configured delay (1–2 hours) before sending the first communication. 
+Points: 3 
+
+Acceptance criteria: 
+
+Delay value is configurable per client 
+
+After delay, FECA triggers SMS sending flow 
+
+If appointment/status changes during delay (optional), old job is ignored 
+
+Evidence Log records scheduling + execution timestamps 
+
+Task 3: SMS + Email Sending Flow 
+
+What to build: 
+Send SMS via Twilio, handle delivery callbacks, fallback to Email if SMS fails, and create a Salesforce Task if both fail. 
+Points: 3 
+
+Acceptance criteria: 
+
+SMS sent successfully through Twilio 
+
+Delivery statuses handled correctly (delivered/failed) 
+
+If SMS fails → Email is sent 
+
+If Email fails → Salesforce Task is created 
+
+CRM fields updated (First Contact Sent, Method, etc.) 
+
+Evidence Log records each communication attempt 
+
+ 
+
+Task 4: Customer Reply Handling 
+
+What to build: 
+Processes inbound SMS replies and updates Salesforce accordingly. 
+Points: 4 
+
+Acceptance criteria: 
+
+Twilio inbound SMS webhook is received 
+
+Reply text stored in CRM (Latest Reply field) 
+
+“Preferred Time” and Status (“Contacted”) updated 
+
+Evidence Log records reply and CRM updates 
+
+ 
+
+Focus 2: FECA Automation 4 
+Goal: ETA Notification (“On My Way”) 
+
+Task 1: Build Estimator “On My Way” Trigger 
+
+What to build: 
+A webhook that sends FECA the estimator’s location and appointment ID. The trigger should be the estimator changing status to "On My Way" in Salesforce - not a separate button or app. If that doesn't work for Nick, we have a fallback option where the estimator texts the Twilio number to trigger it. 
+Points: 4 
+
+Acceptance criteria: 
+
+Trigger passes estimator ID, GPS, contact ID 
+
+FECA successfully receives and validates payload 
+
+Evidence Log records trigger event 
+
+Task 2: Calculate ETA via Maps API 
+
+What to build: 
+Use Maps API to calculate estimated arrival time window. 
+Points: 4 
+
+Acceptance criteria: 
+
+Address pulled from CRM 
+
+Maps API returns accurate ETA 
+
+ETA formatted (e.g., 9:55–10:10) 
+
+Logged into Evidence Log 
+
+ 
+
+Task 3: Send “On My Way” Notification (SMS + fallback) 
+
+What to build: 
+The trigger should be the estimator changing status to "On My Way" in Salesforce - not a separate button or app. If that doesn't work for Nick, we have a fallback option where the estimator texts the Twilio number to trigger it.  Send ETA message via SMS within 60 seconds of trigger, fallback to Email, Task if both fail. 
+Points: 3 
+
+Acceptance criteria: 
+
+SMS sent with ETA window 
+
+Delivery failure triggers Email 
+
+Email failure triggers CRM Task 
+
+CRM updated with “ETA Sent” fields 
+
+Evidence Log captures message attempts 
+
+Task 4: Handle Customer Reply (“C” or “T”) 
+
+What to build: 
+Interpret customer arrival-contact preference and update CRM. 
+Points: 3 
+
+Acceptance criteria: 
+
+Reply “C” → CRM field = “Call on arrival” 
+
+Reply “T” → CRM field = “Text on arrival” 
+
+Other replies stored raw + default to “Text” 
+
+Evidence Log records reply and CRM update 
+
+ 
+
+Focus 3: Twilio Automation 
+Goal: Complete twilio automation in onboarding platform so that any business can be onboarded for the voice agent end-to-end without any human intervention 
+
+Task 1: Twilio Number Provisioning API 
+
+What to build: Automated phone number purchasing and webhook configuration in prompt-tool-api backend. 
+Points: 5 
+
+Technical scope: 
+
+Create Twilio service module that searches, purchases, and configures phone numbers 
+
+Auto-configure webhooks to point to ahca-server endpoints 
+
+Integrate with onboarding flow to provision numbers when business submits 
+
+Store phone number and SID in database 
+ 
+
+Which codebase: prompt-tool-api/src/twilio/ (new module) 
+
+Acceptance criteria: 
+
+Automatically searches and purchases Twilio numbers in business area code 
+
+Configures voice webhook URL pointing to ahca-server /twilio/voice 
+
+Configures WebSocket Media Stream URL pointing to /twilio-media 
+
+Stores phone number details in database 
+
+Handles errors (insufficient balance, no available numbers) 
+
+Can release numbers when business is deleted 
+
+Task 2: Config File Sync & Phone Mapping 
+
+What to build: Automatic generation and sync of ahca-server configuration files when business onboards. 
+Points: 3 
+
+Technical scope: 
+
+Generate config.json and prompt_rules.json for new business 
+
+Update businesses.json phone-to-business mapping 
+
+Sync files to ahca-server (either filesystem or API) 
+
+Trigger ahca-server config reload 
+ 
+
+Which codebase: prompt-tool-api/src/integrations/ → writes to ahca-server/configs/ 
+
+Acceptance criteria: 
+
+Creates business directory: ahca-server/configs/businesses/{businessId}/ 
+
+Generates valid config.json with database settings, email config, company info 
+
+Generates prompt_rules.json with AI agent personality and conversation flow 
+
+Updates businesses.json with new phone number mapping 
+
+Reloads ahca-server BusinessConfigService after changes 
+
+Rollback capability if any step fails 
+
+ 
+
+Focus 4: GraphRAG Assistance 
+Goal: Support Faiyaz with GraphRAG integration in CWB 
+
+Task 1: Refactor the server/api to reduce memory usage 
+
+What to Build: GraphRAG Integration in Chat with Business for better retrieval 
+Points: 3 
+
+Acceptance Criteria: 
+
+Integration Completion and successful test 
+
+ 
+
+Faiyaz Rahman 
+
+Focus 1: Chat with Business 
+Goal: Complete the development of chat with business 
+
+ 
+
+Task 1: HubSpot OAuth & Module Scaffold  
+What to Build: dedicated HubSpotModule in NestJS that handles the OAuth2 handshake. This includes generating the authorization URL, exchanging the code for access/refresh tokens, and securely storing them in the existing database. 
+Points: 3 
+
+Acceptance Criteria: 
+
+GET /hubspot/auth-url returns a valid HubSpot OAuth link. 
+
+GET /hubspot/callback accepts the code and retrieves tokens. 
+
+Tokens are encrypted and stored in the user's document in MongoDB (or PostgreSQL). 
+
+Auto-refresh logic is implemented (interceptors or scheduled checks). 
+
+ 
+
+Task 2: Graph Database Setup & Schema Definition 
+What to Build: Provision the Graph Database (e.g., Neo4j Aura or Memgraph Docker) and define the TypeScript interfaces/schema for the nodes and relationships.  
+Points: 3 
+
+Acceptance Criteria: 
+
+Graph DB connection is established via neo4j-driver (or similar). 
+
+graph-schema.ts is created defining Node types: Contact, Company, Deal, Ticket. 
+
+Relationship types are defined: WORKS_AT, ASSOCIATED_WITH, OWNED_BY. 
+
+Vector Index is created on the Graph DB for Contact and Deal text properties. 
+
+ 
+
+Task 3: HubSpot Data Fetching Service  
+What to Build: A service wrapper around the HubSpot SDK to fetch data in batches. It must handle rate limits and pagination for Contacts, Companies, and Deals. 
+Points: 3 
+
+Acceptance Criteria: 
+
+Service can fetch all Contacts with properties (firstname, lastname, email, job title). 
+
+Service can fetch Companies and Deals. 
+
+Service implements "Backoff and Retry" for API rate limits. 
+
+Returns clean DTOs ready for graph ingestion. 
+
+ 
+
+Task 4: Graph Ingestion Service (Nodes + Embeddings)  
+What to Build: The core pipeline that takes HubSpot DTOs, generates vector embeddings for them (using OpenAI/Cohere), and writes them as Nodes in the Graph DB.  
+Points: 3 
+
+Acceptance Criteria: 
+
+HubSpotContact nodes are created with an embedding property. 
+
+HubSpotDeal nodes are created with an embedding property (based on Deal Name + Description). 
+
+Ingestion is idempotent (running it twice updates existing nodes rather than creating duplicates).  
+
+ 
+
+Task 5: Relationship Linking Pipeline 
+What to Build: The logic to traverse the fetched HubSpot data associations and create the "Edges" (relationships) between the nodes 
+Points: 3 
+
+Acceptance Criteria: 
+
+Companies are linked to Contacts via [:WORKS_AT].GET /hubspot/callback accepts the code and retrieves tokens. 
+
+Deals are linked to Companies/Contacts via [:ASSOCIATED_WITH]. 
+
+Orphan nodes (nodes with no links) are logged for review. 
+
+Running the pipeline results in a connected graph, not just isolated nodes. 
+
+ 
+
+Task 6: Graph Hybrid Search Service  
+What to Build: A service capable of performing "Hybrid Search." It must first use Vector Similarity to find an entry node, then use Cypher (graph query language) to traverse to related nodes.  
+Points: 3 
+
+Acceptance Criteria: 
+
+Function findRelatedEntities(query: string) is implemented.  
+Step 1: Performs vector search to find the most relevant node (e.g., "Acme Corp"). Step 2: Returns the node's immediate neighbors (e.g., "Acme Corp" + its 3 active Deals).  
+Returns a structured JSON response of the subgraph. 
+
+ 
+
+Task 7: Entity Extraction Service  
+What to Build: A lightweight LLM chain to parse user prompts and extract specific entities to guide the graph search.  
+Points: 3 
+
+Acceptance Criteria: 
+
+Input: "How is the deal with Alice going?" -> Output: { entity: "Alice", type: "Person" }.  
+Input: "Show tickets for Tesla." -> Output: { entity: "Tesla", type: "Company" }.  
+Uses structured output (JSON mode) to ensure reliability. 
+
+ 
+
+Task 8: Unified RAG & Discord Command Integration  
+What to Build: Update the main UnifiedRAGService to include the Graph Service as a data source. Update the System Prompt to understand how to read Graph data.  
+Points: 3 
+
+Acceptance Criteria: 
+
+Discord bot accepts queries like "What is the status of the Google deal?". 
+
+The SystemPrompt receives context formatted as: "Entity: Google (Company). Related Deals: Deal A ($1M), Deal B ($500k)." 
+
+The bot generates a natural language response referencing the relationships. 
+
+ 
+
+Task 9: Testing & Optimization 
+What to Build: Integration tests for the full flow and performance indices on the Graph DB. 
+Points: 3 
+
+Acceptance Criteria: 
+
+Graph DB indices are created on email, dealId, and name properties. 
+
+Test case passes: "Who is working on the deal related to [Ticket ID]?" (Multi-hop query).  
+
+Latency for graph queries is under 2 seconds. 
+
+ 
+
+Focus 2: Transcript-Task Automation 
+Goal: Improvement in the transcript-task automation system for improved performance in CWB 
+
+Task 1: Implement Logical Project–Sprint Mapping, Persist Metadata in MongoDB & Integrate with "Standup Tickets" Automation Service 
+What to Build: Build a unified logic layer that determines a task’s Logical Project and Sprint based on Jira’s hierarchy (Issue → Sprint → Board), and then update the MongoDB Task schema to store that metadata. Integrate with "Standup Tickets" Automation Service 
+Points: 3 
+
+Acceptance Criteria: 
+
+Logic validates: Issue → belongs to Sprint → belongs to Board. Documentation created: "Mapping Jira Boards to Internal Projects." 
+
+Update Schema to include:  
+logicalProjectName: (Derived from Board Name or Epic).  
+sprintId: (Jira Sprint ID).  
+sprintName: (e.g., "Sprint 24").  
+sprintState: (active, future, closed). 
+
+identifies projects keys correctly. 
+
+Task 2: Integrate into CWB  
+
+What to Build: Enhance the "Chat With Business" (RAG) engine to understand Project and Sprint context. This allows users to ask natural language questions with filters.  
+Points: 3 
+
+Acceptance Criteria: 
+
+Intent Recognition: The bot recognizes phrases like "current sprint", "last sprint", or specific board names.  
+
+Query Filtering:  
+User: "What is Alice working on in the Backend project?"  
+System: Filters MongoDB for assignee: Alice + logicalProjectName: Backend Board. 
+
+Response Generation: The LLM response includes context about the sprint timeline (e.g., "Alice is working on Ticket X in Sprint 4, which ends in 2 days"). 
+
+ 
+Points Rubric: 
+
+1 = straightforward, clear path 
+
+2 = some complexity but well-understood 
+
+3 = moderate complexity or some unknowns 
+
+4 = complex, multiple pieces, or unclear areas 
+
+5 = very complex, significant unknown 
