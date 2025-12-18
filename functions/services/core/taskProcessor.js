@@ -940,6 +940,7 @@ async function processTranscriptToTasksWithPipeline(
                 estimatedTime: task.estimatedTime || 0,
                 priority: task.priority || null,
                 storyPoints: task.storyPoints || null,
+                projectCode: task.projectCode || null,
                 isFuturePlan: Boolean(task.isFuturePlan)
               };
               
@@ -950,9 +951,11 @@ async function processTranscriptToTasksWithPipeline(
                 priority: mappedTask.priority,
                 estimatedTime: mappedTask.estimatedTime,
                 storyPoints: mappedTask.storyPoints,
+                projectCode: mappedTask.projectCode,
                 hasPriority: task.priority !== undefined && task.priority !== null,
                 hasEstimatedTime: task.estimatedTime !== undefined && task.estimatedTime !== null && task.estimatedTime > 0,
                 hasStoryPoints: task.storyPoints !== undefined && task.storyPoints !== null && task.storyPoints > 0,
+                hasProjectCode: task.projectCode !== undefined && task.projectCode !== null,
               });
               
               return mappedTask;
@@ -966,6 +969,7 @@ async function processTranscriptToTasksWithPipeline(
                 estimatedTime: task.estimatedTime || 0,
                 priority: task.priority || null,
                 storyPoints: task.storyPoints || null,
+                projectCode: task.projectCode || null,
                 isFuturePlan: Boolean(task.isFuturePlan)
               };
               
@@ -976,9 +980,11 @@ async function processTranscriptToTasksWithPipeline(
                 priority: mappedTask.priority,
                 estimatedTime: mappedTask.estimatedTime,
                 storyPoints: mappedTask.storyPoints,
+                projectCode: mappedTask.projectCode,
                 hasPriority: task.priority !== undefined && task.priority !== null,
                 hasEstimatedTime: task.estimatedTime !== undefined && task.estimatedTime !== null && task.estimatedTime > 0,
                 hasStoryPoints: task.storyPoints !== undefined && task.storyPoints !== null && task.storyPoints > 0,
+                hasProjectCode: task.projectCode !== undefined && task.projectCode !== null,
               });
               
               return mappedTask;

@@ -357,6 +357,7 @@ async function transitionIssueToStatus(issueKey, targetStatusName = "To Do") {
  * @param {string} taskData.priority - Priority value (Highest/High/Medium/Low/Lowest), defaults to Medium if not provided
  * @param {number} taskData.estimatedTime - Estimated time in hours, will be converted to seconds for Jira
  * @param {number} taskData.storyPoints - Optional story points value, only added if provided and > 0
+ * @param {string} taskData.projectCode - Optional project code (e.g., "PROJ", "ABC"), will be added as a label if provided
  * @returns {Promise<Object>} Jira issue creation result
  */
 async function createJiraIssue(taskData) {
@@ -389,6 +390,25 @@ async function createJiraIssue(taskData) {
     // Add bug label if this is a bug
     if (taskData.workType === "Bug") {
       labels.push("bug");
+    }
+    // Add project code as label if provided
+    if (taskData.projectCode) {
+      // Normalize project code: uppercase, trim whitespace
+      const normalizedProjectCode = String(taskData.projectCode).toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+      if (normalizedProjectCode.length >= 2 && normalizedProjectCode.length <= 10) {
+        labels.push(normalizedProjectCode);
+        logger.info("Added project code as label", {
+          projectCode: normalizedProjectCode,
+          participant: taskData.participant,
+          title: taskData.title,
+        });
+      } else {
+        logger.warn("Invalid project code format, skipping label", {
+          projectCode: taskData.projectCode,
+          normalized: normalizedProjectCode,
+          participant: taskData.participant,
+        });
+      }
     }
     // Add any additional labels from taskData
     if (taskData.labels && Array.isArray(taskData.labels)) {
@@ -560,6 +580,7 @@ async function createJiraIssue(taskData) {
       estimatedTimeHours: estimatedTimeHours,
       estimatedTimeSeconds: estimatedTimeHours > 0 ? Math.round(estimatedTimeHours * 3600) : 0,
       storyPoints: storyPoints || null,
+      projectCode: taskData.projectCode || null,
       labels: labels,
       transitionedToBoard: transitioned,
     });
@@ -577,6 +598,7 @@ async function createJiraIssue(taskData) {
       priority: priority,
       estimatedTimeHours: estimatedTimeHours,
       storyPoints: storyPoints || null,
+      projectCode: taskData.projectCode || null,
       labels: labels,
       transitionedToBoard: transitioned,
     };
@@ -657,6 +679,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
         const priority = typeof task === "object" ? (task.priority || null) : null;
         const estimatedTime = typeof task === "object" ? (task.estimatedTime || 0) : 0;
         const storyPoints = typeof task === "object" ? (task.storyPoints || null) : null;
+        const projectCode = typeof task === "object" ? (task.projectCode || null) : null;
         const workType = typeof task === "object" ? (task.workType || "Task") : "Task";
         
         logger.info("Extracting task data for Jira issue creation (Coding)", {
@@ -666,6 +689,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
           priority: priority,
           estimatedTimeHours: estimatedTime,
           storyPoints: storyPoints,
+          projectCode: projectCode,
           hasTitle: typeof task === "object" && !!task.title,
           taskKeys: typeof task === "object" ? Object.keys(task) : "string task",
         });
@@ -689,6 +713,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
             priority: priority,
             estimatedTime: estimatedTime,
             storyPoints: storyPoints,
+            projectCode: projectCode,
           });
 
           if (issueResult.success) {
@@ -733,6 +758,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
         const priority = typeof task === "object" ? (task.priority || null) : null;
         const estimatedTime = typeof task === "object" ? (task.estimatedTime || 0) : 0;
         const storyPoints = typeof task === "object" ? (task.storyPoints || null) : null;
+        const projectCode = typeof task === "object" ? (task.projectCode || null) : null;
         const workType = typeof task === "object" ? (task.workType || "Task") : "Task";
         
         logger.info("Extracting task data for Jira issue creation (Non-Coding)", {
@@ -742,10 +768,11 @@ async function createJiraIssuesForCodingTasks(tasksData) {
           priority: priority,
           estimatedTimeHours: estimatedTime,
           storyPoints: storyPoints,
+          projectCode: projectCode,
           hasTitle: typeof task === "object" && !!task.title,
           taskKeys: typeof task === "object" ? Object.keys(task) : "string task",
         });
-        
+
         try {
           // Use existing title if available (from pipeline), otherwise generate fallback
           const taskTitle = task.title || taskDescription.substring(0, 50).replace(/[^\w\s]/g, "").trim() || "Untitled Task";
@@ -765,6 +792,7 @@ async function createJiraIssuesForCodingTasks(tasksData) {
             priority: priority,
             estimatedTime: estimatedTime,
             storyPoints: storyPoints,
+            projectCode: projectCode,
           });
 
           if (issueResult.success) {
