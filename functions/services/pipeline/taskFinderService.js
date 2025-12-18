@@ -141,6 +141,7 @@ async function findTasksFromTranscript(transcript, context = {}) {
       priority: task.priority,
       estimatedTime: task.estimatedTime || 0,
       storyPoints: task.storyPoints || null,
+      projectCode: task.projectCode || null,
       isFuturePlan: task.isFuturePlan
     }));
 
@@ -562,14 +563,32 @@ When EXACT future plan phrase is found:
 - Be conservative - only extract when clearly indicated
 - Do not infer story points from estimated time or other metrics
 
-**9. TASK CANCELLATION DETECTION**:
+**9. PROJECT CODE EXTRACTION**:
+
+**PROJECT CODE PATTERNS** - Look for these patterns to extract project codes:
+- "for project PROJ", "PROJ project", "PROJ code"
+- "project PROJ", "PROJ task", "PROJ work"
+- Standalone project codes mentioned near task descriptions (typically 2-5 uppercase letters)
+- Project codes in task context or evidence sections
+- Examples: "PROJ", "ABC", "XYZ", "TDS", "SP"
+
+**PROJECT CODE EXTRACTION RULES**:
+- Extract project code from the same transcript context where the task is mentioned
+- Project codes are typically simple format (2-5 uppercase letters, e.g., "PROJ", "ABC", "XYZ")
+- Look for project codes mentioned in relation to each specific task
+- If a project code is mentioned in the task's evidence or context, extract it
+- If no project code is mentioned for a task, leave PROJECT_CODE field blank
+- Be conservative - only extract when clearly mentioned in relation to the task
+- Normalize to uppercase and remove whitespace
+
+**10. TASK CANCELLATION DETECTION**:
 Scan the ENTIRE transcript for task cancellation patterns:
 - If someone mentions a potential task early in the conversation
 - But later says cancellation phrases like: "actually, let's not", "never mind", "scratch that", "forget about that", "we decided not to", "on second thought", "let's hold off", "maybe later", "not right now", "let's table that"
 - Then DO NOT include that task in the final output
 - Always check the full conversation context before finalizing any task
 
-**10. CONTEXT GATHERING STRATEGY**:
+**11. CONTEXT GATHERING STRATEGY**:
 - Scan the ENTIRE transcript for ALL mentions of each identified task
 - For SP-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
 - For TDS-XXX tickets: Find EVERY mention of that ticket number throughout the meeting
@@ -578,7 +597,7 @@ Scan the ENTIRE transcript for task cancellation patterns:
 - Include all technical details, requirements, and context mentioned anywhere in the transcript
 - Capture task evolution - how requirements or scope might change during discussion
 
-**11. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
+**12. ASSIGNEE DETECTION WITH PARTICIPANT MATCHING**:
 - "for me" / "my task" / "I will" = assign to speaker
 - "for [Name]" / "[Name] will" / "[Name] should" = assign to that person
 - "task for [Name] who isn't here" = assign to that person (not TBD)
@@ -607,6 +626,7 @@ TICKET_ID: [SP-XXX or TDS-XXX if mentioned for updates, or "NONE" for new tasks]
 ESTIMATED_TIME: [Number in hours - e.g., "3", "16" (2 days), "0" if not mentioned]
 PRIORITY: [Highest/High/Medium/Low/Lowest - extract from transcript context, or leave blank if not mentioned]
 STORY_POINTS: [Number - e.g., "3", "5", "8", or leave blank if not mentioned]
+PROJECT_CODE: [Project code mentioned in relation to this task - e.g., "PROJ", "ABC", "XYZ", or leave blank if not mentioned]
 EVIDENCE: [ALL specific quotes from transcript related to this task - include quotes from every mention throughout the meeting]
 CONTEXT: [Comprehensive context combining ALL discussions about this task - include initial mention, elaborations, technical details, and any additional requirements. Include [IS_FUTURE_PLAN: true] if this is a future plan]
 URGENCY: [Any timeline mentioned]
@@ -769,6 +789,7 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
         estimatedTime: 0,     // Default to 0 hours
         priority: null,       // Default to null (will default to Medium in Jira)
         storyPoints: null,    // Default to null (only add to Jira if mentioned)
+        projectCode: null,    // Default to null (only add to Jira if mentioned)
         isFuturePlan: false, // Default to not a future plan
         source: "task_finder",
         stage: 1
@@ -837,6 +858,16 @@ function parseTaskFinderResponse(response, participantsInMeeting = []) {
           const storyPoints = parseInt(storyPointsStr, 10);
           if (!isNaN(storyPoints) && storyPoints > 0) {
             currentTask.storyPoints = storyPoints;
+          }
+        }
+      } else if (trimmed.startsWith('PROJECT_CODE:') || trimmed.startsWith('  PROJECT_CODE:')) {
+        const projectCodeStr = trimmed.replace(/^\s*PROJECT_CODE:\s*/, '').trim();
+        // Normalize project code: uppercase, trim whitespace, remove special characters
+        if (projectCodeStr && projectCodeStr.length > 0 && projectCodeStr !== 'NONE' && projectCodeStr.toLowerCase() !== 'none') {
+          const normalizedCode = projectCodeStr.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+          // Only set if it's a valid project code (2-10 alphanumeric characters)
+          if (normalizedCode.length >= 2 && normalizedCode.length <= 10) {
+            currentTask.projectCode = normalizedCode;
           }
         }
       }

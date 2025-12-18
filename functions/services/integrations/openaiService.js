@@ -1110,6 +1110,7 @@ function convertPipelineResultsToLegacyFormat(newTasks, taskUpdates) {
       estimatedTime: task.estimatedTime || 0,
       priority: task.priority || null,
       storyPoints: task.storyPoints || null,
+      projectCode: task.projectCode || null,  // Preserve projectCode from Task Finder
       isFuturePlan: task.isFuturePlan || false,
       taskType: "NEW TASK",
       source: "pipeline_stage_1_2"
